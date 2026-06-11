@@ -1,0 +1,137 @@
+# NeoRay 配置文件
+# 默认在 ~/.neoray/config.toml
+
+[app]
+name = "neoray"
+version = "0.1.0"
+env = "development"
+
+[server]
+host = "127.0.0.1"
+port = 8080
+read_timeout = "60s"
+write_timeout = "60s"
+idle_timeout = "120s"
+
+[server.cors]
+enabled = true
+allowed_origins = [
+  "http://localhost:*",
+  "http://127.0.0.1:*"
+]
+allowed_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+allowed_headers = ["*"]
+allow_credentials = true
+
+[logger]
+level = "info"
+format = "json"
+output = ["stdout", "file"]
+
+[logger.file]
+path = "logs/neoray.log"
+max_size = 100
+max_backups = 3
+max_age = 28
+compress = true
+
+[database]
+driver = "sqlite"
+
+[database.sqlite]
+path = "data/neoray.db"
+
+[llm]
+default_provider = "anthropic"
+
+[llm.anthropic]
+api_key = ""
+api_url = "https://api.anthropic.com"
+model = "claude-3-sonnet-20240229"
+max_tokens = 4096
+temperature = 0.7
+timeout = "120s"
+
+[llm.openai]
+api_key = ""
+api_url = "https://api.openai.com/v1"
+model = "gpt-4"
+max_tokens = 4096
+temperature = 0.7
+timeout = "120s"
+
+[session.storage]
+type = "sqlite"
+max_sessions = 1000
+max_messages_per_session = 10000
+
+[session.context]
+max_tokens = 128000
+compression_strategy = "truncate"
+auto_summarize = true
+summarize_threshold = 0.8
+
+[tools.workspace]
+enabled = true
+allowed_paths = ["workspace"]
+read_only = false
+
+[tools.filesystem]
+enabled = true
+max_file_size = 10485760
+allowed_extensions = [".*"]
+blocked_extensions = [".exe", ".dll", ".so", ".dylib"]
+
+[tools.shell]
+enabled = true
+timeout = "30s"
+allowed_commands = ["ls", "cat", "grep", "git", "python", "node"]
+blocked_commands = ["rm -rf", "mkfs", ":(){ :|:& };"]
+working_dir = "workspace"
+
+[tools.web]
+enabled = true
+timeout = "30s"
+max_content_length = 10485760
+blocked_domains = ["internal.example.com"]
+
+[tools.cron]
+enabled = true
+max_jobs = 100
+
+[channels.websocket]
+enabled = true
+path = "/ws"
+ping_interval = "30s"
+write_wait = "10s"
+pong_wait = "60s"
+max_message_size = 4194304
+
+[channels.feishu]
+enabled = false
+app_id = ""
+app_secret = ""
+verification_token = ""
+encrypt_key = ""
+webhook_path = "/webhook/feishu"
+
+[security.auth]
+enabled = false
+secret_key = "your-secret-key-change-in-production"
+jwt_expiry = "24h"
+
+[security.rate_limit]
+enabled = true
+requests_per_minute = 60
+burst = 100
+
+[security.upload]
+enabled = true
+max_size = 10485760
+allowed_types = ["text/*", "image/*", "application/json"]
+temp_dir = "tmp/uploads"
+
+[web]
+enabled = false
+static_dir = "../neorayui/dist"
+index_path = "../neorayui/dist/index.html"

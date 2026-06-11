@@ -1,0 +1,30 @@
+# 用户数据
+.neoray/
+neobot/
+
+# 配置 (本地覆盖)
+config/config.local.toml
+config/config.prod.toml
+
+# Go
+neoray/server
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 其他
+*.db
+*.log
+.DS_Store
