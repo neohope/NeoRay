@@ -12,6 +12,7 @@ import (
 	"neoray/internal/logger"
 	"neoray/internal/provider"
 	"neoray/internal/session"
+	"neoray/internal/tools"
 	"neoray/internal/tui"
 )
 
@@ -42,6 +43,29 @@ func main() {
 		logger.String("home_dir", cfg.HomeDir),
 	)
 
+	// 初始化工具注册表
+	toolRegistry := tools.NewRegistry()
+	if cfg.Tools.Workspace.Enabled {
+		toolRegistry.Register(tools.NewFileSystemTool(cfg))
+		logger.Info("Filesystem tool registered")
+	}
+	if cfg.Tools.Shell.Enabled {
+		toolRegistry.Register(tools.NewShellTool(cfg))
+		logger.Info("Shell tool registered")
+	}
+	// 注册新工具
+	toolRegistry.Register(tools.NewFindFilesTool())
+	logger.Info("FindFiles tool registered")
+	toolRegistry.Register(tools.NewGrepTool())
+	logger.Info("Grep tool registered")
+	toolRegistry.Register(tools.NewApplyPatchTool())
+	logger.Info("ApplyPatch tool registered")
+	toolRegistry.Register(tools.NewWebSearchTool())
+	logger.Info("WebSearch tool registered")
+	toolRegistry.Register(tools.NewWebFetchTool())
+	logger.Info("WebFetch tool registered")
+	logger.Info("Tool registry initialized", logger.Int("tool_count", len(toolRegistry.List())))
+
 	// 初始化会话存储和管理器
 	sessionStore := session.NewMemoryStore()
 	sessionMgr := session.NewManager(cfg, sessionStore)
@@ -50,7 +74,7 @@ func main() {
 	providerMgr := initProviders(cfg)
 
 	// 初始化 Agent
-	aiAgent := agent.NewAgent(cfg, providerMgr, sessionMgr)
+	aiAgent := agent.NewAgent(cfg, providerMgr, sessionMgr, toolRegistry)
 
 	if *noTUI {
 		logger.Infof("Server listening on %s:%d", cfg.Server.Host, cfg.Server.Port)

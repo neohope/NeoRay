@@ -87,6 +87,17 @@ func NewSystemMessage(content string) Message {
 	}
 }
 
+// NewToolMessage 创建工具消息
+func NewToolMessage(content string) Message {
+	return Message{
+		ID:        generateID(),
+		Role:      "tool",
+		Content:   content,
+		Timestamp: time.Now(),
+		Metadata:  make(map[string]any),
+	}
+}
+
 // AddMessage 添加消息
 func (s *Session) AddMessage(msg Message) {
 	s.Messages = append(s.Messages, msg)
