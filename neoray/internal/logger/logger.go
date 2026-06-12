@@ -176,6 +176,14 @@ func ErrorField(err error) zap.Field {
 	return zap.Error(err)
 }
 
+// Duration 创建 duration 字段
+func Duration(key string, value interface{}) zap.Field {
+	if dur, ok := value.(interface{ String() string }); ok {
+		return zap.String(key, dur.String())
+	}
+	return zap.Any(key, value)
+}
+
 // Debugf 格式化日志
 func Debugf(template string, args ...any) {
 	Sugar().Debugf(template, args...)

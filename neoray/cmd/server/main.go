@@ -66,8 +66,16 @@ func main() {
 	logger.Info("WebFetch tool registered")
 	logger.Info("Tool registry initialized", logger.Int("tool_count", len(toolRegistry.List())))
 
-	// 初始化会话存储和管理器
-	sessionStore := session.NewMemoryStore()
+	// 初始化会话存储和管理器（使用文件存储）
+	sessionDir := cfg.ResolvePath("sessions")
+	var sessionStore session.Store
+	fileStore, err := session.NewFileStore(sessionDir)
+	if err != nil {
+		logger.Warn("Failed to create file store, falling back to memory store", logger.ErrorField(err))
+		sessionStore = session.NewMemoryStore()
+	} else {
+		sessionStore = fileStore
+	}
 	sessionMgr := session.NewManager(cfg, sessionStore)
 
 	// 初始化 LLM 提供商
