@@ -85,8 +85,18 @@ func main() {
 	// 初始化 LLM 提供商
 	providerMgr := initProviders(cfg)
 
-	// 初始化 Agent
-	aiAgent := agent.NewAgent(cfg, providerMgr, sessionMgr, toolRegistry)
+	// 初始化 Agent（带增强功能）
+	tokenManager := agent.NewTokenManager(cfg.LLM.Anthropic.MaxTokens * 10) // 10x 预算
+	traceManager := agent.NewTraceManager(true) // 启用追踪
+
+	aiAgent := agent.NewAgent(
+		cfg,
+		providerMgr,
+		sessionMgr,
+		toolRegistry,
+		agent.WithTokenManager(tokenManager),
+		agent.WithTraceManager(traceManager),
+	)
 
 	// 初始化频道管理器
 	channelMgr := channel.NewManager(cfg, aiAgent, sessionMgr)

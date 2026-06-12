@@ -62,6 +62,13 @@ type Provider interface {
 	ChatStream(ctx context.Context, req *ChatRequest) (<-chan StreamChatResponse, error)
 }
 
+// StreamToolProvider 支持流式工具调用的提供商
+type StreamToolProvider interface {
+	Provider
+	// ChatStreamWithTools 流式聊天（带工具调用支持）
+	ChatStreamWithTools(ctx context.Context, req *ChatRequest) (<-chan StreamChatResponse, error)
+}
+
 // FactoryProvider 提供商工厂
 type FactoryProvider interface {
 	CreateAnthropic() Provider

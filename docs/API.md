@@ -4,6 +4,14 @@
 
 NeoRay 提供 REST API 和 WebSocket 接口用于与 AI 助手交互。
 
+### 新功能 (v2)
+
+- **流式工具调用**: WebSocket 流式响应支持实时工具调用反馈
+- **并行工具执行**: 多个工具调用会并行执行以提高响应速度
+- **Token 管理**: 内置 Token 使用统计和预算控制
+- **执行追踪**: 详细的执行过程追踪用于调试
+- **智能上下文管理**: 多种上下文截断策略（最近消息、摘要、重要性）
+
 ## 基础配置
 
 默认服务地址: `http://localhost:8080`
@@ -83,11 +91,26 @@ Content-Type: application/json
 非流式响应示例:
 ```json
 {
-  "content": "Hello! How can I help you?"
+  "content": "Hello! How can I help you?",
+  "token_usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150
+  },
+  "tool_calls": 2
 }
 ```
 
-流式响应: 直接返回文本流
+流式响应 (SSE 格式):
+```
+data: {"type":"text","content":"Hello"}
+
+data: {"type":"tool_start","tool_calls":[...]}
+
+data: {"type":"tool_result","tool_result":[...]}
+
+data: {"type":"end","content":"Hello! How can I help you?"}
+```
 
 ### 删除会话
 ```
@@ -188,7 +211,49 @@ DELETE /api/sessions/{session_id}
   "type": "chat_end",
   "payload": {
     "session_id": "abc123",
-    "content": "Hello! How can I help you?"
+    "content": "Hello! How can I help you?",
+    "token_usage": {
+      "input_tokens": 100,
+      "output_tokens": 50,
+      "total_tokens": 150
+    },
+    "tool_calls": 2,
+    "iterations": 3
+  }
+}
+```
+
+#### tool_call_start - 工具调用开始 (流式)
+当 AI 决定使用工具时会发送此消息。
+```json
+{
+  "type": "tool_call_start",
+  "payload": {
+    "session_id": "abc123",
+    "tool_calls": [
+      {
+        "id": "call_123",
+        "name": "search_files",
+        "arguments": "{\"pattern\":\"*.go\"}"
+      }
+    ]
+  }
+}
+```
+
+#### tool_call_result - 工具调用结果 (流式)
+工具执行完成后会发送此消息。
+```json
+{
+  "type": "tool_call_result",
+  "payload": {
+    "session_id": "abc123",
+    "tool_result": [
+      {
+        "tool_use_id": "call_123",
+        "content": "Found 5 files..."
+      }
+    ]
   }
 }
 ```

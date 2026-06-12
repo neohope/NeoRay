@@ -254,7 +254,7 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	resp, err := f.agent.Chat(ctx, sess, message)
+	result, err := f.agent.Chat(ctx, sess, message)
 	if err != nil {
 		logger.Error("Agent chat failed", logger.ErrorField(err))
 		_ = f.SendMessage(ctx, userID, "抱歉，处理失败："+err.Error())
@@ -262,7 +262,7 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 	}
 
 	// 发送回复
-	if err := f.SendMessage(ctx, userID, resp.Content); err != nil {
+	if err := f.SendMessage(ctx, userID, result.Message.Content); err != nil {
 		logger.Error("Failed to send feishu message", logger.ErrorField(err))
 	}
 }

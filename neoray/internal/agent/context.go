@@ -10,14 +10,44 @@ import (
 	"neoray/internal/session"
 )
 
+// ContextStrategy 上下文构建策略
+type ContextStrategy string
+
+const (
+	// StrategyRecent 保留最近消息
+	StrategyRecent ContextStrategy = "recent"
+	// StrategySummary 对旧消息进行摘要
+	StrategySummary ContextStrategy = "summary"
+	// StrategyImportance 根据重要性保留
+	StrategyImportance ContextStrategy = "importance"
+)
+
 // ContextBuilder 上下文构建器
 type ContextBuilder struct {
-	cfg *config.Config
+	cfg      *config.Config
+	strategy ContextStrategy
+}
+
+// ContextBuilderOption 上下文构建器选项
+type ContextBuilderOption func(*ContextBuilder)
+
+// WithStrategy 设置策略
+func WithStrategy(strategy ContextStrategy) ContextBuilderOption {
+	return func(b *ContextBuilder) {
+		b.strategy = strategy
+	}
 }
 
 // NewContextBuilder 创建上下文构建器
-func NewContextBuilder(cfg *config.Config) *ContextBuilder {
-	return &ContextBuilder{cfg: cfg}
+func NewContextBuilder(cfg *config.Config, opts ...ContextBuilderOption) *ContextBuilder {
+	b := &ContextBuilder{
+		cfg:      cfg,
+		strategy: StrategyRecent, // 默认策略
+	}
+	for _, opt := range opts {
+		opt(b)
+	}
+	return b
 }
 
 // BuildMessages 构建 LLM 消息列表
@@ -33,8 +63,17 @@ func (b *ContextBuilder) BuildMessages(sess *session.Session) []provider.Message
 		})
 	}
 
-	// 添加历史消息（带智能截断）
-	historyMsgs := b.truncateMessages(sess.Messages)
+	// 根据策略处理历史消息
+	var historyMsgs []session.Message
+	switch b.strategy {
+	case StrategySummary:
+		historyMsgs = b.truncateWithSummary(sess.Messages)
+	case StrategyImportance:
+		historyMsgs = b.truncateByImportance(sess.Messages)
+	default:
+		historyMsgs = b.truncateMessages(sess.Messages)
+	}
+
 	for _, msg := range historyMsgs {
 		providerMsg := b.toProviderMessage(msg)
 		msgs = append(msgs, providerMsg)
@@ -81,12 +120,7 @@ func (b *ContextBuilder) truncateMessages(messages []session.Message) []session.
 	}
 
 	// 简单实现：保留最近 N 条消息
-	maxMessages := 50 // 默认值
-	if maxTokens < 4096 {
-		maxMessages = 20
-	} else if maxTokens < 8192 {
-		maxMessages = 30
-	}
+	maxMessages := b.getMaxMessagesForTokens(maxTokens)
 
 	if len(messages) <= maxMessages {
 		return messages
@@ -94,6 +128,126 @@ func (b *ContextBuilder) truncateMessages(messages []session.Message) []session.
 
 	// 保留最新的 maxMessages 条消息
 	return messages[len(messages)-maxMessages:]
+}
+
+// truncateWithSummary 使用摘要策略截断
+func (b *ContextBuilder) truncateWithSummary(messages []session.Message) []session.Message {
+	maxTokens := b.cfg.Session.Context.MaxTokens
+	if maxTokens <= 0 || len(messages) <= 10 {
+		return messages
+	}
+
+	maxMessages := b.getMaxMessagesForTokens(maxTokens)
+	if len(messages) <= maxMessages {
+		return messages
+	}
+
+	// 保留最早的系统上下文 + 最近的消息
+	keepCount := maxMessages - 2 // 留出 2 条空间给摘要
+
+	// 取前 2 条（可能包含系统上下文介绍）
+	result := make([]session.Message, 0, maxMessages)
+	if len(messages) > 2 {
+		result = append(result, messages[0])
+		if messages[1].Role == "user" {
+			result = append(result, messages[1])
+		}
+	}
+
+	// 添加摘要标记
+	result = append(result, session.Message{
+		Role:    "user",
+		Content: "[...中间对话历史已省略...]",
+	})
+
+	// 添加最近的消息
+	startIdx := len(messages) - keepCount
+	if startIdx < 2 {
+		startIdx = 2
+	}
+	result = append(result, messages[startIdx:]...)
+
+	return result
+}
+
+// truncateByImportance 根据重要性截断
+func (b *ContextBuilder) truncateByImportance(messages []session.Message) []session.Message {
+	maxTokens := b.cfg.Session.Context.MaxTokens
+	if maxTokens <= 0 || len(messages) <= 10 {
+		return messages
+	}
+
+	maxMessages := b.getMaxMessagesForTokens(maxTokens)
+	if len(messages) <= maxMessages {
+		return messages
+	}
+
+	// 标记重要消息
+	importantIndices := make(map[int]bool)
+
+	// 第一条消息总是重要的
+	importantIndices[0] = true
+
+	// 最后几条总是重要的
+	for i := len(messages) - 5; i < len(messages); i++ {
+		if i >= 0 {
+			importantIndices[i] = true
+		}
+	}
+
+	// 包含工具调用的消息很重要
+	for i, msg := range messages {
+		if len(msg.ToolCalls) > 0 {
+			importantIndices[i] = true
+			// 工具响应也很重要
+			if i+1 < len(messages) && messages[i+1].Role == "tool" {
+				importantIndices[i+1] = true
+			}
+		}
+	}
+
+	// 构建结果
+	result := make([]session.Message, 0, maxMessages)
+	addedCount := 0
+	skipped := false
+
+	for i, msg := range messages {
+		if importantIndices[i] || addedCount < 3 {
+			// 如果之前跳过了消息，添加一个标记
+			if skipped {
+				result = append(result, session.Message{
+					Role:    "user",
+					Content: "[...部分对话已省略...]",
+				})
+				skipped = false
+			}
+			result = append(result, msg)
+			addedCount++
+		} else {
+			skipped = true
+		}
+
+		if addedCount >= maxMessages {
+			break
+		}
+	}
+
+	return result
+}
+
+func (b *ContextBuilder) getMaxMessagesForTokens(maxTokens int) int {
+	switch {
+	case maxTokens < 4096:
+		return 15
+	case maxTokens < 8192:
+		return 25
+	case maxTokens < 16384:
+		return 40
+	case maxTokens < 32768:
+		return 60
+	default:
+		return 100
+	}
 }
 
 // getSystemPrompt 获取系统提示

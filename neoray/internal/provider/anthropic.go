@@ -1,12 +1,14 @@
 package provider
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"neoray/internal/config"
 	"neoray/internal/logger"
@@ -14,8 +16,8 @@ import (
 
 // AnthropicProvider Anthropic Claude 提供商
 type AnthropicProvider struct {
-	cfg     *config.AnthropicConfig
-	client  *http.Client
+	cfg    *config.AnthropicConfig
+	client *http.Client
 }
 
 // NewAnthropicProvider 创建 Anthropic 提供商
@@ -41,6 +43,7 @@ type anthropicRequest struct {
 	Temperature float64           `json:"temperature,omitempty"`
 	System     string             `json:"system,omitempty"`
 	Tools      []anthropicTool    `json:"tools,omitempty"`
+	Stream     bool               `json:"stream,omitempty"`
 }
 
 // anthropicTool Anthropic 工具定义
@@ -52,8 +55,8 @@ type anthropicTool struct {
 
 // anthropicMessage Anthropic 消息
 type anthropicMessage struct {
-	Role    string        `json:"role"`
-	Content interface{}   `json:"content"` // 可以是 string 或 []anthropicContentBlock
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"` // 可以是 string 或 []anthropicContentBlock
 }
 
 // anthropicContentBlock 内容块
@@ -68,7 +71,7 @@ type anthropicContentBlock struct {
 // anthropicResponse Anthropic API 响应
 type anthropicResponse struct {
 	Content []anthropicContent `json:"content"`
-	Usage  struct {
+	Usage   struct {
 		InputTokens  int `json:"input_tokens"`
 		OutputTokens int `json:"output_tokens"`
 	} `json:"usage"`
@@ -84,6 +87,29 @@ type anthropicContent struct {
 	Input any    `json:"input,omitempty"`
 }
 
+// anthropicStreamEvent Anthropic 流式事件
+type anthropicStreamEvent struct {
+	Type  string          `json:"type"`
+	Index int             `json:"index,omitempty"`
+	Delta json.RawMessage `json:"delta,omitempty"`
+	Usage json.RawMessage `json:"usage,omitempty"`
+	Block json.RawMessage `json:"block,omitempty"`
+}
+
+// anthropicTextDelta 文本 Delta
+type anthropicTextDelta struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+// anthropicToolUseBlock 工具使用块
+type anthropicToolUseBlock struct {
+	Type  string                 `json:"type"`
+	ID    string                 `json:"id"`
+	Name  string                 `json:"name"`
+	Input map[string]interface{} `json:"input"`
+}
+
 // Chat 发送聊天请求
 func (p *AnthropicProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	if p.cfg.APIKey == "" {
@@ -97,6 +123,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatRe
 
 	// 构建请求
 	apiReq, systemMsg := p.buildRequest(req)
+	apiReq.Stream = false
 
 	body, err := json.Marshal(apiReq)
 	if err != nil {
@@ -175,23 +202,186 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatRe
 
 // ChatStream 流式聊天
 func (p *AnthropicProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-chan StreamChatResponse, error) {
-	// 暂时使用非流式实现
-	resultChan := make(chan StreamChatResponse, 1)
+	resultChan := make(chan StreamChatResponse, 100)
+
+	if p.cfg.APIKey == "" {
+		close(resultChan)
+		return resultChan, fmt.Errorf("anthropic api key not configured")
+	}
+
+	// 构建请求
+	apiReq, systemMsg := p.buildRequest(req)
+	apiReq.Stream = true
+
+	body, err := json.Marshal(apiReq)
+	if err != nil {
+		close(resultChan)
+		return resultChan, fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.cfg.APIURL+"/v1/messages", bytes.NewReader(body))
+	if err != nil {
+		close(resultChan)
+		return resultChan, fmt.Errorf("create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-api-key", p.cfg.APIKey)
+	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	httpReq.Header.Set("Accept", "text/event-stream")
+	httpReq.Header.Set("Cache-Control", "no-cache")
+	httpReq.Header.Set("Connection", "keep-alive")
+	if systemMsg != "" {
+		httpReq.Header.Set("anthropic-dangerous-direct-browser-access", "true")
+	}
+
+	resp, err := p.client.Do(httpReq)
+	if err != nil {
+		close(resultChan)
+		return resultChan, fmt.Errorf("do request: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		close(resultChan)
+		return resultChan, fmt.Errorf("api error: %s, body: %s", resp.Status, string(errBody))
+	}
 
 	go func() {
 		defer close(resultChan)
-		resp, err := p.Chat(ctx, req)
-		if err != nil {
-			resultChan <- StreamChatResponse{Error: err}
-			return
+		defer resp.Body.Close()
+
+		scanner := bufio.NewScanner(resp.Body)
+		var currentToolCalls []ToolCall
+		var pendingToolUse *ToolCall
+		var pendingInputBuffer strings.Builder
+
+		for scanner.Scan() {
+			select {
+			case <-ctx.Done():
+				resultChan <- StreamChatResponse{Error: ctx.Err()}
+				return
+			default:
+			}
+
+			line := scanner.Text()
+			if line == "" {
+				continue
+			}
+
+			// 解析 SSE 格式
+			if strings.HasPrefix(line, "data: ") {
+				data := strings.TrimPrefix(line, "data: ")
+
+				var event anthropicStreamEvent
+				if err := json.Unmarshal([]byte(data), &event); err != nil {
+					logger.Debug("Failed to unmarshal stream event", logger.String("data", data), logger.ErrorField(err))
+					continue
+				}
+
+				switch event.Type {
+				case "message_start":
+					logger.Debug("Stream message_start")
+				case "content_block_start":
+					// 内容块开始
+					var block anthropicContent
+					if err := json.Unmarshal(event.Block, &block); err == nil {
+						if block.Type == "tool_use" {
+							// 工具调用开始
+							inputBytes, _ := json.Marshal(block.Input)
+							pendingToolUse = &ToolCall{
+								ID:        block.ID,
+								Name:      block.Name,
+								Arguments: string(inputBytes),
+							}
+							pendingInputBuffer.Reset()
+							// 如果已经有 input，先保存
+							if len(inputBytes) > 0 && string(inputBytes) != "{}" {
+								pendingInputBuffer.Write(inputBytes)
+							}
+						}
+					}
+				case "content_block_delta":
+					// 内容 delta
+					var delta anthropicTextDelta
+					if err := json.Unmarshal(event.Delta, &delta); err == nil {
+						if delta.Type == "text_delta" {
+							resultChan <- StreamChatResponse{
+								Content: delta.Text,
+							}
+						} else if delta.Type == "input_json_delta" && pendingToolUse != nil {
+							// 工具输入 delta（如果有的话）
+							var inputDelta struct {
+								PartialJSON string `json:"partial_json"`
+							}
+							if json.Unmarshal(event.Delta, &inputDelta) == nil {
+								pendingInputBuffer.WriteString(inputDelta.PartialJSON)
+							}
+						}
+					}
+				case "content_block_stop":
+					// 内容块结束
+					if pendingToolUse != nil {
+						// 完成工具调用
+						if pendingInputBuffer.Len() > 0 {
+							// 尝试解析完整的 JSON
+							var input map[string]interface{}
+							if json.Unmarshal([]byte(pendingInputBuffer.String()), &input) == nil {
+								inputBytes, _ := json.Marshal(input)
+								pendingToolUse.Arguments = string(inputBytes)
+							} else {
+								// 如果解析失败，直接使用缓冲区内容
+								pendingToolUse.Arguments = pendingInputBuffer.String()
+							}
+						}
+						currentToolCalls = append(currentToolCalls, *pendingToolUse)
+						pendingToolUse = nil
+					}
+				case "message_delta":
+					// 消息 delta（可能包含 finish_reason）
+					var delta struct {
+						StopReason string `json:"stop_reason"`
+					}
+					if json.Unmarshal(event.Delta, &delta) == nil {
+						resultChan <- StreamChatResponse{
+							FinishReason: delta.StopReason,
+							ToolCalls:    currentToolCalls,
+						}
+					}
+				case "message_stop":
+					logger.Debug("Stream message_stop")
+					return
+				case "error":
+					logger.Error("Stream error event", logger.String("data", data))
+					var errResp struct {
+						Error struct {
+							Message string `json:"message"`
+						} `json:"error"`
+					}
+					if json.Unmarshal([]byte(data), &errResp) == nil {
+						resultChan <- StreamChatResponse{
+							Error: fmt.Errorf("anthropic error: %s", errResp.Error.Message),
+						}
+					}
+					return
+				}
+			}
 		}
-		resultChan <- StreamChatResponse{
-			Content:      resp.Content,
-			FinishReason: resp.FinishReason,
+
+		if err := scanner.Err(); err != nil {
+			logger.Error("Stream scanner error", logger.ErrorField(err))
+			resultChan <- StreamChatResponse{Error: err}
 		}
 	}()
 
 	return resultChan, nil
+}
+
+// ChatStreamWithTools 流式聊天（带工具调用支持）
+func (p *AnthropicProvider) ChatStreamWithTools(ctx context.Context, req *ChatRequest) (<-chan StreamChatResponse, error) {
+	// 复用 ChatStream，因为它已经支持工具调用了
+	return p.ChatStream(ctx, req)
 }
 
 // buildRequest 构建请求
@@ -201,6 +391,7 @@ func (p *AnthropicProvider) buildRequest(req *ChatRequest) (*anthropicRequest, s
 		Messages:    make([]anthropicMessage, 0, len(req.Messages)),
 		MaxTokens:   req.MaxTokens,
 		Temperature: req.Temperature,
+		Stream:      req.Stream,
 	}
 
 	var systemMsg string

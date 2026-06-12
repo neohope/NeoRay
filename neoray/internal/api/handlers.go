@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"neoray/internal/agent"
 	"neoray/internal/logger"
 	"neoray/internal/session"
 )
@@ -49,7 +50,7 @@ func (c *Client) handleChat(payload interface{}) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	resp, err := c.Server.agent.Chat(ctx, sess, chatPayload.Message)
+	result, err := c.Server.agent.Chat(ctx, sess, chatPayload.Message)
 	if err != nil {
 		logger.Error("Agent chat failed", logger.ErrorField(err))
 		c.sendError("agent_error", err.Error())
@@ -57,10 +58,21 @@ func (c *Client) handleChat(payload interface{}) {
 	}
 
 	// 发送最终响应
-	c.sendMessage("chat_end", map[string]interface{}{
+	response := map[string]interface{}{
 		"session_id": sess.ID,
-		"content":    resp.Content,
-	})
+		"content":    result.Message.Content,
+	}
+	if result.TokenUsage != nil {
+		response["token_usage"] = result.TokenUsage
+	}
+	if result.ToolCalls > 0 {
+		response["tool_calls"] = result.ToolCalls
+	}
+	if result.Iterations > 0 {
+		response["iterations"] = result.Iterations
+	}
+
+	c.sendMessage("chat_end", response)
 }
 
 // handleChatStream 处理流式聊天消息
@@ -111,18 +123,41 @@ func (c *Client) handleChatStream(payload interface{}) {
 	// 接收流式内容并推送给客户端
 	var fullContent string
 	for chunk := range streamChan {
-		fullContent += chunk
-		c.sendMessage("chat_chunk", map[string]interface{}{
-			"session_id": sess.ID,
-			"content":    chunk,
-		})
+		switch chunk.Type {
+		case "text":
+			fullContent += chunk.Content
+			c.sendMessage("chat_chunk", map[string]interface{}{
+				"session_id": sess.ID,
+				"content":    chunk.Content,
+			})
+		case "tool_start":
+			// 通知客户端工具调用开始
+			c.sendMessage("tool_call_start", map[string]interface{}{
+				"session_id": sess.ID,
+				"tool_calls": chunk.ToolCalls,
+			})
+		case "tool_result":
+			// 通知客户端工具调用结果
+			c.sendMessage("tool_call_result", map[string]interface{}{
+				"session_id":  sess.ID,
+				"tool_result": chunk.ToolResults,
+			})
+		case "error":
+			logger.Error("Stream chunk error", logger.ErrorField(chunk.Error))
+			c.sendError("stream_error", chunk.Error.Error())
+			return
+		case "end":
+			// 完成
+			response := map[string]interface{}{
+				"session_id": sess.ID,
+				"content":    fullContent,
+			}
+			if chunk.SessionMsg != nil && len(chunk.SessionMsg.ToolCalls) > 0 {
+				response["tool_calls"] = chunk.SessionMsg.ToolCalls
+			}
+			c.sendMessage("chat_end", response)
+		}
 	}
-
-	// 发送结束响应
-	c.sendMessage("chat_end", map[string]interface{}{
-		"session_id": sess.ID,
-		"content":    fullContent,
-	})
 }
 
 // handleCreateSession 处理创建会话
@@ -314,9 +349,11 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 
 		if req.Stream {
-			// 流式响应
-			w.Header().Set("Content-Type", "text/plain")
-			w.Header().Set("Transfer-Encoding", "chunked")
+			// 流式响应 - 使用 SSE 格式
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			w.Header().Set("Access-Control-Allow-Origin", "*")
 
 			streamChan, err := s.agent.ChatStream(ctx, sess, req.Message)
 			if err != nil {
@@ -327,27 +364,64 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			flusher, ok := w.(http.Flusher)
 			if ok {
 				for chunk := range streamChan {
-					_, _ = w.Write([]byte(chunk))
-					flusher.Flush()
+					switch chunk.Type {
+					case "text":
+						eventData, _ := json.Marshal(map[string]interface{}{
+							"type":    "text",
+							"content": chunk.Content,
+						})
+						_, _ = w.Write([]byte("data: " + string(eventData) + "\n\n"))
+						flusher.Flush()
+					case "tool_start":
+						eventData, _ := json.Marshal(map[string]interface{}{
+							"type":       "tool_start",
+							"tool_calls": chunk.ToolCalls,
+						})
+						_, _ = w.Write([]byte("data: " + string(eventData) + "\n\n"))
+						flusher.Flush()
+					case "tool_result":
+						eventData, _ := json.Marshal(map[string]interface{}{
+							"type":        "tool_result",
+							"tool_result": chunk.ToolResults,
+						})
+						_, _ = w.Write([]byte("data: " + string(eventData) + "\n\n"))
+						flusher.Flush()
+					case "end":
+						eventData, _ := json.Marshal(map[string]interface{}{
+							"type":    "end",
+							"content": chunk.Content,
+						})
+						_, _ = w.Write([]byte("data: " + string(eventData) + "\n\n"))
+						flusher.Flush()
+					case "error":
+						eventData, _ := json.Marshal(map[string]interface{}{
+							"type":  "error",
+							"error": chunk.Error.Error(),
+						})
+						_, _ = w.Write([]byte("data: " + string(eventData) + "\n\n"))
+						flusher.Flush()
+					}
 				}
-			} else {
-				var fullContent string
-				for chunk := range streamChan {
-					fullContent += chunk
-				}
-				_, _ = w.Write([]byte(fullContent))
 			}
 		} else {
 			// 非流式响应
-			resp, err := s.agent.Chat(ctx, sess, req.Message)
+			result, err := s.agent.Chat(ctx, sess, req.Message)
 			if err != nil {
 				http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
 				return
 			}
 
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"content": resp.Content,
-			})
+			response := map[string]interface{}{
+				"content": result.Message.Content,
+			}
+			if result.TokenUsage != nil {
+				response["token_usage"] = result.TokenUsage
+			}
+			if result.ToolCalls > 0 {
+				response["tool_calls"] = result.ToolCalls
+			}
+
+			json.NewEncoder(w).Encode(response)
 		}
 
 	case http.MethodDelete:
@@ -371,4 +445,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"status": "ok",
 		"time":   time.Now().UTC(),
 	})
+}
+
+// Server 类型需要更新字段类型
+// 更新 server.go 中的 agent 字段为 *agent.Agent
+func init() {
+	// 确保我们正确导入了新的 agent 包
+	var _ agent.Agent
 }

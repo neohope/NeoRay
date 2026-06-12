@@ -135,11 +135,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// 使用普通 Chat 调用
 				return m, func() tea.Msg {
 					ctx := context.Background()
-					respMsg, err := m.agent.Chat(ctx, m.session, input)
+					result, err := m.agent.Chat(ctx, m.session, input)
 					if err != nil {
 						return errMsg(err)
 					}
-					return responseMsg(respMsg.Content)
+					return responseMsg(result.Message.Content)
 				}
 			}
 		}
