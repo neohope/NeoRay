@@ -21,24 +21,33 @@ import (
 )
 
 func main() {
+	fmt.Println("NeoRay starting...")
 	// 命令行参数
 	configPath := flag.String("config", "", "path to config file")
-	noTUI := flag.Bool("no-tui", false, "disable TUI mode and run API server only")
+	useTUI := flag.Bool("tui", false, "enable TUI mode (default: server-only mode)")
 	flag.Parse()
 
+	fmt.Printf("Command line flags:\n")
+	fmt.Printf("  --config: %s\n", *configPath)
+	fmt.Printf("  --tui: %v\n", *useTUI)
+
+	fmt.Println("Loading config...")
 	// 加载配置
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
 		os.Exit(1)
 	}
+	fmt.Println("Config loaded")
 
+	fmt.Println("Initializing logger...")
 	// 初始化日志
 	if err := logger.Init(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to init logger: %v\n", err)
 		os.Exit(1)
 	}
 	defer logger.Sync()
+	fmt.Println("Logger initialized")
 
 	logger.Info("Starting neoray",
 		logger.String("name", cfg.App.Name),
@@ -47,6 +56,7 @@ func main() {
 		logger.String("home_dir", cfg.HomeDir),
 	)
 
+	fmt.Println("Creating tool registry...")
 	// 初始化工具注册表
 	toolRegistry := tools.NewRegistry()
 	if cfg.Tools.Workspace.Enabled {
@@ -80,15 +90,24 @@ func main() {
 	} else {
 		sessionStore = fileStore
 	}
+	fmt.Println("Creating session manager...")
 	sessionMgr := session.NewManager(cfg, sessionStore)
 
+	fmt.Println("Initializing providers...")
 	// 初始化 LLM 提供商
 	providerMgr := initProviders(cfg)
 
 	// 初始化 Agent（带增强功能）
-	tokenManager := agent.NewTokenManager(cfg.LLM.Anthropic.MaxTokens * 10) // 10x 预算
+	var maxTokens int = 4096 // 默认值
+	if defaultProvider, ok := cfg.LLM.Providers[cfg.LLM.DefaultProvider]; ok {
+		if defaultProvider.MaxTokens > 0 {
+			maxTokens = defaultProvider.MaxTokens
+		}
+	}
+	tokenManager := agent.NewTokenManager(maxTokens * 10) // 10x 预算
 	traceManager := agent.NewTraceManager(true) // 启用追踪
 
+	fmt.Println("Creating agent...")
 	aiAgent := agent.NewAgent(
 		cfg,
 		providerMgr,
@@ -97,28 +116,62 @@ func main() {
 		agent.WithTokenManager(tokenManager),
 		agent.WithTraceManager(traceManager),
 	)
+	fmt.Println("Agent created")
 
+	// 检查 LLM 配置
+	hasAPIKey := false
+	for name, providerCfg := range cfg.LLM.Providers {
+		if providerCfg.APIKey != "" {
+			fmt.Printf("✅ %s provider configured\n", name)
+			hasAPIKey = true
+		}
+	}
+	if !hasAPIKey {
+		fmt.Println("")
+		fmt.Println("⚠️ ⚠️ ⚠️ WARNING: NO LLM API KEYS CONFIGURED! ⚠️ ⚠️ ⚠️")
+		fmt.Println("Please edit config.toml and add your API key")
+		fmt.Println("")
+	} else {
+		fmt.Println("")
+	}
+
+	fmt.Println("Creating channel manager...")
 	// 初始化频道管理器
 	channelMgr := channel.NewManager(cfg, aiAgent, sessionMgr)
 
 	// 注册飞书频道
+	fmt.Printf("Feishu config:\n")
+	fmt.Printf("  Enabled: %v\n", cfg.Channels.Feishu.Enabled)
+	fmt.Printf("  AppID: %s\n", cfg.Channels.Feishu.AppID)
+	fmt.Printf("  AppSecret present: %v\n", cfg.Channels.Feishu.AppSecret != "")
+
 	feishuConfig := &channel.FeishuConfig{
-		AppID:           cfg.Channels.Feishu.AppID,
-		AppSecret:       cfg.Channels.Feishu.AppSecret,
-		Enabled:         cfg.Channels.Feishu.Enabled,
+		AppID:            cfg.Channels.Feishu.AppID,
+		AppSecret:        cfg.Channels.Feishu.AppSecret,
+		Enabled:          cfg.Channels.Feishu.Enabled,
 		VerificationToken: cfg.Channels.Feishu.VerificationToken,
-		EncryptKey:      cfg.Channels.Feishu.EncryptKey,
-		WebhookPath:     cfg.Channels.Feishu.WebhookPath,
+		EncryptKey:       cfg.Channels.Feishu.EncryptKey,
+		Domain:           cfg.Channels.Feishu.Domain,
+		GroupPolicy:      cfg.Channels.Feishu.GroupPolicy,
+		ReplyToMessage:   cfg.Channels.Feishu.ReplyToMessage,
+		TopicIsolation:   cfg.Channels.Feishu.TopicIsolation,
+		ReactEmoji:       cfg.Channels.Feishu.ReactEmoji,
+		DoneEmoji:        cfg.Channels.Feishu.DoneEmoji,
+		ToolHintPrefix:   cfg.Channels.Feishu.ToolHintPrefix,
+		Streaming:        cfg.Channels.Feishu.Streaming,
 	}
 	channelMgr.RegisterChannel(channel.NewFeishuChannel(feishuConfig, cfg, aiAgent, sessionMgr))
 
+	fmt.Println("Creating API server...")
 	// 初始化 API 服务器
 	apiServer := api.NewServer(cfg, aiAgent, sessionMgr, channelMgr)
+	fmt.Println("API server created")
 
 	// 设置信号处理
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
+	fmt.Println("Starting API server...")
 	// 启动 API 服务器
 	if err := apiServer.Start(); err != nil {
 		logger.Error("Failed to start API server", logger.ErrorField(err))
@@ -127,29 +180,37 @@ func main() {
 			logger.String("host", cfg.Server.Host),
 			logger.Int("port", cfg.Server.Port),
 		)
+		fmt.Printf("✅ Server running on http://%s:%d\n", cfg.Server.Host, cfg.Server.Port)
+		fmt.Println("   Press Ctrl+C to stop")
 	}
 
+	fmt.Println("Starting channels...")
 	// 启动频道
 	if err := channelMgr.StartAll(); err != nil {
 		logger.Error("Failed to start channels", logger.ErrorField(err))
 	}
+	fmt.Println("Channels started")
 
-	if *noTUI {
-		// 仅运行服务器模式
-		logger.Info("Running in server-only mode (TUI disabled)")
+	fmt.Printf("useTUI flag: %v\n", *useTUI)
+
+	if !*useTUI {
+		// 仅运行服务器模式（默认）
+		fmt.Println("Running in server-only mode (default)")
+		fmt.Println("Use --tui flag to enable TUI mode")
+		logger.Info("Running in server-only mode")
 		<-sigChan
 	} else {
-		// 启动 TUI 的同时保持 API 服务器运行
-		go func() {
-			app := tui.NewTUI(aiAgent, sessionMgr)
-			if err := app.Run(); err != nil {
-				fmt.Fprintf(os.Stderr, "TUI Error: %v\n", err)
-			}
-			// TUI 退出时发送信号
-			sigChan <- syscall.SIGTERM
-		}()
+		// 启动 TUI 模式
+		fmt.Println("Starting TUI mode...")
+		logger.Info("Running in TUI mode")
 
-		<-sigChan
+		// TUI 在主线程运行
+		app := tui.NewTUI(aiAgent, sessionMgr)
+		fmt.Println("TUI app created, calling Run()...")
+		if err := app.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "TUI Error: %v\n", err)
+		}
+		fmt.Println("TUI exited")
 	}
 
 	// 优雅关闭
@@ -172,38 +233,63 @@ func main() {
 func initProviders(cfg *config.Config) *provider.ProviderManager {
 	var defaultProvider provider.Provider
 
-	if cfg.LLM.Anthropic.APIKey != "" {
-		anthropicProvider := provider.NewAnthropicProvider(&cfg.LLM.Anthropic)
-		if cfg.LLM.DefaultProvider == "anthropic" {
-			defaultProvider = anthropicProvider
+	providerMgr := provider.NewProviderManager(nil)
+
+	fmt.Printf("Number of providers in config: %d\n", len(cfg.LLM.Providers))
+
+	// 遍历所有配置的提供商
+	for name, providerConfig := range cfg.LLM.Providers {
+		fmt.Printf("Found provider: %s\n", name)
+		fmt.Printf("  APIKey present: %s\n", func() string {
+			if providerConfig.APIKey != "" {
+				return "YES (length: " + fmt.Sprintf("%d", len(providerConfig.APIKey)) + ")"
+			}
+			return "NO"
+		}())
+		fmt.Printf("  APIFormat: %s\n", providerConfig.APIFormat)
+		fmt.Printf("  APIURL: %s\n", providerConfig.APIURL)
+		fmt.Printf("  Model: %s\n", providerConfig.Model)
+
+		if providerConfig.APIKey == "" {
+			logger.Warn("Provider configured but no API key", logger.String("provider", name))
+			continue
 		}
-		logger.Info("Anthropic provider registered")
-	}
 
-	if cfg.LLM.OpenAI.APIKey != "" {
-		openaiProvider := provider.NewOpenAIProvider(&cfg.LLM.OpenAI)
-		if cfg.LLM.DefaultProvider == "openai" || defaultProvider == nil {
-			defaultProvider = openaiProvider
+		// 复制配置，避免循环变量重用问题
+		cfgCopy := providerConfig
+
+		// 根据 api_format 选择提供商实现
+		var p provider.Provider
+		apiFormat := cfgCopy.APIFormat
+		if apiFormat == "" {
+			apiFormat = "openai" // 默认使用 OpenAI 格式
 		}
-		logger.Info("OpenAI provider registered")
+
+		switch apiFormat {
+		case "anthropic":
+			p = provider.NewAnthropicProvider(name, &cfgCopy)
+			logger.Info("Provider registered (Anthropic format)", logger.String("name", name))
+		case "openai":
+			fallthrough
+		default:
+			p = provider.NewGenericProvider(name, &cfgCopy)
+			logger.Info("Provider registered (OpenAI format)", logger.String("name", name))
+		}
+
+		providerMgr.RegisterProvider(name, p)
+
+		// 如果是默认提供商或还没设置默认提供商，设置为默认
+		if defaultProvider == nil || name == cfg.LLM.DefaultProvider {
+			defaultProvider = p
+		}
 	}
 
-	if defaultProvider == nil && cfg.LLM.Anthropic.APIKey != "" {
-		defaultProvider = provider.NewAnthropicProvider(&cfg.LLM.Anthropic)
-	} else if defaultProvider == nil && cfg.LLM.OpenAI.APIKey != "" {
-		defaultProvider = provider.NewOpenAIProvider(&cfg.LLM.OpenAI)
-	}
-
-	providerMgr := provider.NewProviderManager(defaultProvider)
-	if cfg.LLM.Anthropic.APIKey != "" {
-		providerMgr.RegisterProvider("anthropic", provider.NewAnthropicProvider(&cfg.LLM.Anthropic))
-	}
-	if cfg.LLM.OpenAI.APIKey != "" {
-		providerMgr.RegisterProvider("openai", provider.NewOpenAIProvider(&cfg.LLM.OpenAI))
-	}
+	providerMgr.SetDefaultProvider(defaultProvider)
 
 	if defaultProvider == nil {
 		logger.Warn("No LLM provider configured")
+	} else {
+		logger.Info("Default provider", logger.String("name", defaultProvider.Name()))
 	}
 
 	return providerMgr

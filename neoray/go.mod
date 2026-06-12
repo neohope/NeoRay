@@ -7,6 +7,7 @@ require (
 	github.com/charmbracelet/bubbletea v0.26.0
 	github.com/charmbracelet/lipgloss v0.9.1
 	github.com/gorilla/websocket v1.5.1
+	github.com/larksuite/oapi-sdk-go/v3 v3.9.5
 	github.com/spf13/viper v1.18.2
 	go.uber.org/zap v1.26.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
@@ -17,6 +18,7 @@ require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
+	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect

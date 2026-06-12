@@ -111,6 +111,11 @@ func (m *ProviderManager) DefaultProvider() Provider {
 	return m.defaultProvider
 }
 
+// SetDefaultProvider 设置默认提供商
+func (m *ProviderManager) SetDefaultProvider(p Provider) {
+	m.defaultProvider = p
+}
+
 // StreamReader 流读取器
 type StreamReader interface {
 	io.ReadCloser

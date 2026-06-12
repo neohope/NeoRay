@@ -101,13 +101,34 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 	userMsg := session.NewUserMessage(userInput)
 	sess.AddMessage(userMsg)
 
-	// 获取提供商
+	// 获取提供商 - 先尝试默认的，如果没有就用任意一个可用的
 	p, err := a.providerMgr.GetProvider(a.cfg.LLM.DefaultProvider)
-	if err != nil {
+	if err != nil || p == nil {
+		// 默认 provider 不可用，尝试获取任意一个可用的
+		p = a.providerMgr.DefaultProvider()
+	}
+
+	if p == nil {
+		// 如果还是没有可用的 provider，给用户一个友好的错误
+		errMsg := "⚠️ No LLM provider configured! Please edit your config.toml and add an API key for Anthropic or OpenAI."
+		logger.Error("No LLM provider available", logger.String("default_provider", a.cfg.LLM.DefaultProvider))
+
 		if trace != nil {
-			trace.AddError(err, "获取提供商失败")
+			trace.AddError(errors.New(errMsg), "No LLM provider configured")
 		}
-		return nil, err
+
+		assistantMsg := session.NewAssistantMessage(errMsg)
+		sess.AddMessage(assistantMsg)
+		_ = a.sessionMgr.SaveSession(sess)
+
+		return &ChatResult{
+			Message:    &assistantMsg,
+			TokenUsage: a.tokenManager.GetSessionUsage(sess.ID),
+			Trace:      trace,
+			ToolCalls:  0,
+			Iterations: 1,
+			Duration:   time.Since(startTime),
+		}, nil
 	}
 
 	// 构建工具定义
@@ -148,8 +169,12 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 		req := &provider.ChatRequest{
 			Messages:    msgs,
 			Tools:       providerTools,
-			MaxTokens:   a.cfg.LLM.Anthropic.MaxTokens,
-			Temperature: a.cfg.LLM.Anthropic.Temperature,
+		}
+
+		// 从配置中获取当前 provider 的参数
+		if providerCfg, ok := a.cfg.LLM.Providers[p.Name()]; ok {
+			req.MaxTokens = providerCfg.MaxTokens
+			req.Temperature = providerCfg.Temperature
 		}
 
 		logger.Debug("Calling LLM",
@@ -385,10 +410,14 @@ func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput
 			trace = a.traceManager.GetOrCreateSession(sess.ID)
 		}
 
-		// 获取提供商
+		// 获取提供商 - 先尝试默认的，如果没有就用任意一个可用的
 		p, err := a.providerMgr.GetProvider(a.cfg.LLM.DefaultProvider)
-		if err != nil {
-			resultChan <- StreamChunk{Type: "error", Error: err}
+		if err != nil || p == nil {
+			p = a.providerMgr.DefaultProvider()
+		}
+
+		if p == nil {
+			resultChan <- StreamChunk{Type: "error", Error: fmt.Errorf("no LLM provider configured")}
 			return
 		}
 
@@ -422,8 +451,8 @@ func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput
 			req := &provider.ChatRequest{
 				Messages:    msgs,
 				Tools:       providerTools,
-				MaxTokens:   a.cfg.LLM.Anthropic.MaxTokens,
-				Temperature: a.cfg.LLM.Anthropic.Temperature,
+				MaxTokens:   0,
+				Temperature: 0,
 				Stream:      true,
 			}
 

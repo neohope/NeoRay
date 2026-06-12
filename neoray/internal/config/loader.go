@@ -51,6 +51,8 @@ func Load(configPath string) (*Config, error) {
 	// 尝试加载配置
 	if err := v.ReadInConfig(); err != nil {
 		fmt.Printf("Config file not found, using defaults\n")
+	} else {
+		fmt.Printf("✅ Loaded config from: %s\n", v.ConfigFileUsed())
 	}
 
 	// 加载本地覆盖配置 (可选)
@@ -158,6 +160,14 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("channels.websocket.pong_wait", "60s")
 	v.SetDefault("channels.websocket.max_message_size", 4194304)
 	v.SetDefault("channels.feishu.enabled", false)
+	v.SetDefault("channels.feishu.domain", "feishu")
+	v.SetDefault("channels.feishu.group_policy", "mention")
+	v.SetDefault("channels.feishu.reply_to_message", true)
+	v.SetDefault("channels.feishu.topic_isolation", true)
+	v.SetDefault("channels.feishu.react_emoji", "THUMBSUP")
+	v.SetDefault("channels.feishu.done_emoji", "")
+	v.SetDefault("channels.feishu.tool_hint_prefix", "🔧")
+	v.SetDefault("channels.feishu.streaming", true)
 
 	// Security
 	v.SetDefault("security.auth.enabled", false)
@@ -175,7 +185,14 @@ func setDefaults(v *viper.Viper) {
 // validate 验证配置
 func validate(cfg *Config) error {
 	if cfg.App.Env == "production" {
-		if cfg.LLM.Anthropic.APIKey == "" && cfg.LLM.OpenAI.APIKey == "" {
+		hasAPIKey := false
+		for _, provider := range cfg.LLM.Providers {
+			if provider.APIKey != "" {
+				hasAPIKey = true
+				break
+			}
+		}
+		if !hasAPIKey {
 			return fmt.Errorf("llm api key is required in production")
 		}
 	}
@@ -238,6 +255,36 @@ driver = "sqlite"
 
 [llm]
 default_provider = "anthropic"
+
+# Anthropic API 配置示例
+[llm.anthropic]
+api_format = "anthropic"
+api_key = ""
+api_url = "https://api.anthropic.com"
+model = "claude-3-sonnet-20240229"
+max_tokens = 4096
+temperature = 0.7
+timeout = "120s"
+
+# OpenAI 兼容的 API 配置示例
+[llm.openai]
+api_format = "openai"
+api_key = ""
+api_url = "https://api.openai.com/v1"
+model = "gpt-4"
+max_tokens = 4096
+temperature = 0.7
+timeout = "120s"
+
+# 小米/其他 OpenAI 兼容 API 示例
+[llm.xiaomimimo]
+api_format = "openai"
+api_key = ""
+api_url = "https://token-plan-cn.xiaomimimo.com/v1"
+model = "mimo-v2.5-pro"
+max_tokens = 4096
+temperature = 0.7
+timeout = "120s"
 `
 
 	return os.WriteFile(path, []byte(defaultConfig), 0644)

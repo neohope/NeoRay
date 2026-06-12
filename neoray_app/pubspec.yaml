@@ -1,0 +1,58 @@
+name: neoray_app
+description: NeoRay AI Agent - Flutter Desktop Application
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.2
+
+  # State Management
+  flutter_riverpod: ^2.3.6
+  riverpod_annotation: ^2.1.1
+
+  # Networking
+  http: ^1.1.0
+  web_socket_channel: ^2.4.0
+
+  # Local Storage
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+
+  # Utils
+  json_annotation: ^4.8.1
+  freezed_annotation: ^2.4.1
+  uuid: ^3.0.7
+  intl: ^0.18.1
+  markdown_widget: ^2.3.1
+  flex_color_scheme: ^7.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+  build_runner: ^2.4.6
+  json_serializable: ^6.7.1
+  freezed: ^2.4.1
+  riverpod_generator: ^2.2.3
+  hive_generator: ^2.0.1
+
+  # MSIX Packaging (Windows)
+  msix: ^3.14.0
+
+flutter:
+  uses-material-design: true
+
+# MSIX 打包配置 (Windows)
+msix_config:
+  display_name: NeoRay
+  publisher_display_name: NeoRay Team
+  identity_name: com.neoray.app
+  msix_version: 1.0.0.0
+  store: false
+  # logo_path: assets/logo.png
+  capabilities: internetClient

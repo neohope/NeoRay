@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -153,7 +154,8 @@ func (s *FileStore) saveToFile(sess *Session) error {
 
 // getSessionFilePath 获取会话文件路径
 func (s *FileStore) getSessionFilePath(id string) string {
-	return filepath.Join(s.baseDir, id+".json")
+	fileName := base64.RawURLEncoding.EncodeToString([]byte(id))
+	return filepath.Join(s.baseDir, fileName+".json")
 }
 
 // CleanupOldSessions 清理旧会话（保留最近 N 个）

@@ -68,17 +68,6 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/sessions/", s.wrapMiddleware(s.handleSession))
 	mux.HandleFunc("/api/health", s.wrapMiddleware(s.handleHealth))
 
-	// Feishu Webhook（如果启用）
-	if s.channelMgr != nil {
-		if feishuCh, ok := s.channelMgr.GetFeishuChannel(); ok {
-			webhookPath := "/webhook/feishu"
-			if s.cfg.Channels.Feishu.WebhookPath != "" {
-				webhookPath = s.cfg.Channels.Feishu.WebhookPath
-			}
-			mux.HandleFunc(webhookPath, feishuCh.HandleWebhook)
-			logger.Info("Feishu webhook registered", logger.String("path", webhookPath))
-		}
-	}
 
 	addr := fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.Port)
 	s.httpServer = &http.Server{

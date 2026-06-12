@@ -12,15 +12,17 @@ import (
 	"neoray/internal/logger"
 )
 
-// OpenAIProvider OpenAI 兼容提供商
-type OpenAIProvider struct {
-	cfg    *config.OpenAIConfig
+// GenericProvider 通用 OpenAI 兼容提供商
+type GenericProvider struct {
+	name   string
+	cfg    *config.ProviderConfig
 	client *http.Client
 }
 
-// NewOpenAIProvider 创建 OpenAI 提供商
-func NewOpenAIProvider(cfg *config.OpenAIConfig) *OpenAIProvider {
-	return &OpenAIProvider{
+// NewGenericProvider 创建通用提供商
+func NewGenericProvider(name string, cfg *config.ProviderConfig) *GenericProvider {
+	return &GenericProvider{
+		name: name,
 		cfg: cfg,
 		client: &http.Client{
 			Timeout: cfg.Timeout,
@@ -29,8 +31,8 @@ func NewOpenAIProvider(cfg *config.OpenAIConfig) *OpenAIProvider {
 }
 
 // Name 提供商名称
-func (p *OpenAIProvider) Name() string {
-	return "openai"
+func (p *GenericProvider) Name() string {
+	return p.name
 }
 
 // openaiRequest OpenAI API 请求
@@ -91,12 +93,13 @@ type openaiResponse struct {
 }
 
 // Chat 发送聊天请求
-func (p *OpenAIProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+func (p *GenericProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	if p.cfg.APIKey == "" {
-		return nil, fmt.Errorf("openai api key not configured")
+		return nil, fmt.Errorf("%s api key not configured", p.name)
 	}
 
-	logger.Debug("Calling OpenAI compatible API",
+	logger.Debug("Calling API",
+		logger.String("provider", p.name),
 		logger.String("model", p.cfg.Model),
 		logger.Int("tools_count", len(req.Tools)),
 	)
@@ -149,7 +152,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatRespo
 	// 构建工具定义
 	var apiTools []openaiTool
 	for _, tool := range req.Tools {
-		logger.Debug("Adding tool to OpenAI request",
+		logger.Debug("Adding tool to request",
 			logger.String("name", tool.Name),
 			logger.String("description", tool.Description))
 		apiTools = append(apiTools, openaiTool{
@@ -204,7 +207,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatRespo
 
 	// 先读取原始响应用于调试
 	respBody, _ := io.ReadAll(resp.Body)
-	logger.Debug("OpenAI raw response", logger.String("body", string(respBody)))
+	logger.Debug("API raw response", logger.String("body", string(respBody)))
 
 	var apiResp openaiResponse
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
@@ -217,15 +220,10 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatRespo
 
 	choice := apiResp.Choices[0]
 
-	// 调试 tool calls
-	logger.Debug("OpenAI message",
-		logger.String("content", choice.Message.Content),
-		logger.Int("tool_calls_count", len(choice.Message.ToolCalls)))
-
 	// 转换 tool calls 回通用格式
 	var toolCalls []ToolCall
 	for _, tc := range choice.Message.ToolCalls {
-		logger.Debug("OpenAI tool call",
+		logger.Debug("Tool call",
 			logger.String("id", tc.ID),
 			logger.String("name", tc.Function.Name),
 			logger.String("arguments", tc.Function.Arguments))
@@ -242,7 +240,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatRespo
 		FinishReason: choice.FinishReason,
 	}
 
-	logger.Debug("OpenAI API response",
+	logger.Debug("API response",
 		logger.Int("prompt_tokens", apiResp.Usage.PromptTokens),
 		logger.Int("completion_tokens", apiResp.Usage.CompletionTokens),
 		logger.Int("tool_calls", len(response.ToolCalls)),
@@ -252,7 +250,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatRespo
 }
 
 // ChatStream 流式聊天
-func (p *OpenAIProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-chan StreamChatResponse, error) {
+func (p *GenericProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-chan StreamChatResponse, error) {
 	// 暂时使用非流式实现
 	resultChan := make(chan StreamChatResponse, 1)
 

@@ -94,12 +94,3 @@ func (m *Manager) GetChannel(name string) (Channel, bool) {
 	return ch, ok
 }
 
-// GetFeishuChannel 获取飞书频道（用于 Webhook）
-func (m *Manager) GetFeishuChannel() (*FeishuChannel, bool) {
-	ch, ok := m.GetChannel("feishu")
-	if !ok {
-		return nil, false
-	}
-	feishuCh, ok := ch.(*FeishuChannel)
-	return feishuCh, ok
-}

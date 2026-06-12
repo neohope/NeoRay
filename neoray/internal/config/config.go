@@ -90,29 +90,19 @@ type PostgresConfig struct {
 
 // LLMConfig LLM 配置
 type LLMConfig struct {
-	DefaultProvider string           `mapstructure:"default_provider"`
-	Anthropic       AnthropicConfig  `mapstructure:"anthropic"`
-	OpenAI          OpenAIConfig     `mapstructure:"openai"`
+	DefaultProvider string                 `mapstructure:"default_provider"`
+	Providers       map[string]ProviderConfig `mapstructure:",remain"`
 }
 
-// AnthropicConfig Anthropic 配置
-type AnthropicConfig struct {
+// ProviderConfig 通用提供商配置
+type ProviderConfig struct {
 	APIKey      string        `mapstructure:"api_key"`
 	APIURL      string        `mapstructure:"api_url"`
 	Model       string        `mapstructure:"model"`
 	MaxTokens   int           `mapstructure:"max_tokens"`
 	Temperature float64       `mapstructure:"temperature"`
 	Timeout     time.Duration `mapstructure:"timeout"`
-}
-
-// OpenAIConfig OpenAI 配置
-type OpenAIConfig struct {
-	APIKey      string        `mapstructure:"api_key"`
-	APIURL      string        `mapstructure:"api_url"`
-	Model       string        `mapstructure:"model"`
-	MaxTokens   int           `mapstructure:"max_tokens"`
-	Temperature float64       `mapstructure:"temperature"`
-	Timeout     time.Duration `mapstructure:"timeout"`
+	APIFormat   string        `mapstructure:"api_format"` // "openai" 或 "anthropic"，默认为 "openai"
 }
 
 // SessionConfig 会话配置
@@ -201,12 +191,19 @@ type WebSocketChannelConfig struct {
 
 // FeishuChannelConfig 飞书频道配置
 type FeishuChannelConfig struct {
-	Enabled          bool   `mapstructure:"enabled"`
-	AppID           string `mapstructure:"app_id"`
-	AppSecret       string `mapstructure:"app_secret"`
+	Enabled           bool   `mapstructure:"enabled"`
+	AppID            string `mapstructure:"app_id"`
+	AppSecret        string `mapstructure:"app_secret"`
 	VerificationToken string `mapstructure:"verification_token"`
-	EncryptKey      string `mapstructure:"encrypt_key"`
-	WebhookPath     string `mapstructure:"webhook_path"`
+	EncryptKey       string `mapstructure:"encrypt_key"`
+	Domain           string `mapstructure:"domain"`           // "feishu" 或 "lark"
+	GroupPolicy      string `mapstructure:"group_policy"`     // "mention" 或 "open"
+	ReplyToMessage   bool   `mapstructure:"reply_to_message"` // 是否引用原消息回复
+	TopicIsolation   bool   `mapstructure:"topic_isolation"`  // 是否话题隔离
+	ReactEmoji       string `mapstructure:"react_emoji"`      // 处理中的表情，默认 "THUMBSUP"
+	DoneEmoji        string `mapstructure:"done_emoji"`       // 完成时的表情
+	ToolHintPrefix   string `mapstructure:"tool_hint_prefix"` // 工具提示前缀，默认 "🔧"
+	Streaming        bool   `mapstructure:"streaming"`        // 是否启用流式响应
 }
 
 // SecurityConfig 安全配置
