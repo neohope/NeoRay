@@ -63,6 +63,68 @@ func (c *Client) handleChat(payload interface{}) {
 	})
 }
 
+// handleChatStream 处理流式聊天消息
+func (c *Client) handleChatStream(payload interface{}) {
+	var chatPayload ChatPayload
+	payloadBytes, _ := json.Marshal(payload)
+	if err := json.Unmarshal(payloadBytes, &chatPayload); err != nil {
+		c.sendError("invalid_payload", "Invalid chat payload")
+		return
+	}
+
+	if chatPayload.Message == "" {
+		c.sendError("empty_message", "Message cannot be empty")
+		return
+	}
+
+	// 获取或创建会话
+	var sess *session.Session
+	var err error
+
+	if chatPayload.SessionID != "" {
+		sess, err = c.Server.sessionMgr.GetSession(chatPayload.SessionID)
+		if err != nil {
+			sess, _ = c.Server.sessionMgr.CreateSession()
+		}
+	} else {
+		sess, _ = c.Server.sessionMgr.CreateSession()
+	}
+
+	c.SessionID = sess.ID
+
+	// 发送开始响应
+	c.sendMessage("chat_start", map[string]interface{}{
+		"session_id": sess.ID,
+	})
+
+	// 调用 Agent 流式处理（带超时）
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	streamChan, err := c.Server.agent.ChatStream(ctx, sess, chatPayload.Message)
+	if err != nil {
+		logger.Error("Agent chat stream failed", logger.ErrorField(err))
+		c.sendError("agent_error", err.Error())
+		return
+	}
+
+	// 接收流式内容并推送给客户端
+	var fullContent string
+	for chunk := range streamChan {
+		fullContent += chunk
+		c.sendMessage("chat_chunk", map[string]interface{}{
+			"session_id": sess.ID,
+			"content":    chunk,
+		})
+	}
+
+	// 发送结束响应
+	c.sendMessage("chat_end", map[string]interface{}{
+		"session_id": sess.ID,
+		"content":    fullContent,
+	})
+}
+
 // handleCreateSession 处理创建会话
 func (c *Client) handleCreateSession(payload interface{}) {
 	var createPayload CreateSessionPayload
@@ -230,6 +292,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		// 发送聊天消息
 		var req struct {
 			Message string `json:"message"`
+			Stream  bool   `json:"stream"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
@@ -250,15 +313,42 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
-		resp, err := s.agent.Chat(ctx, sess, req.Message)
-		if err != nil {
-			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
-			return
-		}
+		if req.Stream {
+			// 流式响应
+			w.Header().Set("Content-Type", "text/plain")
+			w.Header().Set("Transfer-Encoding", "chunked")
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"content": resp.Content,
-		})
+			streamChan, err := s.agent.ChatStream(ctx, sess, req.Message)
+			if err != nil {
+				http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
+				return
+			}
+
+			flusher, ok := w.(http.Flusher)
+			if ok {
+				for chunk := range streamChan {
+					_, _ = w.Write([]byte(chunk))
+					flusher.Flush()
+				}
+			} else {
+				var fullContent string
+				for chunk := range streamChan {
+					fullContent += chunk
+				}
+				_, _ = w.Write([]byte(fullContent))
+			}
+		} else {
+			// 非流式响应
+			resp, err := s.agent.Chat(ctx, sess, req.Message)
+			if err != nil {
+				http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
+				return
+			}
+
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"content": resp.Content,
+			})
+		}
 
 	case http.MethodDelete:
 		// 删除会话

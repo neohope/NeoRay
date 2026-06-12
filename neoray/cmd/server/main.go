@@ -88,19 +88,22 @@ func main() {
 	// 初始化 Agent
 	aiAgent := agent.NewAgent(cfg, providerMgr, sessionMgr, toolRegistry)
 
-	// 初始化 API 服务器
-	apiServer := api.NewServer(cfg, aiAgent, sessionMgr)
-
 	// 初始化频道管理器
 	channelMgr := channel.NewManager(cfg, aiAgent, sessionMgr)
 
 	// 注册飞书频道
 	feishuConfig := &channel.FeishuConfig{
-		AppID:     cfg.Channels.Feishu.AppID,
-		AppSecret: cfg.Channels.Feishu.AppSecret,
-		Enabled:   cfg.Channels.Feishu.Enabled,
+		AppID:           cfg.Channels.Feishu.AppID,
+		AppSecret:       cfg.Channels.Feishu.AppSecret,
+		Enabled:         cfg.Channels.Feishu.Enabled,
+		VerificationToken: cfg.Channels.Feishu.VerificationToken,
+		EncryptKey:      cfg.Channels.Feishu.EncryptKey,
+		WebhookPath:     cfg.Channels.Feishu.WebhookPath,
 	}
-	channelMgr.RegisterChannel(channel.NewFeishuChannel(feishuConfig, cfg))
+	channelMgr.RegisterChannel(channel.NewFeishuChannel(feishuConfig, cfg, aiAgent, sessionMgr))
+
+	// 初始化 API 服务器
+	apiServer := api.NewServer(cfg, aiAgent, sessionMgr, channelMgr)
 
 	// 设置信号处理
 	sigChan := make(chan os.Signal, 1)

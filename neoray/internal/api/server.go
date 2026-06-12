@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"neoray/internal/agent"
+	"neoray/internal/channel"
 	"neoray/internal/config"
 	"neoray/internal/logger"
 	"neoray/internal/session"
@@ -21,6 +22,7 @@ type Server struct {
 	cfg         *config.Config
 	agent       *agent.Agent
 	sessionMgr  *session.Manager
+	channelMgr  *channel.Manager
 	upgrader    websocket.Upgrader
 	clients     map[string]*Client
 	clientsMu   sync.RWMutex
@@ -37,11 +39,12 @@ type Client struct {
 }
 
 // NewServer 创建 API 服务器
-func NewServer(cfg *config.Config, aiAgent *agent.Agent, sessionMgr *session.Manager) *Server {
+func NewServer(cfg *config.Config, aiAgent *agent.Agent, sessionMgr *session.Manager, channelMgr *channel.Manager) *Server {
 	return &Server{
 		cfg:        cfg,
 		agent:      aiAgent,
 		sessionMgr: sessionMgr,
+		channelMgr: channelMgr,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -61,9 +64,21 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/ws", s.handleWebSocket)
 
 	// REST API 端点
-	mux.HandleFunc("/api/sessions", s.handleSessions)
-	mux.HandleFunc("/api/sessions/", s.handleSession)
-	mux.HandleFunc("/api/health", s.handleHealth)
+	mux.HandleFunc("/api/sessions", s.wrapMiddleware(s.handleSessions))
+	mux.HandleFunc("/api/sessions/", s.wrapMiddleware(s.handleSession))
+	mux.HandleFunc("/api/health", s.wrapMiddleware(s.handleHealth))
+
+	// Feishu Webhook（如果启用）
+	if s.channelMgr != nil {
+		if feishuCh, ok := s.channelMgr.GetFeishuChannel(); ok {
+			webhookPath := "/webhook/feishu"
+			if s.cfg.Channels.Feishu.WebhookPath != "" {
+				webhookPath = s.cfg.Channels.Feishu.WebhookPath
+			}
+			mux.HandleFunc(webhookPath, feishuCh.HandleWebhook)
+			logger.Info("Feishu webhook registered", logger.String("path", webhookPath))
+		}
+	}
 
 	addr := fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.Port)
 	s.httpServer = &http.Server{
@@ -104,6 +119,52 @@ func (s *Server) Stop(ctx context.Context) error {
 		return s.httpServer.Shutdown(ctx)
 	}
 	return nil
+}
+
+// wrapMiddleware 包装中间件
+func (s *Server) wrapMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// CORS 中间件
+		s.corsMiddleware(w, r)
+
+		// 日志中间件
+		start := time.Now()
+		logger.Info("API request",
+			logger.String("method", r.Method),
+			logger.String("path", r.URL.Path),
+			logger.String("remote", r.RemoteAddr),
+		)
+
+		// 如果是预检请求，直接返回
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// 调用实际处理函数
+		next(w, r)
+
+		// 记录完成时间
+		logger.Info("API request completed",
+			logger.String("method", r.Method),
+			logger.String("path", r.URL.Path),
+			logger.Duration("duration", time.Since(start)),
+		)
+	}
+}
+
+// corsMiddleware CORS 中间件
+func (s *Server) corsMiddleware(w http.ResponseWriter, r *http.Request) {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		origin = "*"
+	}
+
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Access-Control-Max-Age", "86400")
 }
 
 // handleWebSocket WebSocket 处理
@@ -219,6 +280,8 @@ func (c *Client) handleMessage(data []byte) {
 	switch msg.Type {
 	case "chat":
 		c.handleChat(msg.Payload)
+	case "chat_stream":
+		c.handleChatStream(msg.Payload)
 	case "create_session":
 		c.handleCreateSession(msg.Payload)
 	case "join_session":
