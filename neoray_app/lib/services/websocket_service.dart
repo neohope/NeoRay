@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/message.dart';
+import '../utils/logger.dart';
 
 enum WebSocketMessageType {
   chatStart,
@@ -84,9 +85,9 @@ class WebSocketService {
         onDone: _handleDone,
       );
 
-      print('WebSocket connected');
+      logger.i('WebSocket connected');
     } catch (e) {
-      print('WebSocket connection failed: $e');
+      logger.e('WebSocket connection failed: $e');
       _isConnected = false;
       _connectionController.add(false);
     }
@@ -98,18 +99,18 @@ class WebSocketService {
       final event = WebSocketEvent.fromJson(data);
       _eventController.add(event);
     } catch (e) {
-      print('Failed to parse WebSocket message: $e');
+      logger.e('Failed to parse WebSocket message: $e');
     }
   }
 
   void _handleError(dynamic error) {
-    print('WebSocket error: $error');
+    logger.e('WebSocket error: $error');
     _isConnected = false;
     _connectionController.add(false);
   }
 
   void _handleDone() {
-    print('WebSocket connection closed');
+    logger.w('WebSocket connection closed');
     _isConnected = false;
     _connectionController.add(false);
   }
@@ -120,7 +121,7 @@ class WebSocketService {
     bool stream = true,
   }) {
     if (!_isConnected) {
-      print('WebSocket not connected');
+      logger.w('WebSocket not connected');
       return;
     }
 
