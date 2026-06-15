@@ -11,6 +11,7 @@ import (
 
 	"neoray/internal/agent"
 	"neoray/internal/api"
+	"neoray/internal/bus"
 	"neoray/internal/channel"
 	"neoray/internal/config"
 	"neoray/internal/logger"
@@ -118,6 +119,25 @@ func main() {
 	)
 	fmt.Println("Agent created")
 
+	// 初始化消息总线
+	fmt.Println("Creating message bus...")
+	msgBus := bus.NewMessageBus(100, 100)
+	fmt.Println("Message bus created")
+
+	// 用总线更新 Agent
+	aiAgent = agent.NewAgent(
+		cfg,
+		providerMgr,
+		sessionMgr,
+		toolRegistry,
+		agent.WithTokenManager(tokenManager),
+		agent.WithTraceManager(traceManager),
+		agent.WithMessageBus(msgBus),
+	)
+	// 启动 Agent 的总线监听
+	_ = aiAgent.Start()
+	fmt.Println("Agent started with message bus")
+
 	// 检查 LLM 配置
 	hasAPIKey := false
 	for name, providerCfg := range cfg.LLM.Providers {
@@ -137,7 +157,7 @@ func main() {
 
 	fmt.Println("Creating channel manager...")
 	// 初始化频道管理器
-	channelMgr := channel.NewManager(cfg, aiAgent, sessionMgr)
+	channelMgr := channel.NewManager(cfg, aiAgent, sessionMgr, msgBus)
 
 	// 注册飞书频道
 	fmt.Printf("Feishu config:\n")
@@ -164,12 +184,19 @@ func main() {
 
 	fmt.Println("Creating API server...")
 	// 初始化 API 服务器
-	apiServer := api.NewServer(cfg, aiAgent, sessionMgr, channelMgr)
+	apiServer := api.NewServer(cfg, aiAgent, sessionMgr, channelMgr, msgBus)
 	fmt.Println("API server created")
 
 	// 设置信号处理
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	fmt.Println("Starting message bus...")
+	// 启动消息总线
+	if err := msgBus.Start(); err != nil {
+		logger.Error("Failed to start message bus", logger.ErrorField(err))
+	}
+	fmt.Println("Message bus started")
 
 	fmt.Println("Starting API server...")
 	// 启动 API 服务器
@@ -218,6 +245,9 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	// 停止消息总线
+	_ = msgBus.Stop()
 
 	// 停止频道
 	channelMgr.StopAll()

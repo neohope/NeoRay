@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"neoray/internal/agent"
+	"neoray/internal/bus"
 	"neoray/internal/channel"
 	"neoray/internal/config"
 	"neoray/internal/logger"
@@ -23,6 +24,7 @@ type Server struct {
 	agent       *agent.Agent
 	sessionMgr  *session.Manager
 	channelMgr  *channel.Manager
+	msgBus      *bus.MessageBus
 	upgrader    websocket.Upgrader
 	clients     map[string]*Client
 	clientsMu   sync.RWMutex
@@ -41,12 +43,13 @@ type Client struct {
 }
 
 // NewServer 创建 API 服务器
-func NewServer(cfg *config.Config, aiAgent *agent.Agent, sessionMgr *session.Manager, channelMgr *channel.Manager) *Server {
-	return &Server{
+func NewServer(cfg *config.Config, aiAgent *agent.Agent, sessionMgr *session.Manager, channelMgr *channel.Manager, msgBus *bus.MessageBus) *Server {
+	s := &Server{
 		cfg:        cfg,
 		agent:      aiAgent,
 		sessionMgr: sessionMgr,
 		channelMgr: channelMgr,
+		msgBus:     msgBus,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -56,6 +59,13 @@ func NewServer(cfg *config.Config, aiAgent *agent.Agent, sessionMgr *session.Man
 		},
 		clients: make(map[string]*Client),
 	}
+
+	// 如果有消息总线，订阅出站消息
+	if msgBus != nil {
+		s.subscribeToBus()
+	}
+
+	return s
 }
 
 // Start 启动服务器
@@ -91,6 +101,48 @@ func (s *Server) Start() error {
 	}()
 
 	return nil
+}
+
+// subscribeToBus 订阅消息总线
+func (s *Server) subscribeToBus() {
+	// 创建订阅通道
+	outChan := make(chan *bus.OutboundMessage, 50)
+
+	// 订阅总线
+	if err := s.msgBus.SubscribeOutbound("api_server", outChan); err != nil {
+		logger.Warn("Failed to subscribe API server to bus", logger.ErrorField(err))
+		return
+	}
+
+	// 启动协程处理出站消息
+	go func() {
+		for msg := range outChan {
+			// 广播给所有 WebSocket 客户端，或者目标是 websocket 频道
+			if msg.ChannelID == "" || msg.ChannelID == "websocket" {
+				s.clientsMu.RLock()
+				for _, client := range s.clients {
+					// 如果消息有 SessionID，只发给对应会话的客户端
+					if msg.SessionID == "" || msg.SessionID == client.SessionID {
+						client.sendMessage("chat", map[string]interface{}{
+							"content": msg.Content,
+							"type":    msg.Type,
+						})
+					}
+				}
+				s.clientsMu.RUnlock()
+			}
+		}
+	}()
+
+	logger.Info("API server subscribed to message bus")
+}
+
+// publishToBus 发布入站消息到总线
+func (s *Server) publishToBus(msg *bus.InboundMessage) error {
+	if s.msgBus == nil {
+		return nil
+	}
+	return s.msgBus.PublishInbound(msg)
 }
 
 // Stop 停止服务器

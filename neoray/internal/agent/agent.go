@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"neoray/internal/bus"
 	"neoray/internal/config"
 	"neoray/internal/logger"
 	"neoray/internal/provider"
@@ -24,6 +25,7 @@ type Agent struct {
 	toolRegistry   *tools.Registry
 	tokenManager   *TokenManager
 	traceManager   *TraceManager
+	msgBus         *bus.MessageBus
 }
 
 // AgentOption Agent 配置选项
@@ -40,6 +42,13 @@ func WithTokenManager(tm *TokenManager) AgentOption {
 func WithTraceManager(tm *TraceManager) AgentOption {
 	return func(a *Agent) {
 		a.traceManager = tm
+	}
+}
+
+// WithMessageBus 设置消息总线
+func WithMessageBus(mb *bus.MessageBus) AgentOption {
+	return func(a *Agent) {
+		a.msgBus = mb
 	}
 }
 
@@ -216,7 +225,7 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 		}
 
 		// 添加助手消息
-		assistantMsg := session.NewAssistantMessage(resp.Content)
+		assistantMsg := session.NewAssistantMessage("", "", "",resp.Content)
 		if len(resp.ToolCalls) > 0 {
 			assistantMsg.ToolCalls = make([]session.ToolCall, 0, len(resp.ToolCalls))
 			for _, tc := range resp.ToolCalls {
@@ -544,7 +553,7 @@ func (a *Agent) handleNativeStreamTool(
 			// 有工具调用，需要执行
 			if len(currentToolCalls) > 0 {
 				// 保存助手消息
-				assistantMsg := session.NewAssistantMessage(fullContent)
+				assistantMsg := session.NewAssistantMessage("", "", "",fullContent)
 				if len(currentToolCalls) > 0 {
 					assistantMsg.ToolCalls = make([]session.ToolCall, 0, len(currentToolCalls))
 					for _, tc := range currentToolCalls {
@@ -577,7 +586,7 @@ func (a *Agent) handleNativeStreamTool(
 
 			// 没有工具调用，保存并完成
 			if fullContent != "" {
-				assistantMsg := session.NewAssistantMessage(fullContent)
+				assistantMsg := session.NewAssistantMessage("", "", "",fullContent)
 				sess.AddMessage(assistantMsg)
 				if err := a.sessionMgr.SaveSession(sess); err != nil {
 					logger.Warn("Failed to save session", logger.ErrorField(err))
@@ -638,7 +647,7 @@ func (a *Agent) handleFallbackStream(
 		}
 
 		// 保存助手消息
-		assistantMsg := session.NewAssistantMessage(resp.Content)
+		assistantMsg := session.NewAssistantMessage("", "", "",resp.Content)
 		if len(resp.ToolCalls) > 0 {
 			assistantMsg.ToolCalls = make([]session.ToolCall, 0, len(resp.ToolCalls))
 			for _, tc := range resp.ToolCalls {
@@ -670,7 +679,7 @@ func (a *Agent) handleFallbackStream(
 	}
 
 	// 没有工具调用，完成
-	assistantMsg := session.NewAssistantMessage(resp.Content)
+	assistantMsg := session.NewAssistantMessage("", "", "",resp.Content)
 	sess.AddMessage(assistantMsg)
 	if err := a.sessionMgr.SaveSession(sess); err != nil {
 		logger.Warn("Failed to save session", logger.ErrorField(err))
@@ -683,4 +692,114 @@ func (a *Agent) handleFallbackStream(
 	}
 
 	return true, nil
+}
+
+// Start 启动 Agent 的总线监听
+func (a *Agent) Start() error {
+	if a.msgBus == nil {
+		return nil
+	}
+
+	// 注册入站消息处理器
+	a.msgBus.RegisterInboundHandler(a.handleInboundMessage)
+
+	logger.Info("Agent started with message bus integration")
+	return nil
+}
+
+// handleInboundMessage 处理来自总线的入站消息
+func (a *Agent) handleInboundMessage(ctx context.Context, msg *bus.InboundMessage) error {
+	logger.Debug("Agent received message from bus",
+		logger.String("message_id", msg.ID),
+		logger.String("channel_id", msg.ChannelID),
+		logger.String("chat_id", msg.ChatID),
+	)
+
+	// 获取或创建会话
+	var sess *session.Session
+	var err error
+
+	if msg.Metadata != nil {
+		if sessionID, ok := msg.Metadata["session_id"].(string); ok && sessionID != "" {
+			sess, err = a.sessionMgr.GetSessionWithValidation(sessionID, msg.ChannelID, msg.UserID)
+		}
+	}
+
+	if sess == nil || err != nil {
+		sess, err = a.sessionMgr.CreateSession(msg.ChannelID, msg.UserID)
+		if err != nil {
+			return fmt.Errorf("failed to create session: %w", err)
+		}
+	}
+
+	// 发送开始响应到总线
+	if a.msgBus != nil {
+		startMsg := bus.NewOutboundMessage(msg.ChannelID, msg.ChatID, "")
+		startMsg.Type = bus.MessageType("chat_start")
+		startMsg.SessionID = sess.ID
+		_ = a.msgBus.PublishOutbound(startMsg)
+	}
+
+	// 流式处理
+	streamChan, err := a.ChatStream(ctx, sess, msg.Content)
+	if err != nil {
+		if a.msgBus != nil {
+			errMsg := bus.NewOutboundMessage(msg.ChannelID, msg.ChatID, err.Error())
+			errMsg.Type = bus.MessageType("error")
+			errMsg.SessionID = sess.ID
+			_ = a.msgBus.PublishOutbound(errMsg)
+		}
+		return err
+	}
+
+	// 处理流式响应
+	var fullContent string
+	for chunk := range streamChan {
+		switch chunk.Type {
+		case "text":
+			fullContent += chunk.Content
+			if a.msgBus != nil {
+				deltaMsg := bus.NewOutboundMessage(msg.ChannelID, msg.ChatID, chunk.Content)
+				deltaMsg.Type = bus.MessageType("chat_chunk")
+				deltaMsg.SessionID = sess.ID
+				_ = a.msgBus.PublishOutbound(deltaMsg)
+			}
+		case "tool_start":
+			if a.msgBus != nil {
+				toolMsg := bus.NewOutboundMessage(msg.ChannelID, msg.ChatID, "")
+				toolMsg.Type = bus.MessageType("tool_call_start")
+				toolMsg.SessionID = sess.ID
+				toolMsg.Metadata = map[string]interface{}{
+					"tool_calls": chunk.ToolCalls,
+				}
+				_ = a.msgBus.PublishOutbound(toolMsg)
+			}
+		case "tool_result":
+			if a.msgBus != nil {
+				resultMsg := bus.NewOutboundMessage(msg.ChannelID, msg.ChatID, "")
+				resultMsg.Type = bus.MessageType("tool_call_result")
+				resultMsg.SessionID = sess.ID
+				resultMsg.Metadata = map[string]interface{}{
+					"tool_results": chunk.ToolResults,
+				}
+				_ = a.msgBus.PublishOutbound(resultMsg)
+			}
+		case "end":
+			if a.msgBus != nil {
+				endMsg := bus.NewOutboundMessage(msg.ChannelID, msg.ChatID, fullContent)
+				endMsg.Type = bus.MessageType("chat_end")
+				endMsg.SessionID = sess.ID
+				_ = a.msgBus.PublishOutbound(endMsg)
+			}
+		case "error":
+			if a.msgBus != nil {
+				errMsg := bus.NewOutboundMessage(msg.ChannelID, msg.ChatID, chunk.Error.Error())
+				errMsg.Type = bus.MessageType("error")
+				errMsg.SessionID = sess.ID
+				_ = a.msgBus.PublishOutbound(errMsg)
+			}
+		}
+	}
+
+	return nil
 }

@@ -18,6 +18,7 @@ import (
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 	"neoray/internal/agent"
+	"neoray/internal/bus"
 	"neoray/internal/config"
 	"neoray/internal/logger"
 	"neoray/internal/session"
@@ -274,14 +275,7 @@ func (f *FeishuChannel) fetchBotOpenID() error {
 	return nil
 }
 
-type OutboundMessage struct {
-	ChatID   string
-	Content  string
-	Media    []string
-	Metadata map[string]interface{}
-}
-
-func (f *FeishuChannel) Send(ctx context.Context, msg OutboundMessage) error {
+func (f *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	if msg.Metadata == nil {
 		msg.Metadata = make(map[string]interface{})
 	}
@@ -380,7 +374,7 @@ func (f *FeishuChannel) sendTextMessage(ctx context.Context, receiveID, message 
 	return nil
 }
 
-func (f *FeishuChannel) sendToolHint(ctx context.Context, msg OutboundMessage) error {
+func (f *FeishuChannel) sendToolHint(ctx context.Context, msg bus.OutboundMessage) error {
 	hint := strings.TrimSpace(msg.Content)
 	if hint == "" {
 		return nil
@@ -406,7 +400,7 @@ func (f *FeishuChannel) sendToolHint(ctx context.Context, msg OutboundMessage) e
 	return f.sendInteractiveMessage(ctx, msg.ChatID, string(cardContent), msg.Metadata)
 }
 
-func (f *FeishuChannel) sendMessageWithFormat(ctx context.Context, msg OutboundMessage) error {
+func (f *FeishuChannel) sendMessageWithFormat(ctx context.Context, msg bus.OutboundMessage) error {
 	receiveIDType := f.receiveIDType(msg.ChatID)
 
 	replyMessageID := ""
@@ -1058,7 +1052,7 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 
 	sess, err := f.sessionMgr.GetSession(sessID)
 	if err != nil {
-		sess = session.NewSession()
+		sess = session.NewSession("feishu", userID)
 		sess.ID = sessID
 		sess.Title = "Feishu Chat"
 		_ = f.sessionMgr.SaveSession(sess)
@@ -1118,7 +1112,7 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 			"thread_id":   msgEvent.Event.Message.ThreadID,
 		}); err != nil {
 			logger.Error("Failed to send Feishu streaming reply, falling back to regular reply", logger.String("message_id", messageID), logger.String("chat_id", replyChatID), logger.ErrorField(err))
-			outMsg := OutboundMessage{
+			outMsg := bus.OutboundMessage{
 				ChatID:   replyChatID,
 				Content:  result.Message.Content,
 				Media:    []string{},
@@ -1129,7 +1123,7 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 			}
 		}
 	} else {
-		outMsg := OutboundMessage{
+		outMsg := bus.OutboundMessage{
 			ChatID:   replyChatID,
 			Content:  result.Message.Content,
 			Media:    []string{},

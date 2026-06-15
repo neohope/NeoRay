@@ -29,7 +29,7 @@ func NewTUI(aiAgent *agent.Agent, sessMgr *session.Manager) *TUI {
 
 // Run 运行 TUI
 func (t *TUI) Run() error {
-	sess, err := t.sessMgr.CreateSession()
+	sess, err := t.sessMgr.CreateSession("default", "default")
 	if err != nil {
 		return err
 	}

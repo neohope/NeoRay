@@ -69,6 +69,26 @@ func (s *FileStore) List() ([]*Session, error) {
 	return list, nil
 }
 
+// ListByChannelAndUser 获取指定频道和用户的会话列表（按更新时间倒序）
+func (s *FileStore) ListByChannelAndUser(channelID, userID string) ([]*Session, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	list := make([]*Session, 0)
+	for _, sess := range s.sessions {
+		if sess.ChannelID == channelID && sess.UserID == userID {
+			list = append(list, sess)
+		}
+	}
+
+	// 按更新时间倒序排序
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].UpdatedAt.After(list[j].UpdatedAt)
+	})
+
+	return list, nil
+}
+
 // Save 保存会话
 func (s *FileStore) Save(sess *Session) error {
 	s.mu.Lock()

@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"neoray/internal/agent"
+	"neoray/internal/bus"
 	"neoray/internal/config"
 	"neoray/internal/logger"
 	"neoray/internal/session"
@@ -18,8 +19,8 @@ type Channel interface {
 	Start() error
 	// Stop 停止频道
 	Stop() error
-	// SendMessage 发送消息
-	SendMessage(ctx context.Context, channelID, message string) error
+	// Send 发送出站消息
+	Send(ctx context.Context, msg bus.OutboundMessage) error
 }
 
 // Manager 频道管理器
@@ -27,16 +28,18 @@ type Manager struct {
 	cfg        *config.Config
 	agent      *agent.Agent
 	sessionMgr *session.Manager
+	msgBus     *bus.MessageBus
 	channels   map[string]Channel
 	mu         sync.RWMutex
 }
 
 // NewManager 创建频道管理器
-func NewManager(cfg *config.Config, aiAgent *agent.Agent, sessionMgr *session.Manager) *Manager {
+func NewManager(cfg *config.Config, aiAgent *agent.Agent, sessionMgr *session.Manager, msgBus *bus.MessageBus) *Manager {
 	return &Manager{
 		cfg:        cfg,
 		agent:      aiAgent,
 		sessionMgr: sessionMgr,
+		msgBus:     msgBus,
 		channels:   make(map[string]Channel),
 	}
 }
@@ -50,7 +53,7 @@ func (m *Manager) RegisterChannel(ch Channel) {
 	logger.Info("Channel registered", logger.String("name", ch.Name()))
 }
 
-// StartAll 启动所有频道
+// StartAll 启动所有频道并订阅消息总线
 func (m *Manager) StartAll() error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -66,7 +69,49 @@ func (m *Manager) StartAll() error {
 		}
 	}
 
+	// 如果有消息总线，订阅出站消息
+	if m.msgBus != nil {
+		m.subscribeToBus()
+	}
+
 	return nil
+}
+
+// subscribeToBus 订阅消息总线的出站消息
+func (m *Manager) subscribeToBus() {
+	// 为每个频道创建订阅
+	for name, ch := range m.channels {
+		chName := name
+		channel := ch
+
+		// 创建订阅通道
+		outChan := make(chan *bus.OutboundMessage, 50)
+
+		// 订阅总线
+		if err := m.msgBus.SubscribeOutbound("channel_"+chName, outChan); err != nil {
+			logger.Warn("Failed to subscribe channel to bus",
+				logger.String("channel", chName),
+				logger.ErrorField(err))
+			continue
+		}
+
+		// 启动协程处理出站消息
+		go func() {
+			for msg := range outChan {
+				// 只处理目标是本频道的消息，或者没有指定频道的消息（广播）
+				if msg.ChannelID == "" || msg.ChannelID == chName {
+					ctx := context.Background()
+					if err := channel.Send(ctx, *msg); err != nil {
+						logger.Error("Channel failed to send message",
+							logger.String("channel", chName),
+							logger.ErrorField(err))
+					}
+				}
+			}
+		}()
+
+		logger.Info("Channel subscribed to message bus", logger.String("channel", chName))
+	}
 }
 
 // StopAll 停止所有频道
