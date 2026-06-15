@@ -64,6 +64,7 @@ type LoggerFileConfig struct {
 	MaxBackups int    `mapstructure:"max_backups"`
 	MaxAge     int    `mapstructure:"max_age"`
 	Compress   bool   `mapstructure:"compress"`
+	RotateDaily bool `mapstructure:"rotate_daily"`
 }
 
 // DatabaseConfig 数据库配置

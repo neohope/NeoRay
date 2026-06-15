@@ -12,7 +12,23 @@ port = 8080
 
 [logger]
 level = "info"
+format = "json"
 output = ["stdout", "file"]
+
+# 日志文件配置
+[logger.file]
+# 日志路径
+path = "logs/neoray.log"
+# 单个日志文件最大大小 (MB)
+max_size = 100
+# 保留的历史文件数量
+max_backups = 30
+# 保留的历史天数
+max_age = 28
+# 是否压缩历史日志
+compress = true
+# 是否按日期拆分日志
+rotate_daily = false
 
 [database]
 driver = "sqlite"

@@ -117,6 +117,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("logger.file.max_backups", 3)
 	v.SetDefault("logger.file.max_age", 28)
 	v.SetDefault("logger.file.compress", true)
+		v.SetDefault("logger.file.rotate_daily", false)
 
 	// Database
 	v.SetDefault("database.driver", "sqlite")

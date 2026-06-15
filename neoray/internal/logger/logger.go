@@ -2,6 +2,10 @@ package logger
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -9,6 +13,75 @@ import (
 
 	"neoray/internal/config"
 )
+
+// DailyWriter 按日期滚动的日志写入器
+type DailyWriter struct {
+	path        string
+	currentDate string
+	file        *os.File
+	mu          sync.Mutex
+}
+
+// NewDailyWriter 创建按日期滚动的写入器
+func NewDailyWriter(path string) *DailyWriter {
+	return &DailyWriter{
+		path: path,
+	}
+}
+
+// Write 写入内容
+func (w *DailyWriter) Write(p []byte) (n int, err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	date := time.Now().Format("2006-01-02")
+	if w.currentDate != date || w.file == nil {
+		w.rotate(date)
+	}
+
+	if w.file != nil {
+		return w.file.Write(p)
+	}
+	return 0, nil
+}
+
+// Sync 刷新
+func (w *DailyWriter) Sync() error {
+	if w.file != nil {
+		return w.file.Sync()
+	}
+	return nil
+}
+
+// rotate 切换日志文件
+func (w *DailyWriter) rotate(date string) {
+	if w.file != nil {
+		_ = w.file.Close()
+	}
+
+	ext := filepath.Ext(w.path)
+	base := strings.TrimSuffix(w.path, ext)
+	newPath := base + "." + date + ext
+
+	dir := filepath.Dir(w.path)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		_ = os.MkdirAll(dir, 0755)
+	}
+
+	file, err := os.OpenFile(newPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err == nil {
+		w.currentDate = date
+		w.file = file
+	}
+}
+
+// Close 关闭
+func (w *DailyWriter) Close() error {
+	if w.file != nil {
+		return w.file.Close()
+	}
+	return nil
+}
 
 var (
 	globalLogger *zap.Logger
@@ -62,16 +135,22 @@ func Init(cfg *config.Config) error {
 		case "file":
 			if cfg.Logger.File.Path != "" {
 				logPath := cfg.ResolvePath(cfg.Logger.File.Path)
-				fileWriter := &lumberjack.Logger{
-					Filename:   logPath,
-					MaxSize:    cfg.Logger.File.MaxSize,
-					MaxBackups: cfg.Logger.File.MaxBackups,
-					MaxAge:     cfg.Logger.File.MaxAge,
-					Compress:   cfg.Logger.File.Compress,
+				var syncer zapcore.WriteSyncer
+				if cfg.Logger.File.RotateDaily {
+					syncer = zapcore.AddSync(NewDailyWriter(logPath))
+				} else {
+					fileWriter := &lumberjack.Logger{
+						Filename:   logPath,
+						MaxSize:    cfg.Logger.File.MaxSize,
+						MaxBackups: cfg.Logger.File.MaxBackups,
+						MaxAge:     cfg.Logger.File.MaxAge,
+						Compress:   cfg.Logger.File.Compress,
+					}
+					syncer = zapcore.AddSync(fileWriter)
 				}
 				cores = append(cores, zapcore.NewCore(
 					encoder,
-					zapcore.AddSync(fileWriter),
+					syncer,
 					level,
 				))
 			}
