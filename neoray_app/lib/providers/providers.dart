@@ -4,11 +4,15 @@ import '../models/message.dart';
 import '../models/app_config.dart';
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
+import '../utils/logger.dart';
 
 // API Service Provider
 final apiServiceProvider = Provider<ApiService>((ref) {
   return ApiService(baseUrl: 'http://localhost:8080');
 });
+
+// Global Error Provider
+final globalErrorProvider = StateProvider<String?>((ref) => null);
 
 // WebSocket Service Provider
 final webSocketServiceProvider = Provider<WebSocketService>((ref) {
@@ -67,8 +71,8 @@ class SessionListNotifier extends StateNotifier<AsyncValue<List<Session>>> {
     try {
       await _apiService.createSession(title: title);
       await loadSessions();
-    } catch (e) {
-      // Handle error
+    } catch (e, stackTrace) {
+      state = AsyncValue.error(e, stackTrace);
     }
   }
 
@@ -76,8 +80,8 @@ class SessionListNotifier extends StateNotifier<AsyncValue<List<Session>>> {
     try {
       await _apiService.deleteSession(sessionId);
       await loadSessions();
-    } catch (e) {
-      // Handle error
+    } catch (e, stackTrace) {
+      state = AsyncValue.error(e, stackTrace);
     }
   }
 }
@@ -100,8 +104,10 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
       final session = await _apiService.getSession(sessionId);
       state = session;
       _webSocketService.joinSession(sessionId);
-    } catch (e) {
-      // Handle error
+    } catch (e, stackTrace) {
+      logger.e('选择会话失败', error: e, stackTrace: stackTrace);
+      // 保持当前状态不变，错误由调用方处理
+      rethrow;
     }
   }
 
@@ -135,7 +141,11 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
         );
         state = state?.copyWith(messages: [...state!.messages, response]);
       } catch (e) {
-        // Handle error
+        // Remove user message from the list on error
+        state = state?.copyWith(
+          messages: [...state!.messages.where((m) => m != userMessage)],
+        );
+        rethrow;
       }
     }
   }

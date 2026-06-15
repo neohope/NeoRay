@@ -4,6 +4,7 @@ import '../models/session.dart';
 import '../models/message.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
+import '../utils/logger.dart';
 import 'config_page.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/sidebar.dart';
@@ -55,10 +56,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _isTyping = true;
     });
 
-    await currentSessionNotifier.sendMessage(message);
-    setState(() {
-      _isTyping = false;
-    });
+    try {
+      await currentSessionNotifier.sendMessage(message);
+    } catch (e) {
+      logger.e('发送消息失败', error: e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('发送失败: $e'),
+            backgroundColor: AppTheme.danger,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isTyping = false;
+        });
+      }
+    }
 
     _scrollToBottom();
   }
@@ -75,9 +92,23 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     });
   }
 
-  void _createNewChat() {
-    ref.read(currentSessionProvider.notifier).newSession();
-    _messageController.clear();
+  void _createNewChat() async {
+    try {
+      await ref.read(sessionListProvider.notifier).createSession();
+      ref.read(currentSessionProvider.notifier).newSession();
+      _messageController.clear();
+    } catch (e) {
+      logger.e('创建会话失败', error: e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('创建会话失败: $e'),
+            backgroundColor: AppTheme.danger,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
   void _openSettings() {

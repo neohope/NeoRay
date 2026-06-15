@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/session.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
+import '../utils/logger.dart';
 
 class Sidebar extends ConsumerWidget {
   final VoidCallback onNewChat;
@@ -31,7 +32,43 @@ class Sidebar extends ConsumerWidget {
             child: sessionList.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (error, stackTrace) => Center(
-                child: Text('加载失败: $error'),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        size: 48,
+                        color: AppTheme.danger.withValues(alpha: 0.6),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        '加载失败',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        error.toString(),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: AppTheme.textSecondaryLight,
+                            ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          ref.read(sessionListProvider.notifier).loadSessions();
+                        },
+                        icon: const Icon(Icons.refresh, color: Colors.white),
+                        label: const Text('重试', style: TextStyle(color: Colors.white)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
               data: (sessions) => _buildSessionList(
                 context,
@@ -144,10 +181,22 @@ class Sidebar extends ConsumerWidget {
             color: isSelected ? const Color(0xFFE5E7EB) : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
             child: InkWell(
-              onTap: () {
-                ref
-                    .read(currentSessionProvider.notifier)
-                    .selectSession(session.id);
+              onTap: () async {
+                try {
+                  await ref
+                      .read(currentSessionProvider.notifier)
+                      .selectSession(session.id);
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('加载会话失败: $e'),
+                        backgroundColor: AppTheme.danger,
+                        duration: const Duration(seconds: 3),
+                      ),
+                    );
+                  }
+                }
               },
               borderRadius: BorderRadius.circular(8),
               child: Padding(
