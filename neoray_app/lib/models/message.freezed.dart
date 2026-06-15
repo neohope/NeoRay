@@ -194,6 +194,9 @@ Message _$MessageFromJson(Map<String, dynamic> json) {
 mixin _$Message {
   String get role => throw _privateConstructorUsedError;
   String get content => throw _privateConstructorUsedError;
+  String? get channelId => throw _privateConstructorUsedError;
+  String? get userId => throw _privateConstructorUsedError;
+  String? get sessionId => throw _privateConstructorUsedError;
   List<ToolCall> get toolCalls => throw _privateConstructorUsedError;
   DateTime? get timestamp => throw _privateConstructorUsedError;
 
@@ -210,6 +213,9 @@ abstract class $MessageCopyWith<$Res> {
   $Res call(
       {String role,
       String content,
+      String? channelId,
+      String? userId,
+      String? sessionId,
       List<ToolCall> toolCalls,
       DateTime? timestamp});
 }
@@ -229,6 +235,9 @@ class _$MessageCopyWithImpl<$Res, $Val extends Message>
   $Res call({
     Object? role = null,
     Object? content = null,
+    Object? channelId = freezed,
+    Object? userId = freezed,
+    Object? sessionId = freezed,
     Object? toolCalls = null,
     Object? timestamp = freezed,
   }) {
@@ -241,6 +250,18 @@ class _$MessageCopyWithImpl<$Res, $Val extends Message>
           ? _value.content
           : content // ignore: cast_nullable_to_non_nullable
               as String,
+      channelId: freezed == channelId
+          ? _value.channelId
+          : channelId // ignore: cast_nullable_to_non_nullable
+              as String?,
+      userId: freezed == userId
+          ? _value.userId
+          : userId // ignore: cast_nullable_to_non_nullable
+              as String?,
+      sessionId: freezed == sessionId
+          ? _value.sessionId
+          : sessionId // ignore: cast_nullable_to_non_nullable
+              as String?,
       toolCalls: null == toolCalls
           ? _value.toolCalls
           : toolCalls // ignore: cast_nullable_to_non_nullable
@@ -263,6 +284,9 @@ abstract class _$$MessageImplCopyWith<$Res> implements $MessageCopyWith<$Res> {
   $Res call(
       {String role,
       String content,
+      String? channelId,
+      String? userId,
+      String? sessionId,
       List<ToolCall> toolCalls,
       DateTime? timestamp});
 }
@@ -280,6 +304,9 @@ class __$$MessageImplCopyWithImpl<$Res>
   $Res call({
     Object? role = null,
     Object? content = null,
+    Object? channelId = freezed,
+    Object? userId = freezed,
+    Object? sessionId = freezed,
     Object? toolCalls = null,
     Object? timestamp = freezed,
   }) {
@@ -292,6 +319,18 @@ class __$$MessageImplCopyWithImpl<$Res>
           ? _value.content
           : content // ignore: cast_nullable_to_non_nullable
               as String,
+      channelId: freezed == channelId
+          ? _value.channelId
+          : channelId // ignore: cast_nullable_to_non_nullable
+              as String?,
+      userId: freezed == userId
+          ? _value.userId
+          : userId // ignore: cast_nullable_to_non_nullable
+              as String?,
+      sessionId: freezed == sessionId
+          ? _value.sessionId
+          : sessionId // ignore: cast_nullable_to_non_nullable
+              as String?,
       toolCalls: null == toolCalls
           ? _value._toolCalls
           : toolCalls // ignore: cast_nullable_to_non_nullable
@@ -310,6 +349,9 @@ class _$MessageImpl implements _Message {
   const _$MessageImpl(
       {required this.role,
       required this.content,
+      this.channelId,
+      this.userId,
+      this.sessionId,
       final List<ToolCall> toolCalls = const [],
       this.timestamp})
       : _toolCalls = toolCalls;
@@ -321,6 +363,12 @@ class _$MessageImpl implements _Message {
   final String role;
   @override
   final String content;
+  @override
+  final String? channelId;
+  @override
+  final String? userId;
+  @override
+  final String? sessionId;
   final List<ToolCall> _toolCalls;
   @override
   @JsonKey()
@@ -335,7 +383,7 @@ class _$MessageImpl implements _Message {
 
   @override
   String toString() {
-    return 'Message(role: $role, content: $content, toolCalls: $toolCalls, timestamp: $timestamp)';
+    return 'Message(role: $role, content: $content, channelId: $channelId, userId: $userId, sessionId: $sessionId, toolCalls: $toolCalls, timestamp: $timestamp)';
   }
 
   @override
@@ -345,6 +393,11 @@ class _$MessageImpl implements _Message {
             other is _$MessageImpl &&
             (identical(other.role, role) || other.role == role) &&
             (identical(other.content, content) || other.content == content) &&
+            (identical(other.channelId, channelId) ||
+                other.channelId == channelId) &&
+            (identical(other.userId, userId) || other.userId == userId) &&
+            (identical(other.sessionId, sessionId) ||
+                other.sessionId == sessionId) &&
             const DeepCollectionEquality()
                 .equals(other._toolCalls, _toolCalls) &&
             (identical(other.timestamp, timestamp) ||
@@ -353,8 +406,8 @@ class _$MessageImpl implements _Message {
 
   @JsonKey(ignore: true)
   @override
-  int get hashCode => Object.hash(runtimeType, role, content,
-      const DeepCollectionEquality().hash(_toolCalls), timestamp);
+  int get hashCode => Object.hash(runtimeType, role, content, channelId, userId,
+      sessionId, const DeepCollectionEquality().hash(_toolCalls), timestamp);
 
   @JsonKey(ignore: true)
   @override
@@ -374,6 +427,9 @@ abstract class _Message implements Message {
   const factory _Message(
       {required final String role,
       required final String content,
+      final String? channelId,
+      final String? userId,
+      final String? sessionId,
       final List<ToolCall> toolCalls,
       final DateTime? timestamp}) = _$MessageImpl;
 
@@ -383,6 +439,12 @@ abstract class _Message implements Message {
   String get role;
   @override
   String get content;
+  @override
+  String? get channelId;
+  @override
+  String? get userId;
+  @override
+  String? get sessionId;
   @override
   List<ToolCall> get toolCalls;
   @override

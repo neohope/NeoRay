@@ -11,11 +11,15 @@ class ApiService {
   final String baseUrl;
   final http.Client _httpClient;
   final Duration timeout;
+  final String channelId;
+  final String userId;
 
   ApiService({
     required this.baseUrl,
     http.Client? httpClient,
     this.timeout = const Duration(seconds: 120),
+    this.channelId = 'default',
+    this.userId = 'default',
   }) : _httpClient = httpClient ?? http.Client();
 
   Uri _buildUri(String path, [Map<String, String>? queryParams]) {
@@ -75,10 +79,13 @@ class ApiService {
     });
   }
 
-  Future<List<Session>> getSessions() async {
+  Future<List<Session>> getSessions({String? channelId, String? userId}) async {
     return _executeRequest(() async {
+      final queryParams = <String, String>{};
+      if (channelId != null) queryParams['channel_id'] = channelId;
+      if (userId != null) queryParams['user_id'] = userId;
       final response = await _httpClient
-          .get(_buildUri('/api/sessions'))
+          .get(_buildUri('/api/sessions', queryParams))
           .timeout(timeout, onTimeout: () => throw TimeoutException('请求超时'));
       final data = await _handleResponse(response);
       final sessionsJson = data['sessions'] as List? ?? [];
@@ -88,13 +95,17 @@ class ApiService {
     });
   }
 
-  Future<Session> createSession({String? title}) async {
+  Future<Session> createSession({String? channelId, String? userId, String? title}) async {
     return _executeRequest(() async {
       final response = await _httpClient
           .post(
             _buildUri('/api/sessions'),
             headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'name': title ?? '新聊天'}),
+            body: jsonEncode({
+              'channel_id': channelId ?? this.channelId,
+              'user_id': userId ?? this.userId,
+              'name': title ?? '新聊天',
+            }),
           )
           .timeout(timeout, onTimeout: () => throw TimeoutException('请求超时'));
       final data = await _handleResponse(response);
@@ -102,10 +113,13 @@ class ApiService {
     });
   }
 
-  Future<Session> getSession(String sessionId) async {
+  Future<Session> getSession(String sessionId, {String? channelId, String? userId}) async {
     return _executeRequest(() async {
+      final queryParams = <String, String>{};
+      if (channelId != null) queryParams['channel_id'] = channelId;
+      if (userId != null) queryParams['user_id'] = userId;
       final response = await _httpClient
-          .get(_buildUri('/api/sessions/$sessionId'))
+          .get(_buildUri('/api/sessions/$sessionId', queryParams))
           .timeout(timeout, onTimeout: () => throw TimeoutException('请求超时'));
       final data = await _handleResponse(response);
       return Session.fromJson(data);
@@ -115,6 +129,8 @@ class ApiService {
   Future<Message> sendMessage({
     required String sessionId,
     required String message,
+    String? channelId,
+    String? userId,
     bool stream = false,
   }) async {
     return _executeRequest(() async {
@@ -122,11 +138,22 @@ class ApiService {
           .post(
             _buildUri('/api/sessions/$sessionId'),
             headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'message': message, 'stream': stream}),
+            body: jsonEncode({
+              'channel_id': channelId ?? this.channelId,
+              'user_id': userId ?? this.userId,
+              'message': message,
+              'stream': stream,
+            }),
           )
           .timeout(timeout, onTimeout: () => throw TimeoutException('请求超时'));
       final data = await _handleResponse(response);
-      return Message.assistant(data['content'] as String? ?? '');
+      return Message.assistant(
+        data['content'] as String? ?? '',
+        null,
+        channelId ?? this.channelId,
+        userId ?? this.userId,
+        sessionId,
+      );
     });
   }
 

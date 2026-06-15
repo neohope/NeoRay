@@ -11,6 +11,8 @@ type Store interface {
 	Get(id string) (*Session, error)
 	// List 获取所有会话列表
 	List() ([]*Session, error)
+	// ListByChannelAndUser 获取指定频道和用户的会话列表
+	ListByChannelAndUser(channelID, userID string) ([]*Session, error)
 	// Save 保存会话
 	Save(sess *Session) error
 	// Delete 删除会话
@@ -50,6 +52,20 @@ func (s *MemoryStore) List() ([]*Session, error) {
 	list := make([]*Session, 0, len(s.sessions))
 	for _, sess := range s.sessions {
 		list = append(list, sess)
+	}
+	return list, nil
+}
+
+// ListByChannelAndUser 获取指定频道和用户的会话列表
+func (s *MemoryStore) ListByChannelAndUser(channelID, userID string) ([]*Session, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	list := make([]*Session, 0)
+	for _, sess := range s.sessions {
+		if sess.ChannelID == channelID && sess.UserID == userID {
+			list = append(list, sess)
+		}
 	}
 	return list, nil
 }

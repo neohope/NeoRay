@@ -34,6 +34,8 @@ type Client struct {
 	ID         string
 	Conn       *websocket.Conn
 	Send       chan []byte
+	ChannelID  string
+	UserID     string
 	SessionID  string
 	Server     *Server
 }
@@ -276,7 +278,7 @@ func (c *Client) handleMessage(data []byte) {
 	case "join_session":
 		c.handleJoinSession(msg.Payload)
 	case "list_sessions":
-		c.handleListSessions()
+		c.handleListSessions(msg.Payload)
 	default:
 		c.sendError("unknown_type", "Unknown message type: "+msg.Type)
 	}
@@ -332,18 +334,30 @@ type ErrorPayload struct {
 
 // ChatPayload 聊天负载
 type ChatPayload struct {
+	ChannelID string `json:"channel_id"`
+	UserID    string `json:"user_id"`
 	SessionID string `json:"session_id"`
 	Message   string `json:"message"`
 }
 
 // CreateSessionPayload 创建会话负载
 type CreateSessionPayload struct {
-	Name string `json:"name"`
+	ChannelID string `json:"channel_id"`
+	UserID    string `json:"user_id"`
+	Name      string `json:"name"`
 }
 
 // JoinSessionPayload 加入会话负载
 type JoinSessionPayload struct {
+	ChannelID string `json:"channel_id"`
+	UserID    string `json:"user_id"`
 	SessionID string `json:"session_id"`
+}
+
+// ListSessionsPayload 列出会话负载
+type ListSessionsPayload struct {
+	ChannelID string `json:"channel_id"`
+	UserID    string `json:"user_id"`
 }
 
 // generateClientID 生成客户端 ID

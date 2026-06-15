@@ -9,6 +9,8 @@ part of 'session.dart';
 _$SessionImpl _$$SessionImplFromJson(Map<String, dynamic> json) =>
     _$SessionImpl(
       id: json['id'] as String,
+      channelId: json['channelId'] as String?,
+      userId: json['userId'] as String?,
       title: json['title'] as String?,
       messages: (json['messages'] as List<dynamic>?)
               ?.map((e) => Message.fromJson(e as Map<String, dynamic>))
@@ -25,6 +27,8 @@ _$SessionImpl _$$SessionImplFromJson(Map<String, dynamic> json) =>
 Map<String, dynamic> _$$SessionImplToJson(_$SessionImpl instance) =>
     <String, dynamic>{
       'id': instance.id,
+      'channelId': instance.channelId,
+      'userId': instance.userId,
       'title': instance.title,
       'messages': instance.messages,
       'createdAt': instance.createdAt?.toIso8601String(),

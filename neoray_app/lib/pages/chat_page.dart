@@ -230,7 +230,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       itemBuilder: (context, index) {
         if (index == session.messages.length && isStreaming) {
           return MessageBubble(
-            message: Message.assistant(streamingContent),
+            message: Message.assistant(
+              streamingContent,
+              null,
+              session.channelId,
+              session.userId,
+              session.id,
+            ),
             isStreaming: true,
           );
         }

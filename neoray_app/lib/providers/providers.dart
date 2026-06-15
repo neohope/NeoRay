@@ -6,9 +6,21 @@ import '../services/api_service.dart';
 import '../services/websocket_service.dart';
 import '../utils/logger.dart';
 
+// Channel ID Provider
+final channelIdProvider = StateProvider<String>((ref) => 'default');
+
+// User ID Provider
+final userIdProvider = StateProvider<String>((ref) => 'default');
+
 // API Service Provider
 final apiServiceProvider = Provider<ApiService>((ref) {
-  return ApiService(baseUrl: 'http://localhost:8080');
+  final channelId = ref.watch(channelIdProvider);
+  final userId = ref.watch(userIdProvider);
+  return ApiService(
+    baseUrl: 'http://localhost:8080',
+    channelId: channelId,
+    userId: userId,
+  );
 });
 
 // Global Error Provider
@@ -47,20 +59,23 @@ class AppConfigNotifier extends StateNotifier<AppConfig> {
 // Session List Provider
 final sessionListProvider = StateNotifierProvider<SessionListNotifier, AsyncValue<List<Session>>>((ref) {
   final apiService = ref.watch(apiServiceProvider);
-  return SessionListNotifier(apiService);
+  return SessionListNotifier(apiService, ref);
 });
 
 class SessionListNotifier extends StateNotifier<AsyncValue<List<Session>>> {
   final ApiService _apiService;
+  final Ref _ref;
 
-  SessionListNotifier(this._apiService) : super(const AsyncValue.loading()) {
+  SessionListNotifier(this._apiService, this._ref) : super(const AsyncValue.loading()) {
     loadSessions();
   }
 
   Future<void> loadSessions() async {
     state = const AsyncValue.loading();
     try {
-      final sessions = await _apiService.getSessions();
+      final channelId = _ref.read(channelIdProvider);
+      final userId = _ref.read(userIdProvider);
+      final sessions = await _apiService.getSessions(channelId: channelId, userId: userId);
       state = AsyncValue.data(sessions);
     } catch (e, stackTrace) {
       state = AsyncValue.error(e, stackTrace);
@@ -69,7 +84,9 @@ class SessionListNotifier extends StateNotifier<AsyncValue<List<Session>>> {
 
   Future<void> createSession({String? title}) async {
     try {
-      await _apiService.createSession(title: title);
+      final channelId = _ref.read(channelIdProvider);
+      final userId = _ref.read(userIdProvider);
+      await _apiService.createSession(channelId: channelId, userId: userId, title: title);
       await loadSessions();
     } catch (e, stackTrace) {
       state = AsyncValue.error(e, stackTrace);
@@ -90,20 +107,23 @@ class SessionListNotifier extends StateNotifier<AsyncValue<List<Session>>> {
 final currentSessionProvider = StateNotifierProvider<CurrentSessionNotifier, Session?>((ref) {
   final apiService = ref.watch(apiServiceProvider);
   final webSocket = ref.watch(webSocketServiceProvider);
-  return CurrentSessionNotifier(apiService, webSocket);
+  return CurrentSessionNotifier(apiService, webSocket, ref);
 });
 
 class CurrentSessionNotifier extends StateNotifier<Session?> {
   final ApiService _apiService;
   final WebSocketService _webSocketService;
+  final Ref _ref;
 
-  CurrentSessionNotifier(this._apiService, this._webSocketService) : super(null);
+  CurrentSessionNotifier(this._apiService, this._webSocketService, this._ref) : super(null);
 
   Future<void> selectSession(String sessionId) async {
     try {
-      final session = await _apiService.getSession(sessionId);
+      final channelId = _ref.read(channelIdProvider);
+      final userId = _ref.read(userIdProvider);
+      final session = await _apiService.getSession(sessionId, channelId: channelId, userId: userId);
       state = session;
-      _webSocketService.joinSession(sessionId);
+      _webSocketService.joinSession(sessionId, channelId: channelId, userId: userId);
     } catch (e, stackTrace) {
       logger.e('选择会话失败', error: e, stackTrace: stackTrace);
       // 保持当前状态不变，错误由调用方处理
@@ -113,7 +133,9 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
 
   Future<void> newSession({String? title}) async {
     try {
-      final session = Session.create(title: title);
+      final channelId = _ref.read(channelIdProvider);
+      final userId = _ref.read(userIdProvider);
+      final session = Session.create(channelId: channelId, userId: userId, title: title);
       state = session;
     } catch (e) {
       // Handle error
@@ -124,19 +146,25 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
     final session = state;
     if (session == null) return;
 
-    final userMessage = Message.user(message);
+    final channelId = _ref.read(channelIdProvider);
+    final userId = _ref.read(userIdProvider);
+    final userMessage = Message.user(message, channelId: channelId, userId: userId, sessionId: session.id);
     state = session.copyWith(messages: [...session.messages, userMessage]);
 
     if (_webSocketService.isConnected) {
       _webSocketService.sendChat(
         message: message,
         sessionId: session.id,
+        channelId: channelId,
+        userId: userId,
         stream: true,
       );
     } else {
       try {
         final response = await _apiService.sendMessage(
           sessionId: session.id,
+          channelId: channelId,
+          userId: userId,
           message: message,
         );
         state = state?.copyWith(messages: [...state!.messages, response]);
@@ -161,7 +189,9 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
         content: lastMessage.content + content,
       );
     } else {
-      messages.add(Message.assistant(content));
+      final channelId = _ref.read(channelIdProvider);
+      final userId = _ref.read(userIdProvider);
+      messages.add(Message.assistant(content, null, channelId, userId, session.id));
     }
     state = session.copyWith(messages: messages);
   }

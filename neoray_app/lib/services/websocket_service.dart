@@ -117,6 +117,8 @@ class WebSocketService {
 
   void sendChat({
     required String message,
+    String? channelId,
+    String? userId,
     String? sessionId,
     bool stream = true,
   }) {
@@ -128,6 +130,8 @@ class WebSocketService {
     final payload = {
       'type': stream ? 'chat_stream' : 'chat',
       'payload': {
+        if (channelId != null) 'channel_id': channelId,
+        if (userId != null) 'user_id': userId,
         if (sessionId != null) 'session_id': sessionId,
         'message': message,
       },
@@ -136,33 +140,47 @@ class WebSocketService {
     _channel!.sink.add(jsonEncode(payload));
   }
 
-  void createSession({String? title}) {
+  void createSession({String? channelId, String? userId, String? title}) {
     if (!_isConnected) return;
 
     final payload = {
       'type': 'create_session',
-      'payload': {'name': title ?? '新聊天'},
+      'payload': {
+        if (channelId != null) 'channel_id': channelId,
+        if (userId != null) 'user_id': userId,
+        'name': title ?? '新聊天',
+      },
     };
 
     _channel!.sink.add(jsonEncode(payload));
   }
 
-  void joinSession(String sessionId) {
+  void joinSession(String sessionId, {String? channelId, String? userId}) {
     if (!_isConnected) return;
 
     _sessionId = sessionId;
     final payload = {
       'type': 'join_session',
-      'payload': {'session_id': sessionId},
+      'payload': {
+        if (channelId != null) 'channel_id': channelId,
+        if (userId != null) 'user_id': userId,
+        'session_id': sessionId,
+      },
     };
 
     _channel!.sink.add(jsonEncode(payload));
   }
 
-  void listSessions() {
+  void listSessions({String? channelId, String? userId}) {
     if (!_isConnected) return;
 
-    const payload = {'type': 'list_sessions'};
+    final payload = {
+      'type': 'list_sessions',
+      'payload': {
+        if (channelId != null) 'channel_id': channelId,
+        if (userId != null) 'user_id': userId,
+      },
+    };
     _channel!.sink.add(jsonEncode(payload));
   }
 

@@ -26,17 +26,31 @@ func (c *Client) handleChat(payload interface{}) {
 		return
 	}
 
+	// 设置客户端的频道和用户ID
+	if chatPayload.ChannelID != "" {
+		c.ChannelID = chatPayload.ChannelID
+	}
+	if chatPayload.UserID != "" {
+		c.UserID = chatPayload.UserID
+	}
+	if c.ChannelID == "" {
+		c.ChannelID = "default"
+	}
+	if c.UserID == "" {
+		c.UserID = "default"
+	}
+
 	// 获取或创建会话
 	var sess *session.Session
 	var err error
 
 	if chatPayload.SessionID != "" {
-		sess, err = c.Server.sessionMgr.GetSession(chatPayload.SessionID)
+		sess, err = c.Server.sessionMgr.GetSessionWithValidation(chatPayload.SessionID, c.ChannelID, c.UserID)
 		if err != nil {
-			sess, _ = c.Server.sessionMgr.CreateSession()
+			sess, _ = c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
 		}
 	} else {
-		sess, _ = c.Server.sessionMgr.CreateSession()
+		sess, _ = c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
 	}
 
 	c.SessionID = sess.ID
@@ -89,17 +103,31 @@ func (c *Client) handleChatStream(payload interface{}) {
 		return
 	}
 
+	// 设置客户端的频道和用户ID
+	if chatPayload.ChannelID != "" {
+		c.ChannelID = chatPayload.ChannelID
+	}
+	if chatPayload.UserID != "" {
+		c.UserID = chatPayload.UserID
+	}
+	if c.ChannelID == "" {
+		c.ChannelID = "default"
+	}
+	if c.UserID == "" {
+		c.UserID = "default"
+	}
+
 	// 获取或创建会话
 	var sess *session.Session
 	var err error
 
 	if chatPayload.SessionID != "" {
-		sess, err = c.Server.sessionMgr.GetSession(chatPayload.SessionID)
+		sess, err = c.Server.sessionMgr.GetSessionWithValidation(chatPayload.SessionID, c.ChannelID, c.UserID)
 		if err != nil {
-			sess, _ = c.Server.sessionMgr.CreateSession()
+			sess, _ = c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
 		}
 	} else {
-		sess, _ = c.Server.sessionMgr.CreateSession()
+		sess, _ = c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
 	}
 
 	c.SessionID = sess.ID
@@ -169,12 +197,26 @@ func (c *Client) handleCreateSession(payload interface{}) {
 		return
 	}
 
+	// 设置客户端的频道和用户ID
+	if createPayload.ChannelID != "" {
+		c.ChannelID = createPayload.ChannelID
+	}
+	if createPayload.UserID != "" {
+		c.UserID = createPayload.UserID
+	}
+	if c.ChannelID == "" {
+		c.ChannelID = "default"
+	}
+	if c.UserID == "" {
+		c.UserID = "default"
+	}
+
 	title := createPayload.Name
 	if title == "" {
 		title = "New Session"
 	}
 
-	sess, _ := c.Server.sessionMgr.CreateSession()
+	sess, _ := c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
 	if title != "New Session" {
 		sess.Title = title
 		_ = c.Server.sessionMgr.SaveSession(sess)
@@ -183,6 +225,8 @@ func (c *Client) handleCreateSession(payload interface{}) {
 
 	c.sendMessage("session_created", map[string]interface{}{
 		"session_id": sess.ID,
+		"channel_id": sess.ChannelID,
+		"user_id":    sess.UserID,
 		"name":       sess.Title,
 		"created_at": sess.CreatedAt,
 	})
@@ -197,9 +241,23 @@ func (c *Client) handleJoinSession(payload interface{}) {
 		return
 	}
 
-	sess, err := c.Server.sessionMgr.GetSession(joinPayload.SessionID)
+	// 设置客户端的频道和用户ID
+	if joinPayload.ChannelID != "" {
+		c.ChannelID = joinPayload.ChannelID
+	}
+	if joinPayload.UserID != "" {
+		c.UserID = joinPayload.UserID
+	}
+	if c.ChannelID == "" {
+		c.ChannelID = "default"
+	}
+	if c.UserID == "" {
+		c.UserID = "default"
+	}
+
+	sess, err := c.Server.sessionMgr.GetSessionWithValidation(joinPayload.SessionID, c.ChannelID, c.UserID)
 	if err != nil {
-		c.sendError("session_not_found", "Session not found")
+		c.sendError("session_not_found", "Session not found or access denied")
 		return
 	}
 
@@ -207,14 +265,36 @@ func (c *Client) handleJoinSession(payload interface{}) {
 
 	c.sendMessage("session_joined", map[string]interface{}{
 		"session_id": sess.ID,
+		"channel_id": sess.ChannelID,
+		"user_id":    sess.UserID,
 		"name":       sess.Title,
 		"messages":   sess.Messages,
 	})
 }
 
 // handleListSessions 处理列出会话
-func (c *Client) handleListSessions() {
-	sessions, err := c.Server.sessionMgr.ListSessions()
+func (c *Client) handleListSessions(payload interface{}) {
+	// 尝试解析负载获取 channel_id 和 user_id
+	var listPayload ListSessionsPayload
+	payloadBytes, _ := json.Marshal(payload)
+	_ = json.Unmarshal(payloadBytes, &listPayload)
+
+	channelID := listPayload.ChannelID
+	userID := listPayload.UserID
+	if channelID == "" {
+		channelID = c.ChannelID
+	}
+	if userID == "" {
+		userID = c.UserID
+	}
+	if channelID == "" {
+		channelID = "default"
+	}
+	if userID == "" {
+		userID = "default"
+	}
+
+	sessions, err := c.Server.sessionMgr.ListSessionsByChannelAndUser(channelID, userID)
 	if err != nil {
 		c.sendError("list_error", "Failed to list sessions")
 		return
@@ -225,6 +305,8 @@ func (c *Client) handleListSessions() {
 	for _, sess := range sessions {
 		sessionList = append(sessionList, map[string]interface{}{
 			"id":            sess.ID,
+			"channel_id":    sess.ChannelID,
+			"user_id":       sess.UserID,
 			"name":          sess.Title,
 			"created_at":    sess.CreatedAt,
 			"updated_at":    sess.UpdatedAt,
@@ -243,10 +325,26 @@ func (c *Client) handleListSessions() {
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	// 从查询参数或请求头获取 channel_id 和 user_id
+	channelID := r.URL.Query().Get("channel_id")
+	userID := r.URL.Query().Get("user_id")
+	if channelID == "" {
+		channelID = r.Header.Get("X-Channel-ID")
+	}
+	if userID == "" {
+		userID = r.Header.Get("X-User-ID")
+	}
+	if channelID == "" {
+		channelID = "default"
+	}
+	if userID == "" {
+		userID = "default"
+	}
+
 	switch r.Method {
 	case http.MethodGet:
 		// 列出会话
-		sessions, err := s.sessionMgr.ListSessions()
+		sessions, err := s.sessionMgr.ListSessionsByChannelAndUser(channelID, userID)
 		if err != nil {
 			http.Error(w, `{"error":"Failed to list sessions"}`, http.StatusInternalServerError)
 			return
@@ -256,6 +354,8 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		for _, sess := range sessions {
 			sessionList = append(sessionList, map[string]interface{}{
 				"id":            sess.ID,
+				"channel_id":    sess.ChannelID,
+				"user_id":       sess.UserID,
 				"name":          sess.Title,
 				"created_at":    sess.CreatedAt,
 				"updated_at":    sess.UpdatedAt,
@@ -270,11 +370,23 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		// 创建会话
 		var req struct {
-			Name string `json:"name"`
+			ChannelID string `json:"channel_id"`
+			UserID    string `json:"user_id"`
+			Name      string `json:"name"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
 			return
+		}
+
+		// 使用请求中的或默认的 channel_id 和 user_id
+		reqChannelID := req.ChannelID
+		reqUserID := req.UserID
+		if reqChannelID == "" {
+			reqChannelID = channelID
+		}
+		if reqUserID == "" {
+			reqUserID = userID
 		}
 
 		title := req.Name
@@ -282,7 +394,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			title = "New Session"
 		}
 
-		sess, _ := s.sessionMgr.CreateSession()
+		sess, _ := s.sessionMgr.CreateSession(reqChannelID, reqUserID)
 		if title != "New Session" {
 			sess.Title = title
 			_ = s.sessionMgr.SaveSession(sess)
@@ -291,6 +403,8 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":         sess.ID,
+			"channel_id": sess.ChannelID,
+			"user_id":    sess.UserID,
 			"name":       sess.Title,
 			"created_at": sess.CreatedAt,
 		})
@@ -304,6 +418,22 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	// 从查询参数或请求头获取 channel_id 和 user_id
+	channelID := r.URL.Query().Get("channel_id")
+	userID := r.URL.Query().Get("user_id")
+	if channelID == "" {
+		channelID = r.Header.Get("X-Channel-ID")
+	}
+	if userID == "" {
+		userID = r.Header.Get("X-User-ID")
+	}
+	if channelID == "" {
+		channelID = "default"
+	}
+	if userID == "" {
+		userID = "default"
+	}
+
 	// 从 URL 中提取 session ID
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 4 {
@@ -315,9 +445,9 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		// 获取会话详情
-		sess, err := s.sessionMgr.GetSession(sessionID)
+		sess, err := s.sessionMgr.GetSessionWithValidation(sessionID, channelID, userID)
 		if err != nil {
-			http.Error(w, `{"error":"Session not found"}`, http.StatusNotFound)
+			http.Error(w, `{"error":"Session not found or access denied"}`, http.StatusNotFound)
 			return
 		}
 
@@ -326,8 +456,10 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		// 发送聊天消息
 		var req struct {
-			Message string `json:"message"`
-			Stream  bool   `json:"stream"`
+			ChannelID string `json:"channel_id"`
+			UserID    string `json:"user_id"`
+			Message   string `json:"message"`
+			Stream    bool   `json:"stream"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
@@ -339,9 +471,19 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		sess, err := s.sessionMgr.GetSession(sessionID)
+		// 使用请求中的或默认的 channel_id 和 user_id
+		reqChannelID := req.ChannelID
+		reqUserID := req.UserID
+		if reqChannelID == "" {
+			reqChannelID = channelID
+		}
+		if reqUserID == "" {
+			reqUserID = userID
+		}
+
+		sess, err := s.sessionMgr.GetSessionWithValidation(sessionID, reqChannelID, reqUserID)
 		if err != nil {
-			http.Error(w, `{"error":"Session not found"}`, http.StatusNotFound)
+			http.Error(w, `{"error":"Session not found or access denied"}`, http.StatusNotFound)
 			return
 		}
 

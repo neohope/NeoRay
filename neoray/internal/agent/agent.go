@@ -98,7 +98,7 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 	}
 
 	// 添加用户消息
-	userMsg := session.NewUserMessage(userInput)
+	userMsg := session.NewUserMessage("", "", "", userInput)
 	sess.AddMessage(userMsg)
 
 	// 获取提供商 - 先尝试默认的，如果没有就用任意一个可用的
@@ -117,7 +117,7 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 			trace.AddError(errors.New(errMsg), "No LLM provider configured")
 		}
 
-		assistantMsg := session.NewAssistantMessage(errMsg)
+		assistantMsg := session.NewAssistantMessage("", "", "", errMsg)
 		sess.AddMessage(assistantMsg)
 		_ = a.sessionMgr.SaveSession(sess)
 
@@ -197,7 +197,7 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 
 			// 尝试给用户返回一个错误消息
 			errMsg := fmt.Sprintf("I'm having trouble connecting to the AI service right now. Error: %v", err)
-			assistantMsg := session.NewAssistantMessage(errMsg)
+			assistantMsg := session.NewAssistantMessage("", "", "", errMsg)
 			sess.AddMessage(assistantMsg)
 			_ = a.sessionMgr.SaveSession(sess)
 
@@ -253,7 +253,7 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 
 		// 添加工具响应消息
 		toolRespJSON, _ := json.Marshal(toolResponses)
-		toolMsg := session.NewToolMessage(string(toolRespJSON))
+		toolMsg := session.NewToolMessage("", "", "", string(toolRespJSON))
 		sess.AddMessage(toolMsg)
 	}
 
@@ -398,7 +398,7 @@ func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput
 	resultChan := make(chan StreamChunk, 100)
 
 	// 添加用户消息
-	userMsg := session.NewUserMessage(userInput)
+	userMsg := session.NewUserMessage("", "", "", userInput)
 	sess.AddMessage(userMsg)
 
 	go func() {
@@ -568,7 +568,7 @@ func (a *Agent) handleNativeStreamTool(
 
 				// 添加工具响应消息
 				toolRespJSON, _ := json.Marshal(toolResponses)
-				toolMsg := session.NewToolMessage(string(toolRespJSON))
+				toolMsg := session.NewToolMessage("", "", "", string(toolRespJSON))
 				sess.AddMessage(toolMsg)
 
 				// 继续循环以获取下一个 LLM 响应
@@ -662,7 +662,7 @@ func (a *Agent) handleFallbackStream(
 
 		// 添加工具响应消息
 		toolRespJSON, _ := json.Marshal(toolResponses)
-		toolMsg := session.NewToolMessage(string(toolRespJSON))
+		toolMsg := session.NewToolMessage("", "", "", string(toolRespJSON))
 		sess.AddMessage(toolMsg)
 
 		// 继续循环

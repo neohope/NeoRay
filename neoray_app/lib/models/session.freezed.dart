@@ -21,6 +21,8 @@ Session _$SessionFromJson(Map<String, dynamic> json) {
 /// @nodoc
 mixin _$Session {
   String get id => throw _privateConstructorUsedError;
+  String? get channelId => throw _privateConstructorUsedError;
+  String? get userId => throw _privateConstructorUsedError;
   String? get title => throw _privateConstructorUsedError;
   List<Message> get messages => throw _privateConstructorUsedError;
   DateTime? get createdAt => throw _privateConstructorUsedError;
@@ -38,6 +40,8 @@ abstract class $SessionCopyWith<$Res> {
   @useResult
   $Res call(
       {String id,
+      String? channelId,
+      String? userId,
       String? title,
       List<Message> messages,
       DateTime? createdAt,
@@ -58,6 +62,8 @@ class _$SessionCopyWithImpl<$Res, $Val extends Session>
   @override
   $Res call({
     Object? id = null,
+    Object? channelId = freezed,
+    Object? userId = freezed,
     Object? title = freezed,
     Object? messages = null,
     Object? createdAt = freezed,
@@ -68,6 +74,14 @@ class _$SessionCopyWithImpl<$Res, $Val extends Session>
           ? _value.id
           : id // ignore: cast_nullable_to_non_nullable
               as String,
+      channelId: freezed == channelId
+          ? _value.channelId
+          : channelId // ignore: cast_nullable_to_non_nullable
+              as String?,
+      userId: freezed == userId
+          ? _value.userId
+          : userId // ignore: cast_nullable_to_non_nullable
+              as String?,
       title: freezed == title
           ? _value.title
           : title // ignore: cast_nullable_to_non_nullable
@@ -97,6 +111,8 @@ abstract class _$$SessionImplCopyWith<$Res> implements $SessionCopyWith<$Res> {
   @useResult
   $Res call(
       {String id,
+      String? channelId,
+      String? userId,
       String? title,
       List<Message> messages,
       DateTime? createdAt,
@@ -115,6 +131,8 @@ class __$$SessionImplCopyWithImpl<$Res>
   @override
   $Res call({
     Object? id = null,
+    Object? channelId = freezed,
+    Object? userId = freezed,
     Object? title = freezed,
     Object? messages = null,
     Object? createdAt = freezed,
@@ -125,6 +143,14 @@ class __$$SessionImplCopyWithImpl<$Res>
           ? _value.id
           : id // ignore: cast_nullable_to_non_nullable
               as String,
+      channelId: freezed == channelId
+          ? _value.channelId
+          : channelId // ignore: cast_nullable_to_non_nullable
+              as String?,
+      userId: freezed == userId
+          ? _value.userId
+          : userId // ignore: cast_nullable_to_non_nullable
+              as String?,
       title: freezed == title
           ? _value.title
           : title // ignore: cast_nullable_to_non_nullable
@@ -150,6 +176,8 @@ class __$$SessionImplCopyWithImpl<$Res>
 class _$SessionImpl implements _Session {
   const _$SessionImpl(
       {required this.id,
+      this.channelId,
+      this.userId,
       this.title,
       final List<Message> messages = const [],
       this.createdAt,
@@ -161,6 +189,10 @@ class _$SessionImpl implements _Session {
 
   @override
   final String id;
+  @override
+  final String? channelId;
+  @override
+  final String? userId;
   @override
   final String? title;
   final List<Message> _messages;
@@ -179,7 +211,7 @@ class _$SessionImpl implements _Session {
 
   @override
   String toString() {
-    return 'Session(id: $id, title: $title, messages: $messages, createdAt: $createdAt, updatedAt: $updatedAt)';
+    return 'Session(id: $id, channelId: $channelId, userId: $userId, title: $title, messages: $messages, createdAt: $createdAt, updatedAt: $updatedAt)';
   }
 
   @override
@@ -188,6 +220,9 @@ class _$SessionImpl implements _Session {
         (other.runtimeType == runtimeType &&
             other is _$SessionImpl &&
             (identical(other.id, id) || other.id == id) &&
+            (identical(other.channelId, channelId) ||
+                other.channelId == channelId) &&
+            (identical(other.userId, userId) || other.userId == userId) &&
             (identical(other.title, title) || other.title == title) &&
             const DeepCollectionEquality().equals(other._messages, _messages) &&
             (identical(other.createdAt, createdAt) ||
@@ -198,7 +233,7 @@ class _$SessionImpl implements _Session {
 
   @JsonKey(ignore: true)
   @override
-  int get hashCode => Object.hash(runtimeType, id, title,
+  int get hashCode => Object.hash(runtimeType, id, channelId, userId, title,
       const DeepCollectionEquality().hash(_messages), createdAt, updatedAt);
 
   @JsonKey(ignore: true)
@@ -218,6 +253,8 @@ class _$SessionImpl implements _Session {
 abstract class _Session implements Session {
   const factory _Session(
       {required final String id,
+      final String? channelId,
+      final String? userId,
       final String? title,
       final List<Message> messages,
       final DateTime? createdAt,
@@ -227,6 +264,10 @@ abstract class _Session implements Session {
 
   @override
   String get id;
+  @override
+  String? get channelId;
+  @override
+  String? get userId;
   @override
   String? get title;
   @override

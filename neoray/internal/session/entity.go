@@ -9,6 +9,8 @@ import (
 // Session 会话实体
 type Session struct {
 	ID        string    `json:"id"`
+	ChannelID string    `json:"channel_id"` // 频道标识符
+	UserID    string    `json:"user_id"`    // 用户标识符
 	Title     string    `json:"title"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -18,13 +20,16 @@ type Session struct {
 
 // Message 消息实体
 type Message struct {
-	ID        string         `json:"id"`
-	Role      string         `json:"role"` // user, assistant, system, tool
-	Content   string         `json:"content"`
-	Timestamp time.Time      `json:"timestamp"`
-	ToolCalls []ToolCall     `json:"tool_calls,omitempty"`
-	ToolResults []ToolResult `json:"tool_results,omitempty"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
+	ID          string         `json:"id"`
+	ChannelID   string         `json:"channel_id"`   // 频道标识符
+	UserID      string         `json:"user_id"`      // 用户标识符
+	SessionID   string         `json:"session_id"`   // 会话标识符
+	Role        string         `json:"role"`         // user, assistant, system, tool
+	Content     string         `json:"content"`
+	Timestamp   time.Time      `json:"timestamp"`
+	ToolCalls   []ToolCall     `json:"tool_calls,omitempty"`
+	ToolResults []ToolResult   `json:"tool_results,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
 // ToolCall 工具调用
@@ -42,10 +47,12 @@ type ToolResult struct {
 }
 
 // NewSession 创建新会话
-func NewSession() *Session {
+func NewSession(channelID, userID string) *Session {
 	now := time.Now()
 	return &Session{
 		ID:        generateID(),
+		ChannelID: channelID,
+		UserID:    userID,
 		Title:     "New Session",
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -55,9 +62,12 @@ func NewSession() *Session {
 }
 
 // NewUserMessage 创建用户消息
-func NewUserMessage(content string) Message {
+func NewUserMessage(channelID, userID, sessionID, content string) Message {
 	return Message{
 		ID:        generateID(),
+		ChannelID: channelID,
+		UserID:    userID,
+		SessionID: sessionID,
 		Role:      "user",
 		Content:   content,
 		Timestamp: time.Now(),
@@ -66,9 +76,12 @@ func NewUserMessage(content string) Message {
 }
 
 // NewAssistantMessage 创建助手消息
-func NewAssistantMessage(content string) Message {
+func NewAssistantMessage(channelID, userID, sessionID, content string) Message {
 	return Message{
 		ID:        generateID(),
+		ChannelID: channelID,
+		UserID:    userID,
+		SessionID: sessionID,
 		Role:      "assistant",
 		Content:   content,
 		Timestamp: time.Now(),
@@ -77,9 +90,12 @@ func NewAssistantMessage(content string) Message {
 }
 
 // NewSystemMessage 创建系统消息
-func NewSystemMessage(content string) Message {
+func NewSystemMessage(channelID, userID, sessionID, content string) Message {
 	return Message{
 		ID:        generateID(),
+		ChannelID: channelID,
+		UserID:    userID,
+		SessionID: sessionID,
 		Role:      "system",
 		Content:   content,
 		Timestamp: time.Now(),
@@ -88,9 +104,12 @@ func NewSystemMessage(content string) Message {
 }
 
 // NewToolMessage 创建工具消息
-func NewToolMessage(content string) Message {
+func NewToolMessage(channelID, userID, sessionID, content string) Message {
 	return Message{
 		ID:        generateID(),
+		ChannelID: channelID,
+		UserID:    userID,
+		SessionID: sessionID,
 		Role:      "tool",
 		Content:   content,
 		Timestamp: time.Now(),
@@ -100,6 +119,11 @@ func NewToolMessage(content string) Message {
 
 // AddMessage 添加消息
 func (s *Session) AddMessage(msg Message) {
+	// 确保消息的频道和用户与会话一致
+	msg.ChannelID = s.ChannelID
+	msg.UserID = s.UserID
+	msg.SessionID = s.ID
+
 	s.Messages = append(s.Messages, msg)
 	s.UpdatedAt = time.Now()
 

@@ -8,16 +8,20 @@ part 'session.g.dart';
 class Session with _$Session {
   const factory Session({
     required String id,
+    String? channelId,
+    String? userId,
     String? title,
     @Default([]) List<Message> messages,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) = _Session;
 
-  factory Session.create({String? title}) {
+  factory Session.create({String? channelId, String? userId, String? title}) {
     final now = DateTime.now();
     return Session(
       id: now.microsecondsSinceEpoch.toString(),
+      channelId: channelId,
+      userId: userId,
       title: title ?? '新聊天',
       messages: [],
       createdAt: now,
