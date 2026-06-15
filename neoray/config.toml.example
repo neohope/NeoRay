@@ -28,7 +28,7 @@ max_age = 28
 # 是否压缩历史日志
 compress = true
 # 是否按日期拆分日志
-rotate_daily = false
+rotate_daily = true
 
 [database]
 driver = "sqlite"

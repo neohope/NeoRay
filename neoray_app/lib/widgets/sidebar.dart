@@ -145,7 +145,9 @@ class Sidebar extends ConsumerWidget {
             borderRadius: BorderRadius.circular(8),
             child: InkWell(
               onTap: () {
-                ref.read(currentSessionProvider.notifier).selectSession(session.id);
+                ref
+                    .read(currentSessionProvider.notifier)
+                    .selectSession(session.id);
               },
               borderRadius: BorderRadius.circular(8),
               child: Padding(
@@ -155,7 +157,9 @@ class Sidebar extends ConsumerWidget {
                     Icon(
                       Icons.chat_outlined,
                       size: 18,
-                      color: isSelected ? AppTheme.primary : AppTheme.textSecondaryLight,
+                      color: isSelected
+                          ? AppTheme.primary
+                          : AppTheme.textSecondaryLight,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -164,11 +168,13 @@ class Sidebar extends ConsumerWidget {
                         children: [
                           Text(
                             session.title ?? '新聊天',
-                            style:
-                                Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                      fontWeight: FontWeight.w500,
-                                      color: AppTheme.textPrimaryLight,
-                                    ),
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w500,
+                                  color: AppTheme.textPrimaryLight,
+                                ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -214,7 +220,7 @@ class Sidebar extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             child: Row(
               children: [
-                Icon(
+                const Icon(
                   Icons.settings_outlined,
                   size: 18,
                   color: AppTheme.textSecondaryLight,

@@ -1,14 +1,13 @@
 # 用户数据
 .neoray/
-neobot/
 
 # 配置 (本地覆盖)
 config/config.local.toml
 config/config.prod.toml
 neoray/config.toml
 
-# 本地参考源码
-/docs/oapi-sdk-go/
+# 参考内容
+reference/
 
 # Go
 neoray/server
