@@ -549,7 +549,6 @@ class ConfigPage extends ConsumerWidget {
         Switch(
           value: value,
           onChanged: onChanged,
-          activeColor: AppTheme.primary,
         ),
       ],
     );
@@ -590,7 +589,6 @@ class ConfigPage extends ConsumerWidget {
           min: 0,
           max: 2,
           divisions: 20,
-          activeColor: AppTheme.primary,
           onChanged: onChanged,
         ),
       ],

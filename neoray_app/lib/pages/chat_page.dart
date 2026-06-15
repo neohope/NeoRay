@@ -161,7 +161,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             Icon(
               Icons.chat_outlined,
               size: 80,
-              color: colorScheme.primary.withOpacity(0.3),
+              color: colorScheme.primary.withValues(alpha: 0.3),
             ),
             const SizedBox(height: 24),
             Text(

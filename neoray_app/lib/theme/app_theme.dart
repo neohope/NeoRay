@@ -91,6 +91,8 @@ class AppTheme {
           ),
         ),
       ),
+      sliderTheme: const SliderThemeData(),
+      switchTheme: const SwitchThemeData(),
     );
   }
 
@@ -149,6 +151,8 @@ class AppTheme {
         ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
+      sliderTheme: const SliderThemeData(),
+      switchTheme: const SwitchThemeData(),
     );
   }
 }
