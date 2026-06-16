@@ -124,6 +124,14 @@ func main() {
 	msgBus := bus.NewMessageBus(100, 100)
 	fmt.Println("Message bus created")
 
+	// 创建并组合 Hook
+	fmt.Println("Setting up agent hooks...")
+	hook := agent.NewCompositeHook(
+		agent.NewTraceHook(traceManager),
+		agent.NewProgressHook(msgBus),
+	)
+	fmt.Println("Agent hooks configured")
+
 	// 用总线更新 Agent
 	aiAgent = agent.NewAgent(
 		cfg,
@@ -133,10 +141,11 @@ func main() {
 		agent.WithTokenManager(tokenManager),
 		agent.WithTraceManager(traceManager),
 		agent.WithMessageBus(msgBus),
+		agent.WithHook(hook),
 	)
 	// 启动 Agent 的总线监听
 	_ = aiAgent.Start()
-	fmt.Println("Agent started with message bus")
+	fmt.Println("Agent started with message bus and hooks")
 
 	// 检查 LLM 配置
 	hasAPIKey := false
