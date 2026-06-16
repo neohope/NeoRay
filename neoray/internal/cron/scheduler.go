@@ -71,6 +71,13 @@ func NewCronSchedulerWithConfig(storePath string, onJob JobHandler, maxSleepDura
 	}
 }
 
+// SetHandler 设置任务处理器（在需要延迟设置 handler 时使用）
+func (s *CronScheduler) SetHandler(onJob JobHandler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onJob = onJob
+}
+
 // computeNextRun 计算下次执行时间
 func computeNextRun(schedule CronSchedule, nowMS int64) *int64 {
 	switch schedule.Kind {

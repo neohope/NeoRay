@@ -99,6 +99,25 @@ func main() {
 	// 初始化 LLM 提供商
 	providerMgr := initProviders(cfg)
 
+	// 初始化消息总线（先创建，以便 cron 和 agent 可以使用）
+	fmt.Println("Creating message bus...")
+	msgBus := bus.NewMessageBus(100, 100)
+	fmt.Println("Message bus created")
+
+	// 初始化 Cron 调度器（先创建，不带 handler，以便可以注册工具）
+	var cronScheduler *cron.CronScheduler
+	var cronTool *cron.CronTool
+	if cfg.Tools.Cron.Enabled {
+		fmt.Println("Creating cron scheduler (for tool registration)...")
+		cronStorePath := cfg.ResolvePath("cron/jobs.json")
+		// 先创建不带 handler 的调度器
+		cronScheduler = cron.NewCronScheduler(cronStorePath, nil)
+		// 创建 CronTool 并注册到工具注册表
+		cronTool = cron.NewCronTool(cronScheduler)
+		toolRegistry.Register(cronTool)
+		logger.Info("Cron tool registered")
+	}
+
 	// 初始化 Agent（带增强功能）
 	var maxTokens int = 4096 // 默认值
 	if defaultProvider, ok := cfg.LLM.Providers[cfg.LLM.DefaultProvider]; ok {
@@ -109,22 +128,6 @@ func main() {
 	tokenManager := agent.NewTokenManager(maxTokens * 10) // 10x 预算
 	traceManager := agent.NewTraceManager(true) // 启用追踪
 
-	fmt.Println("Creating agent...")
-	aiAgent := agent.NewAgent(
-		cfg,
-		providerMgr,
-		sessionMgr,
-		toolRegistry,
-		agent.WithTokenManager(tokenManager),
-		agent.WithTraceManager(traceManager),
-	)
-	fmt.Println("Agent created")
-
-	// 初始化消息总线
-	fmt.Println("Creating message bus...")
-	msgBus := bus.NewMessageBus(100, 100)
-	fmt.Println("Message bus created")
-
 	// 创建并组合 Hook
 	fmt.Println("Setting up agent hooks...")
 	hook := agent.NewCompositeHook(
@@ -133,8 +136,8 @@ func main() {
 	)
 	fmt.Println("Agent hooks configured")
 
-	// 用总线更新 Agent
-	aiAgent = agent.NewAgent(
+	fmt.Println("Creating agent...")
+	aiAgent := agent.NewAgent(
 		cfg,
 		providerMgr,
 		sessionMgr,
@@ -144,17 +147,19 @@ func main() {
 		agent.WithMessageBus(msgBus),
 		agent.WithHook(hook),
 	)
+	fmt.Println("Agent created")
+
 	// 启动 Agent 的总线监听
 	_ = aiAgent.Start()
 	fmt.Println("Agent started with message bus and hooks")
 
-	// 初始化 Cron 调度器
-	var cronScheduler *cron.CronScheduler
-	if cfg.Tools.Cron.Enabled {
-		fmt.Println("Creating cron scheduler...")
-		cronStorePath := cfg.ResolvePath("cron/jobs.json")
+	// 完成 Cron 调度器设置（设置 handler 并启动）
+	if cfg.Tools.Cron.Enabled && cronScheduler != nil && cronTool != nil {
+		fmt.Println("Finalizing cron scheduler setup...")
 		cronIntegration := cron.NewCronIntegration(aiAgent, sessionMgr, msgBus)
-		cronScheduler = cron.NewCronScheduler(cronStorePath, cronIntegration.JobHandler)
+		// 为调度器设置 handler
+		cronScheduler.SetHandler(cronIntegration.JobHandler)
+		// 启动调度器
 		if err := cronScheduler.Start(); err != nil {
 			logger.Warn("Failed to start cron scheduler", logger.ErrorField(err))
 		} else {

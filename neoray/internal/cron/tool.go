@@ -64,6 +64,11 @@ func NewCronTool(scheduler *CronScheduler, opts ...CronToolOption) *CronTool {
 	return t
 }
 
+// SetScheduler 更新调度器引用（在需要延迟设置调度器时使用）
+func (t *CronTool) SetScheduler(scheduler *CronScheduler) {
+	t.scheduler = scheduler
+}
+
 // Name 返回工具名
 func (t *CronTool) Name() string {
 	return "cron"
