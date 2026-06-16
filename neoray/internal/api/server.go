@@ -123,10 +123,41 @@ func (s *Server) subscribeToBus() {
 				for _, client := range s.clients {
 					// 如果消息有 SessionID，只发给对应会话的客户端
 					if msg.SessionID == "" || msg.SessionID == client.SessionID {
-						client.sendMessage("chat", map[string]interface{}{
-							"content": msg.Content,
-							"type":    msg.Type,
-						})
+						// 根据总线消息类型决定 WebSocket 消息类型
+						wsMsgType := string(msg.Type)
+						payload := make(map[string]interface{})
+
+						// 构建 payload
+						payload["session_id"] = msg.SessionID
+						if msg.Content != "" {
+							payload["content"] = msg.Content
+						}
+						if msg.Metadata != nil {
+							for k, v := range msg.Metadata {
+								payload[k] = v
+							}
+						}
+
+						// 向后兼容处理：如果是旧类型，映射到新类型
+						switch msg.Type {
+						case bus.MessageTypeDelta:
+							wsMsgType = "chat_chunk"
+						case bus.MessageTypeAssistant:
+							wsMsgType = "chat_end"
+						case bus.MessageTypeSystem:
+							// 系统消息可能是进度消息
+							if status, ok := msg.Metadata["status"].(string); ok && status != "" {
+								wsMsgType = "progress"
+							} else {
+								wsMsgType = "progress"
+							}
+						case bus.MessageTypeToolCall:
+							wsMsgType = "tool_call_start"
+						case bus.MessageTypeToolResult:
+							wsMsgType = "tool_call_result"
+						}
+
+						client.sendMessage(wsMsgType, payload)
 					}
 				}
 				s.clientsMu.RUnlock()

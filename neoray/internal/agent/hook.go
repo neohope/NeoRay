@@ -154,11 +154,10 @@ func (ph *ProgressHook) AfterIter(ctx context.Context, sess *session.Session, re
 func (ph *ProgressHook) publishProgress(sess *session.Session, status, message string) {
 	if ph.bus == nil { return }
 	msg := bus.NewOutboundMessage(sess.ChannelID, sess.ID, message)
-	msg.Type = bus.MessageTypeSystem
+	msg.Type = bus.MessageTypeProgress
 	msg.SessionID = sess.ID
 	msg.Metadata = map[string]interface{}{
 		"status":  status,
-		"type":    "progress",
 		"session": sess.ID,
 	}
 	_ = ph.bus.PublishOutbound(msg)

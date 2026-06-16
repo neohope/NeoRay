@@ -303,6 +303,18 @@ DELETE /api/sessions/{session_id}
 }
 ```
 
+#### progress - 进度/系统状态
+```json
+{
+  "type": "progress",
+  "payload": {
+    "session_id": "abc123",
+    "status": "thinking|done|error",
+    "content": "开始处理..."
+  }
+}
+```
+
 ## Feishu (飞书) 集成
 
 ### 配置

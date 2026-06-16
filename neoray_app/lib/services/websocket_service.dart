@@ -14,6 +14,7 @@ enum WebSocketMessageType {
   sessionJoined,
   sessionList,
   error,
+  progress,
   unknown,
 }
 
@@ -48,6 +49,8 @@ class WebSocketEvent {
         return WebSocketMessageType.sessionList;
       case 'error':
         return WebSocketMessageType.error;
+      case 'progress':
+        return WebSocketMessageType.progress;
       default:
         return WebSocketMessageType.unknown;
     }

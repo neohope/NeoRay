@@ -9,6 +9,7 @@ import (
 type MessageType string
 
 const (
+	// ==================== 内部总线类型 ====================
 	// MessageTypeUser 用户消息（入站）
 	MessageTypeUser MessageType = "user"
 	// MessageTypeSystem 系统消息（入站）
@@ -23,6 +24,26 @@ const (
 	MessageTypeDelta MessageType = "delta"
 	// MessageTypeError 错误消息（出站）
 	MessageTypeError MessageType = "error"
+
+	// ==================== WebSocket 协议类型 ====================
+	// MessageTypeChatStart 聊天开始
+	MessageTypeChatStart MessageType = "chat_start"
+	// MessageTypeChatChunk 聊天内容块
+	MessageTypeChatChunk MessageType = "chat_chunk"
+	// MessageTypeChatEnd 聊天结束
+	MessageTypeChatEnd MessageType = "chat_end"
+	// MessageTypeToolCallStart 工具调用开始
+	MessageTypeToolCallStart MessageType = "tool_call_start"
+	// MessageTypeToolCallResult 工具调用结果
+	MessageTypeToolCallResult MessageType = "tool_call_result"
+	// MessageTypeSessionCreated 会话已创建
+	MessageTypeSessionCreated MessageType = "session_created"
+	// MessageTypeSessionJoined 已加入会话
+	MessageTypeSessionJoined MessageType = "session_joined"
+	// MessageTypeSessionList 会话列表
+	MessageTypeSessionList MessageType = "session_list"
+	// MessageTypeProgress 进度/系统状态消息
+	MessageTypeProgress MessageType = "progress"
 )
 
 // InboundMessage 入站消息（从频道到总线）
