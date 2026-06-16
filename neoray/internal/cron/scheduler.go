@@ -37,6 +37,7 @@ type CronScheduler struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
+	maxSleepMS    int64
 }
 
 // NewCronScheduler 创建调度器
@@ -49,6 +50,24 @@ func NewCronScheduler(storePath string, onJob JobHandler) *CronScheduler {
 		onJob:      onJob,
 		ctx:        ctx,
 		cancel:     cancel,
+		maxSleepMS: maxSleepMS,
+	}
+}
+
+// NewCronSchedulerWithConfig 创建带配置的调度器
+func NewCronSchedulerWithConfig(storePath string, onJob JobHandler, maxSleepDuration int64) *CronScheduler {
+	ctx, cancel := context.WithCancel(context.Background())
+	if maxSleepDuration <= 0 {
+		maxSleepDuration = maxSleepMS
+	}
+	return &CronScheduler{
+		storePath:  storePath,
+		actionPath: filepath.Join(filepath.Dir(storePath), "action.jsonl"),
+		lockPath:   filepath.Join(filepath.Dir(storePath), "cron.lock"),
+		onJob:      onJob,
+		ctx:        ctx,
+		cancel:     cancel,
+		maxSleepMS: maxSleepDuration,
 	}
 }
 
@@ -194,7 +213,7 @@ func (cs *CronScheduler) computeDelay() time.Duration {
 	defer cs.mu.RUnlock()
 
 	if cs.store == nil {
-		return time.Duration(maxSleepMS) * time.Millisecond
+		return time.Duration(cs.maxSleepMS) * time.Millisecond
 	}
 
 	var nextWake *int64
@@ -208,15 +227,15 @@ func (cs *CronScheduler) computeDelay() time.Duration {
 	}
 
 	if nextWake == nil {
-		return time.Duration(maxSleepMS) * time.Millisecond
+		return time.Duration(cs.maxSleepMS) * time.Millisecond
 	}
 
 	delay := *nextWake - now
 	if delay < 0 {
 		delay = 0
 	}
-	if delay > maxSleepMS {
-		delay = maxSleepMS
+	if delay > cs.maxSleepMS {
+		delay = cs.maxSleepMS
 	}
 	return time.Duration(delay) * time.Millisecond
 }
@@ -429,6 +448,80 @@ func (cs *CronScheduler) AddJob(
 
 	logger.Info("Cron job added", logger.String("name", name), logger.String("id", id))
 	return &job, nil
+}
+
+// RegisterSystemJob 注册系统任务（幂等）
+func (cs *CronScheduler) RegisterSystemJob(job CronJob) *CronJob {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	// 确保 store 已加载
+	if cs.store == nil {
+		if err := cs.loadStore(); err != nil {
+			// 失败时初始化空 store
+			cs.store = &CronStore{
+				Version: storeVersion,
+				Jobs:    []CronJob{},
+			}
+		}
+	}
+
+	now := nowMS()
+	job.Payload.Kind = PayloadKindSystemEvent // 确保是系统事件类型
+	job.State.NextRunAtMS = 0
+	if next := computeNextRun(job.Schedule, now); next != nil {
+		job.State.NextRunAtMS = *next
+	}
+	job.CreatedAtMS = now
+	job.UpdatedAtMS = now
+
+	// 如果已存在则替换，否则添加
+	found := false
+	for i := range cs.store.Jobs {
+		if cs.store.Jobs[i].ID == job.ID {
+			cs.store.Jobs[i] = job
+			found = true
+			break
+		}
+	}
+	if !found {
+		cs.store.Jobs = append(cs.store.Jobs, job)
+	}
+
+	if cs.running {
+		if err := cs.saveStore(); err != nil {
+			logger.Warn("Failed to save cron store after register system job", logger.ErrorField(err))
+		}
+		if cs.timer != nil {
+			cs.timer.Stop()
+		}
+	} else {
+		cs.appendAction("add", job)
+	}
+
+	logger.Info("Cron system job registered", logger.String("id", job.ID), logger.String("name", job.Name))
+	return &job
+}
+
+// appendAction 追加操作日志
+func (cs *CronScheduler) appendAction(action string, params any) {
+	_ = os.MkdirAll(filepath.Dir(cs.actionPath), 0755)
+
+	data, err := json.Marshal(map[string]any{
+		"action": action,
+		"params": params,
+	})
+	if err != nil {
+		return
+	}
+	data = append(data, '\n')
+
+	f, err := os.OpenFile(cs.actionPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.Write(data)
 }
 
 // RemoveJob 删除任务
@@ -674,8 +767,9 @@ func (cs *CronScheduler) Status() map[string]any {
 	}
 
 	result := map[string]any{
-		"enabled": cs.running,
-		"jobs": jobsCount,
+		"enabled":     cs.running,
+		"jobs":        jobsCount,
+		"maxSleepMs":  cs.maxSleepMS,
 	}
 	if nextWake != nil {
 		result["nextWakeAtMs"] = *nextWake

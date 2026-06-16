@@ -10,14 +10,14 @@ import (
 	"neoray/internal/session"
 )
 
-// CronIntegration Cron 与 Agent/MessageBus 集成
+// CronIntegration integrates cron with Agent and MessageBus
 type CronIntegration struct {
-	agent       *agent.Agent
-	sessionMgr  *session.Manager
-	msgBus      *bus.MessageBus
+	agent      *agent.Agent
+	sessionMgr *session.Manager
+	msgBus     *bus.MessageBus
 }
 
-// NewCronIntegration 创建集成器
+// NewCronIntegration creates the integration
 func NewCronIntegration(
 	a *agent.Agent,
 	sm *session.Manager,
@@ -30,9 +30,12 @@ func NewCronIntegration(
 	}
 }
 
-// JobHandler Cron 任务执行回调
+// JobHandler is the cron job handler
 func (ci *CronIntegration) JobHandler(ctx context.Context, job *CronJob) error {
-	logger.Info("Cron job executing", logger.String("id", job.ID), logger.String("name", job.Name), logger.String("kind", string(job.Payload.Kind)))
+	logger.Info("Cron job executing",
+		logger.String("id", job.ID),
+		logger.String("name", job.Name),
+		logger.String("kind", string(job.Payload.Kind)))
 
 	switch job.Payload.Kind {
 	case PayloadKindSystemEvent:
@@ -44,7 +47,6 @@ func (ci *CronIntegration) JobHandler(ctx context.Context, job *CronJob) error {
 	}
 }
 
-// handleSystemEvent 处理系统事件
 func (ci *CronIntegration) handleSystemEvent(ctx context.Context, job *CronJob) error {
 	if ci.msgBus == nil {
 		return fmt.Errorf("message bus not available")
@@ -64,25 +66,26 @@ func (ci *CronIntegration) handleSystemEvent(ctx context.Context, job *CronJob) 
 	return ci.msgBus.PublishOutbound(msg)
 }
 
-// handleAgentTurn 处理 Agent 会话
 func (ci *CronIntegration) handleAgentTurn(ctx context.Context, job *CronJob) error {
 	if ci.agent == nil || ci.sessionMgr == nil {
 		return fmt.Errorf("agent or session manager not available")
 	}
 
-	// 获取或创建会话
+	// Get or create session
 	var sess *session.Session
 	var err error
 
 	if job.Payload.SessionKey != "" {
 		sess, err = ci.sessionMgr.GetSession(job.Payload.SessionKey)
 		if err != nil {
-			logger.Warn("Failed to get session, creating new", logger.String("id", job.Payload.SessionKey), logger.ErrorField(err))
+			logger.Warn("Failed to get session, creating new",
+				logger.String("id", job.Payload.SessionKey),
+				logger.ErrorField(err))
 		}
 	}
 
 	if sess == nil {
-		// 创建新会话
+		// Create new session
 		sess, err = ci.sessionMgr.CreateSession(
 			job.Payload.Channel,
 			job.Payload.To,
@@ -92,13 +95,13 @@ func (ci *CronIntegration) handleAgentTurn(ctx context.Context, job *CronJob) er
 		}
 	}
 
-	// 调用 Agent
+	// Call agent
 	result, err := ci.agent.Chat(ctx, sess, job.Payload.Message)
 	if err != nil {
 		return err
 	}
 
-	// 如果需要发送响应
+	// If we need to deliver response
 	if job.Payload.Deliver && ci.msgBus != nil {
 		if result.Message != nil {
 			msg := bus.NewOutboundMessage(
@@ -118,6 +121,6 @@ func (ci *CronIntegration) handleAgentTurn(ctx context.Context, job *CronJob) er
 	if result.Error != nil {
 		return result.Error
 	}
+
 	return nil
 }
-

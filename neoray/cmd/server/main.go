@@ -160,6 +160,9 @@ func main() {
 		} else {
 			fmt.Println("✅ Cron scheduler started")
 		}
+
+		// TODO: CronTool 注册 - 需要解决循环导入问题
+		logger.Info("Cron scheduler ready (tool registration pending)")
 	}
 
 	// 检查 LLM 配置
