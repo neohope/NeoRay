@@ -22,6 +22,162 @@ import (
 	"neoray/internal/tui"
 )
 
+// ========== Cron 调度器适配器 ==========
+// cronSchedulerAdapter 包装 *cron.CronScheduler 并实现 tools.CronSchedulerInterface
+
+type cronSchedulerAdapter struct {
+	scheduler *cron.CronScheduler
+}
+
+func (a *cronSchedulerAdapter) AddJob(name string, scheduleAny any, message string, deliver bool, channel string, to string, deleteAfterRun bool, metadata map[string]any, sessionKey string) (any, error) {
+	// 将 any/map 转换为 cron.CronSchedule
+	schedule, err := parseSchedule(scheduleAny)
+	if err != nil {
+		return nil, err
+	}
+
+	job, err := a.scheduler.AddJob(name, schedule, message, deliver, channel, to, deleteAfterRun, metadata, sessionKey)
+	if err != nil {
+		return nil, err
+	}
+	return jobToMap(job), nil
+}
+
+func (a *cronSchedulerAdapter) ListJobs(includeMetadata bool) []any {
+	jobs := a.scheduler.ListJobs(includeMetadata)
+	result := make([]any, len(jobs))
+	for i, job := range jobs {
+		result[i] = jobToMap(&job)
+	}
+	return result
+}
+
+func (a *cronSchedulerAdapter) RemoveJob(jobID string) string {
+	return a.scheduler.RemoveJob(jobID)
+}
+
+func (a *cronSchedulerAdapter) GetJob(jobID string) any {
+	job := a.scheduler.GetJob(jobID)
+	if job == nil {
+		return nil
+	}
+	return jobToMap(job)
+}
+
+// ========== 转换辅助函数 ==========
+
+func parseSchedule(scheduleAny any) (cron.CronSchedule, error) {
+	switch sched := scheduleAny.(type) {
+	case map[string]any:
+		kindStr, _ := sched["kind"].(string)
+		switch cron.ScheduleKind(kindStr) {
+		case cron.ScheduleKindAt:
+			var atMs int64
+			switch v := sched["at_ms"].(type) {
+			case int64:
+				atMs = v
+			case float64:
+				atMs = int64(v)
+			case int:
+				atMs = int64(v)
+			}
+			return cron.CronSchedule{
+				Kind: cron.ScheduleKindAt,
+				AtMS: atMs,
+			}, nil
+		case cron.ScheduleKindEvery:
+			var everyMs int64
+			switch v := sched["every_ms"].(type) {
+			case int64:
+				everyMs = v
+			case float64:
+				everyMs = int64(v)
+			case int:
+				everyMs = int64(v)
+			}
+			return cron.CronSchedule{
+				Kind:    cron.ScheduleKindEvery,
+				EveryMS: everyMs,
+			}, nil
+		case cron.ScheduleKindCron:
+			expr, _ := sched["expr"].(string)
+			timezone, _ := sched["timezone"].(string)
+			return cron.CronSchedule{
+				Kind:     cron.ScheduleKindCron,
+				Expr:     expr,
+				Timezone: timezone,
+			}, nil
+		}
+	}
+	return cron.CronSchedule{}, fmt.Errorf("invalid schedule format")
+}
+
+func jobToMap(job *cron.CronJob) map[string]any {
+	if job == nil {
+		return nil
+	}
+	return map[string]any{
+		"id":               job.ID,
+		"name":             job.Name,
+		"enabled":          job.Enabled,
+		"schedule":         scheduleToMap(job.Schedule),
+		"payload":          payloadToMap(job.Payload),
+		"state":            stateToMap(job.State),
+		"created_at_ms":    job.CreatedAtMS,
+		"updated_at_ms":    job.UpdatedAtMS,
+		"delete_after_run": job.DeleteAfterRun,
+	}
+}
+
+func scheduleToMap(s cron.CronSchedule) map[string]any {
+	m := map[string]any{
+		"kind": string(s.Kind),
+	}
+	switch s.Kind {
+	case cron.ScheduleKindAt:
+		m["at_ms"] = s.AtMS
+	case cron.ScheduleKindEvery:
+		m["every_ms"] = s.EveryMS
+	case cron.ScheduleKindCron:
+		m["expr"] = s.Expr
+		if s.Timezone != "" {
+			m["timezone"] = s.Timezone
+		}
+	}
+	return m
+}
+
+func payloadToMap(p cron.CronPayload) map[string]any {
+	return map[string]any{
+		"kind":         string(p.Kind),
+		"message":      p.Message,
+		"deliver":      p.Deliver,
+		"channel":      p.Channel,
+		"to":           p.To,
+		"channel_meta": p.ChannelMeta,
+		"session_key":  p.SessionKey,
+	}
+}
+
+func stateToMap(st cron.CronJobState) map[string]any {
+	history := make([]any, len(st.RunHistory))
+	for i, r := range st.RunHistory {
+		history[i] = map[string]any{
+			"run_at_ms":   r.RunAtMS,
+			"status":      string(r.Status),
+			"duration_ms": r.DurationMS,
+			"error":       r.Error,
+		}
+	}
+	return map[string]any{
+		"last_run_at_ms": st.LastRunAtMS,
+		"last_status":    string(st.LastStatus),
+		"last_error":     st.LastError,
+		"next_run_at_ms": st.NextRunAtMS,
+		"run_history":    history,
+	}
+}
+
 func main() {
 	fmt.Println("NeoRay starting...")
 	// 命令行参数
@@ -106,14 +262,14 @@ func main() {
 
 	// 初始化 Cron 调度器（先创建，不带 handler，以便可以注册工具）
 	var cronScheduler *cron.CronScheduler
-	var cronTool *cron.CronTool
 	if cfg.Tools.Cron.Enabled {
 		fmt.Println("Creating cron scheduler (for tool registration)...")
 		cronStorePath := cfg.ResolvePath("cron/jobs.json")
 		// 先创建不带 handler 的调度器
 		cronScheduler = cron.NewCronScheduler(cronStorePath, nil)
-		// 创建 CronTool 并注册到工具注册表
-		cronTool = cron.NewCronTool(cronScheduler)
+		// 创建适配器和 CronTool，然后注册到工具注册表
+		adapter := &cronSchedulerAdapter{scheduler: cronScheduler}
+		cronTool := tools.NewCronTool(adapter)
 		toolRegistry.Register(cronTool)
 		logger.Info("Cron tool registered")
 	}
@@ -154,7 +310,7 @@ func main() {
 	fmt.Println("Agent started with message bus and hooks")
 
 	// 完成 Cron 调度器设置（设置 handler 并启动）
-	if cfg.Tools.Cron.Enabled && cronScheduler != nil && cronTool != nil {
+	if cfg.Tools.Cron.Enabled && cronScheduler != nil {
 		fmt.Println("Finalizing cron scheduler setup...")
 		cronIntegration := cron.NewCronIntegration(aiAgent, sessionMgr, msgBus)
 		// 为调度器设置 handler
