@@ -14,6 +14,7 @@ import (
 	"neoray/internal/bus"
 	"neoray/internal/channel"
 	"neoray/internal/config"
+	"neoray/internal/cron"
 	"neoray/internal/logger"
 	"neoray/internal/provider"
 	"neoray/internal/session"
@@ -147,6 +148,20 @@ func main() {
 	_ = aiAgent.Start()
 	fmt.Println("Agent started with message bus and hooks")
 
+	// 初始化 Cron 调度器
+	var cronScheduler *cron.CronScheduler
+	if cfg.Tools.Cron.Enabled {
+		fmt.Println("Creating cron scheduler...")
+		cronStorePath := cfg.ResolvePath("cron/jobs.json")
+		cronIntegration := cron.NewCronIntegration(aiAgent, sessionMgr, msgBus)
+		cronScheduler = cron.NewCronScheduler(cronStorePath, cronIntegration.JobHandler)
+		if err := cronScheduler.Start(); err != nil {
+			logger.Warn("Failed to start cron scheduler", logger.ErrorField(err))
+		} else {
+			fmt.Println("✅ Cron scheduler started")
+		}
+	}
+
 	// 检查 LLM 配置
 	hasAPIKey := false
 	for name, providerCfg := range cfg.LLM.Providers {
@@ -254,6 +269,12 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	// 停止 Cron 调度器
+	if cronScheduler != nil {
+		cronScheduler.Stop()
+		logger.Info("Cron scheduler stopped")
+	}
 
 	// 停止消息总线
 	_ = msgBus.Stop()
