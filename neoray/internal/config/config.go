@@ -13,6 +13,7 @@ type Config struct {
 	Logger   LoggerConfig   `mapstructure:"logger"`
 	Database DatabaseConfig `mapstructure:"database"`
 	LLM      LLMConfig      `mapstructure:"llm"`
+	Memory   MemoryConfig   `mapstructure:"memory"`
 	Session  SessionConfig  `mapstructure:"session"`
 	Tools    ToolsConfig    `mapstructure:"tools"`
 	Channels ChannelsConfig `mapstructure:"channels"`
@@ -104,6 +105,20 @@ type ProviderConfig struct {
 	Temperature float64       `mapstructure:"temperature"`
 	Timeout     time.Duration `mapstructure:"timeout"`
 	APIFormat   string        `mapstructure:"api_format"` // "openai" 或 "anthropic"，默认为 "openai"
+}
+
+// MemoryConfig 记忆系统配置
+type MemoryConfig struct {
+	// 工作区目录（存放 SOUL.md, USER.md, memory/）
+	Workspace string `mapstructure:"workspace"`
+	// 是否启用 Git 版本控制
+	GitEnabled bool `mapstructure:"git_enabled"`
+	// Dream 处理间隔
+	DreamInterval string `mapstructure:"dream_interval"`
+	// 会话 TTL（分钟）
+	SessionTTLMinutes int `mapstructure:"session_ttl_minutes"`
+	// 最大历史条目数
+	MaxHistoryEntries int `mapstructure:"max_history_entries"`
 }
 
 // SessionConfig 会话配置

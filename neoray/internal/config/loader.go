@@ -117,7 +117,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("logger.file.max_backups", 3)
 	v.SetDefault("logger.file.max_age", 28)
 	v.SetDefault("logger.file.compress", true)
-		v.SetDefault("logger.file.rotate_daily", false)
+	v.SetDefault("logger.file.rotate_daily", false)
 
 	// Database
 	v.SetDefault("database.driver", "sqlite")
@@ -130,6 +130,13 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("llm.anthropic.max_tokens", 4096)
 	v.SetDefault("llm.anthropic.temperature", 0.7)
 	v.SetDefault("llm.anthropic.timeout", "120s")
+
+	// Memory
+	v.SetDefault("memory.workspace", "")  // 空表示使用 HomeDir
+	v.SetDefault("memory.git_enabled", true)
+	v.SetDefault("memory.dream_interval", "1h")
+	v.SetDefault("memory.session_ttl_minutes", 1440)  // 24小时
+	v.SetDefault("memory.max_history_entries", 1000)
 
 	// Session
 	v.SetDefault("session.storage.type", "sqlite")
@@ -215,6 +222,8 @@ func ensureSubDirs(cfg *Config) error {
 		cfg.ResolvePath("data"),
 		cfg.ResolvePath("workspace"),
 		cfg.ResolvePath("tmp/uploads"),
+		cfg.ResolvePath("memory"),
+		cfg.ResolvePath("skills"),
 	}
 
 	for _, dir := range dirs {
@@ -266,6 +275,20 @@ model = "claude-3-sonnet-20240229"
 max_tokens = 4096
 temperature = 0.7
 timeout = "120s"
+
+# 记忆系统配置
+[memory]
+# 工作区目录（存放 SOUL.md, USER.md, memory/）
+# 空表示使用 ~/.neoray
+workspace = ""
+# 是否启用 Git 版本控制
+git_enabled = true
+# Dream 处理间隔
+dream_interval = "1h"
+# 会话 TTL（分钟，0表示不自动归档）
+session_ttl_minutes = 1440
+# 最大历史条目数
+max_history_entries = 1000
 
 # OpenAI 兼容的 API 配置示例
 [llm.openai]
