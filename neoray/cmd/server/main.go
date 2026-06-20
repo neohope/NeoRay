@@ -16,6 +16,7 @@ import (
 	"neoray/internal/config"
 	"neoray/internal/cron"
 	"neoray/internal/logger"
+	"neoray/internal/memory"
 	"neoray/internal/provider"
 	"neoray/internal/session"
 	"neoray/internal/tools"
@@ -255,6 +256,29 @@ func main() {
 	// 初始化 LLM 提供商
 	providerMgr := initProviders(cfg)
 
+	// 初始化记忆系统
+	var memoryManager *memory.MemoryManager
+	defaultProvider := providerMgr.DefaultProvider()
+	if defaultProvider != nil {
+		// 获取默认模型
+		var model string
+		if defaultProviderCfg, ok := cfg.LLM.Providers[cfg.LLM.DefaultProvider]; ok {
+			model = defaultProviderCfg.Model
+		}
+		if model == "" {
+			model = "gpt-3.5-turbo" // 默认模型
+		}
+
+		fmt.Println("Initializing memory system...")
+		memoryManager = memory.NewMemoryManager(cfg, defaultProvider, model, sessionMgr)
+		logger.Info("Memory system initialized")
+
+		// 注册记忆工具
+		memoryTool := tools.NewMemoryTool(memoryManager)
+		toolRegistry.Register(memoryTool)
+		logger.Info("Memory tool registered")
+	}
+
 	// 初始化消息总线（先创建，以便 cron 和 agent 可以使用）
 	fmt.Println("Creating message bus...")
 	msgBus := bus.NewMessageBus(100, 100)
@@ -276,9 +300,9 @@ func main() {
 
 	// 初始化 Agent（带增强功能）
 	var maxTokens int = 4096 // 默认值
-	if defaultProvider, ok := cfg.LLM.Providers[cfg.LLM.DefaultProvider]; ok {
-		if defaultProvider.MaxTokens > 0 {
-			maxTokens = defaultProvider.MaxTokens
+	if defaultProviderCfg, ok := cfg.LLM.Providers[cfg.LLM.DefaultProvider]; ok {
+		if defaultProviderCfg.MaxTokens > 0 {
+			maxTokens = defaultProviderCfg.MaxTokens
 		}
 	}
 	tokenManager := agent.NewTokenManager(maxTokens * 10) // 10x 预算
@@ -293,15 +317,24 @@ func main() {
 	fmt.Println("Agent hooks configured")
 
 	fmt.Println("Creating agent...")
+	agentOpts := []agent.AgentOption{
+		agent.WithTokenManager(tokenManager),
+		agent.WithTraceManager(traceManager),
+		agent.WithMessageBus(msgBus),
+		agent.WithHook(hook),
+	}
+
+	if memoryManager != nil {
+		agentOpts = append(agentOpts, agent.WithMemoryManager(memoryManager))
+		logger.Info("Memory manager integrated into agent")
+	}
+
 	aiAgent := agent.NewAgent(
 		cfg,
 		providerMgr,
 		sessionMgr,
 		toolRegistry,
-		agent.WithTokenManager(tokenManager),
-		agent.WithTraceManager(traceManager),
-		agent.WithMessageBus(msgBus),
-		agent.WithHook(hook),
+		agentOpts...,
 	)
 	fmt.Println("Agent created")
 
@@ -313,8 +346,56 @@ func main() {
 	if cfg.Tools.Cron.Enabled && cronScheduler != nil {
 		fmt.Println("Finalizing cron scheduler setup...")
 		cronIntegration := cron.NewCronIntegration(aiAgent, sessionMgr, msgBus)
+
+		// 如果有记忆管理器，添加到集成中并注册系统任务
+		if memoryManager != nil {
+			cronIntegration.WithMemoryManager(memoryManager)
+
+			// 注册 Dream 处理任务
+			if cfg.Memory.DreamInterval != "" {
+				fmt.Printf("Registering dream job with interval: %s\n", cfg.Memory.DreamInterval)
+				dreamJob := cron.CronJob{
+					ID:               "dream-process",
+					Name:             "dream-process",
+					Enabled:          true,
+					Schedule: cron.CronSchedule{
+						Kind: cron.ScheduleKindCron,
+						Expr: cfg.Memory.DreamInterval,
+					},
+					Payload: cron.CronPayload{
+						Kind:    cron.PayloadKindSystemEvent,
+						Message: "dream-process",
+					},
+					State: cron.CronJobState{},
+				}
+				cronScheduler.RegisterSystemJob(dreamJob)
+				logger.Info("Dream system job registered")
+			}
+
+			// 注册 AutoCompact 任务（每小时一次）
+			if cfg.Memory.SessionTTLMinutes > 0 {
+				compactJob := cron.CronJob{
+					ID:               "autocompact-process",
+					Name:             "autocompact-process",
+					Enabled:          true,
+					Schedule: cron.CronSchedule{
+						Kind: cron.ScheduleKindCron,
+						Expr: "0 * * * *",
+					},
+					Payload: cron.CronPayload{
+						Kind:    cron.PayloadKindSystemEvent,
+						Message: "autocompact-process",
+					},
+					State: cron.CronJobState{},
+				}
+				cronScheduler.RegisterSystemJob(compactJob)
+				logger.Info("AutoCompact system job registered")
+			}
+		}
+
 		// 为调度器设置 handler
 		cronScheduler.SetHandler(cronIntegration.JobHandler)
+
 		// 启动调度器
 		if err := cronScheduler.Start(); err != nil {
 			logger.Warn("Failed to start cron scheduler", logger.ErrorField(err))

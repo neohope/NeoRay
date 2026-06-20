@@ -31,8 +31,8 @@ type AutoCompactSessionManager interface {
 
 // SessionInfo 会话信息
 type SessionInfo struct {
-	Key       string    `json:"key"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Key       string                 `json:"key"`
+	UpdatedAt time.Time              `json:"updated_at"`
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`
 }
 
@@ -182,13 +182,7 @@ func (ac *AutoCompact) archiveSession(ctx context.Context, key string) {
 
 	if summary != "" && summary != "(nothing)" {
 		// 保存摘要到内存
-		session, _ := ac.sessions.GetSession(key)
 		lastActive := time.Now()
-		if session != nil {
-			if si, ok := ac.getSummaryFromSession(session); ok && si != "" {
-				// 从会话获取
-			}
-		}
 		ac.summaries.Store(key, summaryInfo{
 			text:       summary,
 			lastActive: lastActive,

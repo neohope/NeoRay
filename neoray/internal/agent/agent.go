@@ -11,6 +11,7 @@ import (
 	"neoray/internal/bus"
 	"neoray/internal/config"
 	"neoray/internal/logger"
+	"neoray/internal/memory"
 	"neoray/internal/provider"
 	"neoray/internal/session"
 	"neoray/internal/tools"
@@ -27,6 +28,7 @@ type Agent struct {
 	traceManager   *TraceManager
 	msgBus         *bus.MessageBus
 	hook           AgentHook
+	memoryManager  *memory.MemoryManager
 }
 
 // AgentOption Agent 配置选项
@@ -60,6 +62,21 @@ func WithHook(hook AgentHook) AgentOption {
 	}
 }
 
+// WithMemoryManager 设置记忆管理器
+func WithMemoryManager(mgr *memory.MemoryManager) AgentOption {
+	return func(a *Agent) {
+		a.memoryManager = mgr
+		// 更新 ContextBuilder 以包含记忆管理器
+		if a.contextBuilder != nil {
+			a.contextBuilder = NewContextBuilder(
+				a.cfg,
+				WithStrategy(a.contextBuilder.strategy),
+				WithMemoryForContext(mgr),
+			)
+		}
+	}
+}
+
 // NewAgent 创建 Agent
 func NewAgent(
 	cfg *config.Config,
@@ -72,12 +89,23 @@ func NewAgent(
 		cfg:            cfg,
 		providerMgr:    providerMgr,
 		sessionMgr:     sessionMgr,
-		contextBuilder: NewContextBuilder(cfg),
 		toolRegistry:   toolRegistry,
 	}
 
+	// 先应用选项（memoryManager 可能被设置）
 	for _, opt := range opts {
 		opt(a)
+	}
+
+	// 创建 ContextBuilder（可能包含记忆管理器）
+	if a.memoryManager != nil {
+		a.contextBuilder = &ContextBuilder{
+			cfg:           cfg,
+			strategy:      StrategyRecent,
+			memoryManager: a.memoryManager,
+		}
+	} else {
+		a.contextBuilder = NewContextBuilder(cfg)
 	}
 
 	// 默认值
@@ -104,12 +132,35 @@ func (a *Agent) finishChat(ctx context.Context, sess *session.Session, result *C
 	if err := a.hook.AfterIter(ctx, sess, result); err != nil {
 		logger.Warn("Hook AfterIter failed", logger.ErrorField(err))
 	}
+
+	// 记录对话到记忆系统
+	if a.memoryManager != nil && result != nil && result.Message != nil {
+		// 查找最后的用户输入
+		var userInput string
+		for i := len(sess.Messages) - 1; i >= 0; i-- {
+			if sess.Messages[i].Role == "user" {
+				userInput = sess.Messages[i].Content
+				break
+			}
+		}
+		if userInput != "" && result.Message.Content != "" {
+			if _, err := a.memoryManager.AppendHistory(userInput, result.Message.Content); err != nil {
+				logger.Warn("Failed to append to history", logger.ErrorField(err))
+			}
+		}
+	}
+
 	return result
 }
 
 // Chat 发送聊天消息
 func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput string) (*ChatResult, error) {
 	startTime := time.Now()
+
+	// 跟踪活跃会话
+	if a.memoryManager != nil {
+		a.memoryManager.TrackSession(sess.ID)
+	}
 
 	var trace *TraceSession
 	if a.traceManager.IsEnabled() {
@@ -327,6 +378,11 @@ type StreamChunk struct {
 
 func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput string) (<-chan StreamChunk, error) {
 	resultChan := make(chan StreamChunk, 100)
+
+	// 跟踪活跃会话
+	if a.memoryManager != nil {
+		a.memoryManager.TrackSession(sess.ID)
+	}
 
 	userMsg := session.NewUserMessage("", "", "", userInput)
 	sess.AddMessage(userMsg)

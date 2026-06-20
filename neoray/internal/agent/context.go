@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"neoray/internal/config"
+	"neoray/internal/memory"
 	"neoray/internal/provider"
 	"neoray/internal/session"
 )
@@ -24,8 +25,10 @@ const (
 
 // ContextBuilder 上下文构建器
 type ContextBuilder struct {
-	cfg      *config.Config
-	strategy ContextStrategy
+	cfg           *config.Config
+	strategy      ContextStrategy
+	memoryManager *memory.MemoryManager
+	channel       string
 }
 
 // ContextBuilderOption 上下文构建器选项
@@ -35,6 +38,20 @@ type ContextBuilderOption func(*ContextBuilder)
 func WithStrategy(strategy ContextStrategy) ContextBuilderOption {
 	return func(b *ContextBuilder) {
 		b.strategy = strategy
+	}
+}
+
+// WithMemoryForContext 设置记忆管理器
+func WithMemoryForContext(mgr *memory.MemoryManager) ContextBuilderOption {
+	return func(b *ContextBuilder) {
+		b.memoryManager = mgr
+	}
+}
+
+// WithChannel 设置频道信息
+func WithChannel(channel string) ContextBuilderOption {
+	return func(b *ContextBuilder) {
+		b.channel = channel
 	}
 }
 
@@ -54,8 +71,14 @@ func NewContextBuilder(cfg *config.Config, opts ...ContextBuilderOption) *Contex
 func (b *ContextBuilder) BuildMessages(sess *session.Session) []provider.Message {
 	msgs := make([]provider.Message, 0, len(sess.Messages)+1)
 
+	// 获取会话摘要（如果有）
+	var sessionSummary string
+	if b.memoryManager != nil {
+		sessionSummary, _ = b.memoryManager.GetSessionSummary(sess.ID)
+	}
+
 	// 添加系统提示
-	systemMsg := b.getSystemPrompt()
+	systemMsg := b.getSystemPrompt(sessionSummary)
 	if systemMsg != "" {
 		msgs = append(msgs, provider.Message{
 			Role:    "system",
@@ -251,9 +274,16 @@ func (b *ContextBuilder) getMaxMessagesForTokens(maxTokens int) int {
 }
 
 // getSystemPrompt 获取系统提示
-func (b *ContextBuilder) getSystemPrompt() string {
+func (b *ContextBuilder) getSystemPrompt(sessionSummary string) string {
+	// 如果有记忆管理器，使用它来构建系统提示
+	if b.memoryManager != nil && b.memoryManager.IsInitialized() {
+		// 传递技能名（当前为空）、频道、会话摘要
+		return b.memoryManager.BuildSystemPrompt(nil, b.channel, sessionSummary)
+	}
+
+	// 回退到原来的系统提示
 	workspace := config.GetWorkspace()
-	return fmt.Sprintf(`You are NeoRay, a helpful AI assistant with access to powerful tools.
+	prompt := fmt.Sprintf(`You are NeoRay, a helpful AI assistant with access to powerful tools.
 
 Your capabilities include:
 - Reading, writing, and editing files in the workspace
@@ -278,4 +308,11 @@ When you need to use tools:
 - Use tool results to inform your next steps
 
 Your goal is to help the user accomplish their objectives efficiently and safely.`, workspace)
+
+	// 如果有会话摘要，添加到提示词
+	if sessionSummary != "" {
+		prompt = prompt + "\n\n" + sessionSummary
+	}
+
+	return prompt
 }

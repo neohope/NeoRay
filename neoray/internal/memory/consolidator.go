@@ -197,7 +197,7 @@ func (c *Consolidator) MaybeConsolidateByTokens(ctx context.Context, session int
 			break
 		}
 
-		boundary, removed := c.PickConsolidationBoundary(session, max(1, estimated-target))
+		boundary, _ := c.PickConsolidationBoundary(session, max(1, estimated-target))
 		if boundary == 0 {
 			break
 		}

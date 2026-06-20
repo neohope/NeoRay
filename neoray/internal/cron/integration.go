@@ -7,14 +7,16 @@ import (
 	"neoray/internal/agent"
 	"neoray/internal/bus"
 	"neoray/internal/logger"
+	"neoray/internal/memory"
 	"neoray/internal/session"
 )
 
 // CronIntegration integrates cron with Agent and MessageBus
 type CronIntegration struct {
-	agent      *agent.Agent
-	sessionMgr *session.Manager
-	msgBus     *bus.MessageBus
+	agent          *agent.Agent
+	sessionMgr     *session.Manager
+	msgBus         *bus.MessageBus
+	memoryManager *memory.MemoryManager
 }
 
 // NewCronIntegration creates the integration
@@ -28,6 +30,12 @@ func NewCronIntegration(
 		sessionMgr: sm,
 		msgBus:     mb,
 	}
+}
+
+// WithMemoryManager adds memory manager to integration
+func (ci *CronIntegration) WithMemoryManager(mm *memory.MemoryManager) *CronIntegration {
+	ci.memoryManager = mm
+	return ci
 }
 
 // JobHandler is the cron job handler
@@ -48,6 +56,25 @@ func (ci *CronIntegration) JobHandler(ctx context.Context, job *CronJob) error {
 }
 
 func (ci *CronIntegration) handleSystemEvent(ctx context.Context, job *CronJob) error {
+	// 处理记忆系统相关事件
+	if job.Payload.Message == "dream:process" {
+		if ci.memoryManager != nil {
+			logger.Info("Running dream processing from cron job")
+			_, err := ci.memoryManager.RunDream(ctx)
+			return err
+		}
+		return nil
+	}
+
+	if job.Payload.Message == "autocompact:process" {
+		if ci.memoryManager != nil {
+			logger.Info("Running autocompact from cron job")
+			ci.memoryManager.CheckExpiredSessions(ctx)
+		}
+		return nil
+	}
+
+	// 默认行为：发布到总线
 	if ci.msgBus == nil {
 		return fmt.Errorf("message bus not available")
 	}
