@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"neoray/internal/skills"
 )
 
 const (
@@ -15,9 +17,10 @@ const (
 
 // ContextBuilder 上下文构建器
 type ContextBuilder struct {
-	workspace string
-	memory    *MemoryStore
-	timezone  string
+	workspace    string
+	memory       *MemoryStore
+	timezone     string
+	skillsLoader *skills.SkillsLoader
 }
 
 // ContextBuilderOption 选项
@@ -27,6 +30,13 @@ type ContextBuilderOption func(*ContextBuilder)
 func WithTimezone(timezone string) ContextBuilderOption {
 	return func(cb *ContextBuilder) {
 		cb.timezone = timezone
+	}
+}
+
+// WithSkillsLoader 设置 skills loader
+func WithSkillsLoader(loader *skills.SkillsLoader) ContextBuilderOption {
+	return func(cb *ContextBuilder) {
+		cb.skillsLoader = loader
 	}
 }
 
@@ -252,6 +262,11 @@ func (cb *ContextBuilder) getRecentHistory() string {
 }
 
 func (cb *ContextBuilder) loadSkillsForContext(skillNames []string) string {
+	if cb.skillsLoader != nil {
+		return cb.skillsLoader.LoadSkillsForContext(skillNames)
+	}
+
+	// 回退到原来的实现
 	var sb strings.Builder
 
 	for _, name := range skillNames {
@@ -268,6 +283,15 @@ func (cb *ContextBuilder) loadSkillsForContext(skillNames []string) string {
 }
 
 func (cb *ContextBuilder) buildSkillsSummary(exclude []string) string {
+	if cb.skillsLoader != nil {
+		excludeSet := make(map[string]bool)
+		for _, name := range exclude {
+			excludeSet[name] = true
+		}
+		return cb.skillsLoader.BuildSkillsSummary(excludeSet)
+	}
+
+	// 回退到原来的实现
 	excludeSet := make(map[string]bool)
 	for _, name := range exclude {
 		excludeSet[name] = true

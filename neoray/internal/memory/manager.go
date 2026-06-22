@@ -11,6 +11,7 @@ import (
 	"neoray/internal/logger"
 	"neoray/internal/provider"
 	"neoray/internal/session"
+	"neoray/internal/skills"
 )
 
 // MemoryManager 统一管理记忆系统的所有组件
@@ -24,6 +25,7 @@ type MemoryManager struct {
 	consolidator  *Consolidator
 	autoCompact   *AutoCompact
 	contextBuilder *ContextBuilder
+	skillsLoader   *skills.SkillsLoader
 
 	// 活跃会话跟踪
 	activeSessions sync.Map // session ID -> struct{}
@@ -109,8 +111,19 @@ func (m *MemoryManager) Initialize(p provider.Provider, model string) {
 		}
 	}
 
+	// 创建 SkillsLoader
+	skillsOpts := make([]skills.SkillsLoaderOption, 0)
+	if m.cfg.Skills.BuiltinSkillsDir != "" {
+		skillsOpts = append(skillsOpts, skills.WithBuiltinSkillsDir(m.cfg.Skills.BuiltinSkillsDir))
+	}
+	if len(m.cfg.Skills.DisabledSkills) > 0 {
+		skillsOpts = append(skillsOpts, skills.WithDisabledSkills(m.cfg.Skills.DisabledSkills))
+	}
+	m.skillsLoader = skills.NewSkillsLoader(m.cfg, skillsOpts...)
+	logger.Info("Skills loader initialized", logger.Bool("enabled", m.cfg.Skills.Enabled))
+
 	// 创建 ContextBuilder
-	m.contextBuilder = NewContextBuilder(m.workspace, m.store)
+	m.contextBuilder = NewContextBuilder(m.workspace, m.store, WithSkillsLoader(m.skillsLoader))
 
 	// 创建适配器
 	adapter := NewProviderAdapter(p, model)
@@ -220,11 +233,30 @@ func (m *MemoryManager) AppendHistoryFormatted(content string) (int, error) {
 	return m.store.AppendHistory(content)
 }
 
+// SkillsLoader 获取技能加载器
+func (m *MemoryManager) SkillsLoader() *skills.SkillsLoader {
+	return m.skillsLoader
+}
+
+// GetAlwaysSkills 获取标记为 always 的技能
+func (m *MemoryManager) GetAlwaysSkills() []string {
+	if m.skillsLoader != nil && m.cfg.Skills.AutoLoadAlways {
+		return m.skillsLoader.GetAlwaysSkills()
+	}
+	return nil
+}
+
 // BuildSystemPrompt 构建系统提示词
 func (m *MemoryManager) BuildSystemPrompt(skillNames []string, channel string, sessionSummary string) string {
 	if m.contextBuilder == nil {
 		return ""
 	}
+
+	// 如果没有指定技能，但配置了自动加载 always 技能，则添加它们
+	if len(skillNames) == 0 && m.cfg.Skills.AutoLoadAlways && m.skillsLoader != nil {
+		skillNames = m.skillsLoader.GetAlwaysSkills()
+	}
+
 	return m.contextBuilder.BuildSystemPrompt(skillNames, channel, sessionSummary)
 }
 

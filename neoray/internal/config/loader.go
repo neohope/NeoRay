@@ -186,6 +186,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("security.upload.max_size", 10485760)
 	v.SetDefault("security.upload.temp_dir", "tmp/uploads")
 
+	// Skills
+	v.SetDefault("skills.enabled", true)
+	v.SetDefault("skills.builtin_skills_dir", "skills")
+	v.SetDefault("skills.auto_load_always", true)
+
 	// Web
 	v.SetDefault("web.enabled", false)
 }

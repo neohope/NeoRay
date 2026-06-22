@@ -16,6 +16,7 @@ type Config struct {
 	Memory   MemoryConfig   `mapstructure:"memory"`
 	Session  SessionConfig  `mapstructure:"session"`
 	Tools    ToolsConfig    `mapstructure:"tools"`
+	Skills   SkillsConfig   `mapstructure:"skills"`
 	Channels ChannelsConfig `mapstructure:"channels"`
 	Security SecurityConfig `mapstructure:"security"`
 	Web      WebConfig      `mapstructure:"web"`
@@ -249,6 +250,14 @@ type UploadConfig struct {
 	MaxSize      int64    `mapstructure:"max_size"`
 	AllowedTypes []string `mapstructure:"allowed_types"`
 	TempDir      string   `mapstructure:"temp_dir"`
+}
+
+// SkillsConfig Skills 配置
+type SkillsConfig struct {
+	Enabled          bool     `mapstructure:"enabled"`
+	BuiltinSkillsDir string   `mapstructure:"builtin_skills_dir"`
+	DisabledSkills   []string `mapstructure:"disabled_skills"`
+	AutoLoadAlways   bool     `mapstructure:"auto_load_always"` // 自动加载标记为 always=true 的 skills
 }
 
 // WebConfig Web UI 配置

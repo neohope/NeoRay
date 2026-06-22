@@ -255,6 +255,11 @@ func ErrorField(err error) zap.Field {
 	return zap.Error(err)
 }
 
+// Bool 创建 bool 字段
+func Bool(key string, value bool) zap.Field {
+	return zap.Bool(key, value)
+}
+
 // Duration 创建 duration 字段
 func Duration(key string, value interface{}) zap.Field {
 	if dur, ok := value.(interface{ String() string }); ok {
