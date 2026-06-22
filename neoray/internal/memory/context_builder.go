@@ -323,7 +323,15 @@ func (cb *ContextBuilder) buildSkillsSummary(exclude []string) string {
 		for _, name := range exclude {
 			excludeSet[name] = true
 		}
-		return cb.skillsLoader.BuildSkillsSummary(excludeSet)
+		skillsSummary := cb.skillsLoader.BuildSkillsSummary(excludeSet)
+		// 使用模板渲染
+		loader := templates.GetTemplateLoader()
+		if rendered, err := loader.RenderTemplate("agent/skills_section.md", map[string]string{
+			"skills_summary": skillsSummary,
+		}); err == nil {
+			return rendered
+		}
+		return skillsSummary
 	}
 
 	// 回退到原来的实现
@@ -357,8 +365,18 @@ func (cb *ContextBuilder) buildSkillsSummary(exclude []string) string {
 		sb.WriteString(fmt.Sprintf("- %s\n", name))
 	}
 	sb.WriteString("\nTo use a skill, just ask for it by name.")
+	skillsSummary := sb.String()
 
-	return sb.String()
+	// 使用模板渲染
+	loader := templates.GetTemplateLoader()
+	if rendered, err := loader.RenderTemplate("agent/skills_section.md", map[string]string{
+		"skills_summary": skillsSummary,
+	}); err == nil {
+		return rendered
+	}
+
+	// 如果模板渲染失败，返回原始技能摘要
+	return skillsSummary
 }
 
 func (cb *ContextBuilder) buildRuntimeContext(

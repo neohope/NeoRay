@@ -15,6 +15,7 @@ import (
 	"neoray/internal/memory"
 	"neoray/internal/provider"
 	"neoray/internal/session"
+	"neoray/internal/templates"
 	"neoray/internal/tools"
 )
 
@@ -356,6 +357,21 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 	logger.Warn("Max tool iterations reached")
 	if trace != nil { trace.AddInfo("达到最大迭代次数", map[string]interface{}{"max_iterations": maxIterations}) }
 
+	// 生成最大迭代次数的提示消息
+	loader := templates.GetTemplateLoader()
+	var maxIterMsg string
+	if msg, err := loader.RenderTemplate("agent/max_iterations_message.md", map[string]string{
+		"max_iterations": fmt.Sprintf("%d", maxIterations),
+	}); err == nil {
+		maxIterMsg = msg
+	} else {
+		maxIterMsg = fmt.Sprintf("I reached the maximum number of tool call iterations (%d) without completing the task. You can try breaking the task into smaller steps.", maxIterations)
+	}
+
+	// 添加助手消息
+	assistantMsg := session.NewAssistantMessage("", "", "", maxIterMsg)
+	sess.AddMessage(assistantMsg)
+
 	if len(sess.Messages) > 0 {
 		lastMsg := sess.Messages[len(sess.Messages)-1]
 		_ = a.sessionMgr.SaveSession(sess)
@@ -539,6 +555,22 @@ func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput
 		}
 
 		logger.Warn("Max tool iterations reached in stream")
+		// 生成最大迭代次数的提示消息
+		loader := templates.GetTemplateLoader()
+		var maxIterMsg string
+		if msg, err := loader.RenderTemplate("agent/max_iterations_message.md", map[string]string{
+			"max_iterations": fmt.Sprintf("%d", maxIterations),
+		}); err == nil {
+			maxIterMsg = msg
+		} else {
+			maxIterMsg = fmt.Sprintf("I reached the maximum number of tool call iterations (%d) without completing the task. You can try breaking the task into smaller steps.", maxIterations)
+		}
+		// 添加助手消息
+		assistantMsg := session.NewAssistantMessage("", "", "", maxIterMsg)
+		sess.AddMessage(assistantMsg)
+		// 发送给用户
+		resultChan <- StreamChunk{Type: "text", Content: maxIterMsg}
+		resultChan <- StreamChunk{Type: "end", Content: maxIterMsg, SessionMsg: &assistantMsg}
 		if err := a.hook.AfterStream(ctx, sess); err != nil { logger.Warn("Hook AfterStream failed", logger.ErrorField(err)) }
 	}()
 

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"neoray/internal/templates"
 )
 
 const (
@@ -312,15 +314,24 @@ func (c *Consolidator) truncateToTokenBudget(text string) string {
 }
 
 func (c *Consolidator) summarizeWithLLM(ctx context.Context, text string) (string, error) {
-	systemPrompt := `You are a conversation summarizer. Your job is to produce a concise, accurate summary of the conversation history.
+	loader := templates.GetTemplateLoader()
+	systemPrompt, ok := loader.GetTemplate("agent/consolidator_archive.md")
+	if !ok {
+		// 回退到硬编码版本
+		systemPrompt = `Extract key facts from this conversation. Only output items matching these categories, skip everything else:
+- User facts: personal info, preferences, stated opinions, habits
+- Decisions: choices made, conclusions reached
+- Solutions: working approaches discovered through trial and error, especially non-obvious methods that succeeded after failed attempts
+- Events: plans, deadlines, notable occurrences
+- Preferences: communication style, tool preferences
 
-Focus on:
-1. Key facts and decisions made
-2. User preferences expressed
-3. Technical context established
-4. Tasks completed or in progress
+Priority: user corrections and preferences > solutions > decisions > events > environment facts. The most valuable memory prevents the user from having to repeat themselves.
 
-Be concise but comprehensive. Use clear, direct language. If there's nothing meaningful to summarize, just say "(nothing)".`
+Skip: code patterns derivable from source, git history, or anything already captured in existing memory.
+
+Output as concise bullet points, one fact per line. No preamble, no commentary.
+If nothing noteworthy happened, output: (nothing)`
+	}
 
 	messages := []interface{}{
 		map[string]string{"role": "system", "content": systemPrompt},
