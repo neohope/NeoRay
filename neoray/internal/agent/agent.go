@@ -20,17 +20,18 @@ import (
 
 // Agent AI 代理
 type Agent struct {
-	cfg            *config.Config
-	providerMgr    *provider.ProviderManager
-	sessionMgr     *session.Manager
-	contextBuilder *ContextBuilder
-	toolRegistry   *tools.Registry
-	tokenManager   *TokenManager
-	traceManager   *TraceManager
-	msgBus         *bus.MessageBus
-	hook           AgentHook
-	memoryManager  *memory.MemoryManager
-	cmdManager     *command.Manager
+	cfg                *config.Config
+	providerMgr        *provider.ProviderManager
+	sessionMgr         *session.Manager
+	contextBuilder     *ContextBuilder
+	toolRegistry       *tools.Registry
+	tokenManager       *TokenManager
+	traceManager       *TraceManager
+	msgBus             *bus.MessageBus
+	hook               AgentHook
+	memoryManager      *memory.MemoryManager
+	cmdManager         *command.Manager
+	continuationMgr    *ContinuationManager
 }
 
 // AgentOption Agent 配置选项
@@ -79,6 +80,13 @@ func WithMemoryManager(mgr *memory.MemoryManager) AgentOption {
 	}
 }
 
+// WithContinuationManager 设置续轮管理器
+func WithContinuationManager(cm *ContinuationManager) AgentOption {
+	return func(a *Agent) {
+		a.continuationMgr = cm
+	}
+}
+
 // NewAgent 创建 Agent
 func NewAgent(
 	cfg *config.Config,
@@ -97,7 +105,7 @@ func NewAgent(
 	// 创建指令管理器
 	a.cmdManager = command.NewManager(cfg, providerMgr)
 
-	// 先应用选项（memoryManager 可能被设置）
+	// 先应用选项
 	for _, opt := range opts {
 		opt(a)
 	}
@@ -117,6 +125,7 @@ func NewAgent(
 	if a.tokenManager == nil { a.tokenManager = NewTokenManager(0) } // 无限制
 	if a.traceManager == nil { a.traceManager = NewTraceManager(false) } // 默认禁用
 	if a.hook == nil { a.hook = NewBaseHook("noop") } // 默认空 Hook
+	if a.continuationMgr == nil { a.continuationMgr = NewContinuationManager() } // 默认启用续轮
 
 	return a
 }
@@ -286,10 +295,47 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 		}
 		sess.AddMessage(assistantMsg)
 
+		// 检查是否需要续轮（仅在没有工具调用时才续轮）
 		if len(resp.ToolCalls) == 0 || a.toolRegistry == nil {
+			// 检查是否需要续轮
+			if a.continuationMgr.IsTruncated(resp.FinishReason) {
+				logger.Debug("Response truncated, starting continuation",
+					logger.String("finish_reason", resp.FinishReason))
+
+				// 执行续轮
+				var continuationCount int
+				var stillTruncated bool
+				for continuationCount = 0; a.continuationMgr.ShouldContinue(continuationCount); continuationCount++ {
+					contResp, truncated, contErr := a.continuationMgr.ExecuteContinuation(
+						ctx, p, sess, providerTools, a.callLLMWithRetry)
+
+					if contErr != nil {
+						logger.Warn("Continuation failed, stopping", logger.ErrorField(contErr))
+						break
+					}
+
+					// 合并续轮结果到最后一条消息
+					a.continuationMgr.MergeContinuation(sess, contResp.Content)
+					stillTruncated = truncated
+
+					if !stillTruncated {
+						logger.Debug("Continuation completed successfully",
+							logger.Int("continuations", continuationCount+1))
+						break
+					}
+				}
+
+				if stillTruncated {
+					logger.Warn("Still truncated after max continuations",
+						logger.Int("continuations", continuationCount))
+				}
+			}
+
+			// 保存并返回
 			if err := a.sessionMgr.SaveSession(sess); err != nil { logger.Warn("Failed to save session", logger.ErrorField(err)) }
+			finalMsg := sess.LastMessage()
 			result := &ChatResult{
-				Message: &assistantMsg,
+				Message: finalMsg,
 				TokenUsage: a.tokenManager.GetSessionUsage(sess.ID),
 				Trace: trace,
 				ToolCalls: totalToolCalls,
@@ -299,6 +345,7 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 			return a.finishChat(ctx, sess, result), nil
 		}
 
+		// 有工具调用，继续执行
 		totalToolCalls += len(resp.ToolCalls)
 		toolResponses := a.executeToolCalls(ctx, resp.ToolCalls, trace)
 		toolRespJSON, _ := json.Marshal(toolResponses)
@@ -475,14 +522,14 @@ func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput
 			}
 
 			if streamProvider, ok := p.(provider.StreamToolProvider); ok {
-				done, err := a.handleNativeStreamTool(ctx, streamProvider, req, sess, resultChan, trace)
+				done, err := a.handleNativeStreamTool(ctx, streamProvider, req, sess, resultChan, trace, providerTools)
 				if err != nil { resultChan <- StreamChunk{Type: "error", Error: err}; return }
 				if done {
 					if err := a.hook.AfterStream(ctx, sess); err != nil { logger.Warn("Hook AfterStream failed", logger.ErrorField(err)) }
 					return
 				}
 			} else {
-				done, err := a.handleFallbackStream(ctx, p, req, sess, resultChan, trace)
+				done, err := a.handleFallbackStream(ctx, p, req, sess, resultChan, trace, providerTools)
 				if err != nil { resultChan <- StreamChunk{Type: "error", Error: err}; return }
 				if done {
 					if err := a.hook.AfterStream(ctx, sess); err != nil { logger.Warn("Hook AfterStream failed", logger.ErrorField(err)) }
@@ -505,6 +552,7 @@ func (a *Agent) handleNativeStreamTool(
 	sess *session.Session,
 	resultChan chan<- StreamChunk,
 	trace *TraceSession,
+	providerTools []provider.Tool,
 ) (bool, error) {
 
 	stream, err := p.ChatStreamWithTools(ctx, req)
@@ -513,6 +561,7 @@ func (a *Agent) handleNativeStreamTool(
 	var fullContent string
 	var currentToolCalls []provider.ToolCall
 	var toolCallInProgress bool
+	var finishReason string
 
 	for chunk := range stream {
 		select {
@@ -535,37 +584,86 @@ func (a *Agent) handleNativeStreamTool(
 		}
 
 		if chunk.FinishReason != "" {
-			logger.Debug("Stream finished", logger.String("reason", chunk.FinishReason))
-			if len(currentToolCalls) > 0 {
-				assistantMsg := session.NewAssistantMessage("", "", "", fullContent)
-				if len(currentToolCalls) > 0 {
-					assistantMsg.ToolCalls = make([]session.ToolCall, 0, len(currentToolCalls))
-					for _, tc := range currentToolCalls {
-						assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, session.ToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments})
-					}
-				}
-				sess.AddMessage(assistantMsg)
-
-				toolResponses := a.executeToolCalls(ctx, currentToolCalls, trace)
-				resultChan <- StreamChunk{Type: "tool_result", ToolResults: toolResponses}
-
-				toolRespJSON, _ := json.Marshal(toolResponses)
-				toolMsg := session.NewToolMessage("", "", "", string(toolRespJSON))
-				sess.AddMessage(toolMsg)
-
-				return false, nil
-			}
-
-			if fullContent != "" {
-				assistantMsg := session.NewAssistantMessage("", "", "", fullContent)
-				sess.AddMessage(assistantMsg)
-				if err := a.sessionMgr.SaveSession(sess); err != nil { logger.Warn("Failed to save session", logger.ErrorField(err)) }
-				resultChan <- StreamChunk{Type: "end", Content: fullContent, SessionMsg: &assistantMsg}
-			}
-			return true, nil
+			finishReason = chunk.FinishReason
+			logger.Debug("Stream finished", logger.String("reason", finishReason))
+			break
 		}
 	}
 
+	if len(currentToolCalls) > 0 {
+		assistantMsg := session.NewAssistantMessage("", "", "", fullContent)
+		if len(currentToolCalls) > 0 {
+			assistantMsg.ToolCalls = make([]session.ToolCall, 0, len(currentToolCalls))
+			for _, tc := range currentToolCalls {
+				assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, session.ToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments})
+			}
+		}
+		sess.AddMessage(assistantMsg)
+
+		toolResponses := a.executeToolCalls(ctx, currentToolCalls, trace)
+		resultChan <- StreamChunk{Type: "tool_result", ToolResults: toolResponses}
+
+		toolRespJSON, _ := json.Marshal(toolResponses)
+		toolMsg := session.NewToolMessage("", "", "", string(toolRespJSON))
+		sess.AddMessage(toolMsg)
+
+		return false, nil
+	}
+
+	if fullContent != "" {
+		assistantMsg := session.NewAssistantMessage("", "", "", fullContent)
+		sess.AddMessage(assistantMsg)
+
+		// 检查是否需要续轮
+		if a.continuationMgr.IsTruncated(finishReason) {
+			logger.Debug("Stream response truncated, starting continuation",
+				logger.String("finish_reason", finishReason))
+
+			// 执行续轮
+			var continuationCount int
+			var stillTruncated bool
+			for continuationCount = 0; a.continuationMgr.ShouldContinue(continuationCount); continuationCount++ {
+				contResp, truncated, contErr := a.continuationMgr.ExecuteContinuation(
+					ctx, p, sess, providerTools, a.callLLMWithRetry)
+
+				if contErr != nil {
+					logger.Warn("Stream continuation failed, stopping", logger.ErrorField(contErr))
+					break
+				}
+
+				// 流式输出续轮内容
+				for _, c := range contResp.Content {
+					select {
+					case <-ctx.Done(): return true, ctx.Err()
+					case <-time.After(5 * time.Millisecond):
+						resultChan <- StreamChunk{Type: "text", Content: string(c)}
+						if err := a.hook.OnStreamDelta(ctx, string(c)); err != nil { logger.Warn("Hook OnStreamDelta failed", logger.ErrorField(err)) }
+					}
+				}
+
+				// 合并到消息
+				a.continuationMgr.MergeContinuation(sess, contResp.Content)
+				stillTruncated = truncated
+
+				if !stillTruncated {
+					logger.Debug("Stream continuation completed successfully",
+						logger.Int("continuations", continuationCount+1))
+					break
+				}
+			}
+
+			if stillTruncated {
+				logger.Warn("Still truncated after max continuations in stream",
+					logger.Int("continuations", continuationCount))
+			}
+
+			// 更新 finalMsg
+			assistantMsg = sess.Messages[len(sess.Messages)-1]
+		}
+
+		if err := a.sessionMgr.SaveSession(sess); err != nil { logger.Warn("Failed to save session", logger.ErrorField(err)) }
+		resultChan <- StreamChunk{Type: "end", Content: assistantMsg.Content, SessionMsg: &assistantMsg}
+	}
 	return true, nil
 }
 
@@ -576,6 +674,7 @@ func (a *Agent) handleFallbackStream(
 	sess *session.Session,
 	resultChan chan<- StreamChunk,
 	trace *TraceSession,
+	providerTools []provider.Tool,
 ) (bool, error) {
 
 	resp, err := a.callLLMWithRetry(ctx, p, req)
@@ -615,8 +714,56 @@ func (a *Agent) handleFallbackStream(
 
 	assistantMsg := session.NewAssistantMessage("", "", "", resp.Content)
 	sess.AddMessage(assistantMsg)
+
+	// 检查是否需要续轮
+	if a.continuationMgr.IsTruncated(resp.FinishReason) {
+		logger.Debug("Fallback stream truncated, starting continuation",
+			logger.String("finish_reason", resp.FinishReason))
+
+		// 执行续轮
+		var continuationCount int
+		var stillTruncated bool
+		for continuationCount = 0; a.continuationMgr.ShouldContinue(continuationCount); continuationCount++ {
+			contResp, truncated, contErr := a.continuationMgr.ExecuteContinuation(
+				ctx, p, sess, providerTools, a.callLLMWithRetry)
+
+			if contErr != nil {
+				logger.Warn("Fallback continuation failed, stopping", logger.ErrorField(contErr))
+				break
+			}
+
+			// 流式输出续轮内容
+			for _, c := range contResp.Content {
+				select {
+				case <-ctx.Done(): return true, ctx.Err()
+				case <-time.After(5 * time.Millisecond):
+					resultChan <- StreamChunk{Type: "text", Content: string(c)}
+					if err := a.hook.OnStreamDelta(ctx, string(c)); err != nil { logger.Warn("Hook OnStreamDelta failed", logger.ErrorField(err)) }
+				}
+			}
+
+			// 合并到消息
+			a.continuationMgr.MergeContinuation(sess, contResp.Content)
+			stillTruncated = truncated
+
+			if !stillTruncated {
+				logger.Debug("Fallback continuation completed successfully",
+					logger.Int("continuations", continuationCount+1))
+				break
+			}
+		}
+
+		if stillTruncated {
+			logger.Warn("Still truncated after max continuations in fallback stream",
+				logger.Int("continuations", continuationCount))
+		}
+
+		// 更新 finalMsg
+		assistantMsg = sess.Messages[len(sess.Messages)-1]
+	}
+
 	if err := a.sessionMgr.SaveSession(sess); err != nil { logger.Warn("Failed to save session", logger.ErrorField(err)) }
-	resultChan <- StreamChunk{Type: "end", Content: resp.Content, SessionMsg: &assistantMsg}
+	resultChan <- StreamChunk{Type: "end", Content: assistantMsg.Content, SessionMsg: &assistantMsg}
 	return true, nil
 }
 
