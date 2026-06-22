@@ -141,6 +141,13 @@ func (s *Session) LastMessage() *Message {
 	return &s.Messages[len(s.Messages)-1]
 }
 
+// Clear 清空会话消息
+func (s *Session) Clear() {
+	s.Messages = make([]Message, 0)
+	s.Title = "New Session"
+	s.UpdatedAt = time.Now()
+}
+
 // generateID 生成唯一 ID
 func generateID() string {
 	b := make([]byte, 16)

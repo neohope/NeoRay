@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"neoray/internal/bus"
+	"neoray/internal/command"
 	"neoray/internal/config"
 	"neoray/internal/logger"
 	"neoray/internal/memory"
@@ -29,6 +30,7 @@ type Agent struct {
 	msgBus         *bus.MessageBus
 	hook           AgentHook
 	memoryManager  *memory.MemoryManager
+	cmdManager     *command.Manager
 }
 
 // AgentOption Agent 配置选项
@@ -91,6 +93,9 @@ func NewAgent(
 		sessionMgr:     sessionMgr,
 		toolRegistry:   toolRegistry,
 	}
+
+	// 创建指令管理器
+	a.cmdManager = command.NewManager(cfg, providerMgr)
 
 	// 先应用选项（memoryManager 可能被设置）
 	for _, opt := range opts {
@@ -156,6 +161,27 @@ func (a *Agent) finishChat(ctx context.Context, sess *session.Session, result *C
 // Chat 发送聊天消息
 func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput string) (*ChatResult, error) {
 	startTime := time.Now()
+
+	// 先检查是否是指令
+	if a.cmdManager != nil {
+		if resp, isCmd, err := a.cmdManager.Process(ctx, sess, userInput); isCmd {
+			var assistantMsg session.Message
+			if err != nil {
+				assistantMsg = session.NewAssistantMessage("", "", "", fmt.Sprintf("❌ Command error: %v", err))
+			} else {
+				assistantMsg = session.NewAssistantMessage("", "", "", resp)
+			}
+			sess.AddMessage(assistantMsg)
+			_ = a.sessionMgr.SaveSession(sess)
+
+			result := &ChatResult{
+				Message:  &assistantMsg,
+				Duration: time.Since(startTime),
+				Error:    err,
+			}
+			return a.finishChat(ctx, sess, result), nil
+		}
+	}
 
 	// 跟踪活跃会话
 	if a.memoryManager != nil {
@@ -378,6 +404,25 @@ type StreamChunk struct {
 
 func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput string) (<-chan StreamChunk, error) {
 	resultChan := make(chan StreamChunk, 100)
+
+	// 先检查是否是指令
+	if a.cmdManager != nil {
+		if resp, isCmd, err := a.cmdManager.Process(ctx, sess, userInput); isCmd {
+			go func() {
+				defer close(resultChan)
+				var assistantMsg session.Message
+				if err != nil {
+					assistantMsg = session.NewAssistantMessage("", "", "", fmt.Sprintf("❌ Command error: %v", err))
+				} else {
+					assistantMsg = session.NewAssistantMessage("", "", "", resp)
+				}
+				sess.AddMessage(assistantMsg)
+				_ = a.sessionMgr.SaveSession(sess)
+				resultChan <- StreamChunk{Type: "end", Content: resp, SessionMsg: &assistantMsg}
+			}()
+			return resultChan, nil
+		}
+	}
 
 	// 跟踪活跃会话
 	if a.memoryManager != nil {

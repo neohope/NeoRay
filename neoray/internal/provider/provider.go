@@ -116,6 +116,28 @@ func (m *ProviderManager) SetDefaultProvider(p Provider) {
 	m.defaultProvider = p
 }
 
+// SetDefaultProviderByName 按名称设置默认提供商
+func (m *ProviderManager) SetDefaultProviderByName(name string) error {
+	if name == "" {
+		return nil
+	}
+	p, ok := m.providers[name]
+	if !ok {
+		return errors.New("provider not found")
+	}
+	m.defaultProvider = p
+	return nil
+}
+
+// ListProviders 列出所有已注册的提供商
+func (m *ProviderManager) ListProviders() []string {
+	names := make([]string, 0, len(m.providers))
+	for name := range m.providers {
+		names = append(names, name)
+	}
+	return names
+}
+
 // StreamReader 流读取器
 type StreamReader interface {
 	io.ReadCloser
