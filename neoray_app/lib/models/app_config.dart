@@ -13,10 +13,27 @@ class LLMConfig with _$LLMConfig {
     @Default(4096) int maxTokens,
     @Default(0.7) double temperature,
     @Default(120) int timeout,
+    @Default('none') String reasoningEffort,
+    @Default(false) bool promptCacheEnabled,
+    @Default([]) List<FallbackModelConfig> fallbackModels,
   }) = _LLMConfig;
 
   factory LLMConfig.fromJson(Map<String, dynamic> json) =>
       _$LLMConfigFromJson(json);
+}
+
+@freezed
+class FallbackModelConfig with _$FallbackModelConfig {
+  const factory FallbackModelConfig({
+    String? model,
+    String? provider,
+    int? maxTokens,
+    double? temperature,
+    String? reasoningEffort,
+  }) = _FallbackModelConfig;
+
+  factory FallbackModelConfig.fromJson(Map<String, dynamic> json) =>
+      _$FallbackModelConfigFromJson(json);
 }
 
 @freezed

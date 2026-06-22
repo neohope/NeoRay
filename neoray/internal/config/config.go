@@ -95,17 +95,29 @@ type PostgresConfig struct {
 type LLMConfig struct {
 	DefaultProvider string                 `mapstructure:"default_provider"`
 	Providers       map[string]ProviderConfig `mapstructure:",remain"`
+	FallbackModels  []FallbackModelConfig `mapstructure:"fallback_models"`
+}
+
+// FallbackModelConfig Fallback 模型配置
+type FallbackModelConfig struct {
+	Model            string        `mapstructure:"model"`
+	Provider         string        `mapstructure:"provider"`
+	MaxTokens        int           `mapstructure:"max_tokens,omitempty"`
+	Temperature      float64       `mapstructure:"temperature,omitempty"`
+	ReasoningEffort string        `mapstructure:"reasoning_effort,omitempty"`
 }
 
 // ProviderConfig 通用提供商配置
 type ProviderConfig struct {
-	APIKey      string        `mapstructure:"api_key"`
-	APIURL      string        `mapstructure:"api_url"`
-	Model       string        `mapstructure:"model"`
-	MaxTokens   int           `mapstructure:"max_tokens"`
-	Temperature float64       `mapstructure:"temperature"`
-	Timeout     time.Duration `mapstructure:"timeout"`
-	APIFormat   string        `mapstructure:"api_format"` // "openai" 或 "anthropic"，默认为 "openai"
+	APIKey            string        `mapstructure:"api_key"`
+	APIURL            string        `mapstructure:"api_url"`
+	Model             string        `mapstructure:"model"`
+	MaxTokens         int           `mapstructure:"max_tokens"`
+	Temperature       float64       `mapstructure:"temperature"`
+	Timeout           time.Duration `mapstructure:"timeout"`
+	APIFormat         string        `mapstructure:"api_format"` // "openai" 或 "anthropic"，默认为 "openai"
+	ReasoningEffort   string        `mapstructure:"reasoning_effort,omitempty"` // "low", "medium", "high", "adaptive", "none"
+	PromptCacheEnabled bool         `mapstructure:"prompt_cache_enabled,omitempty"`
 }
 
 // MemoryConfig 记忆系统配置

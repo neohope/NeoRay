@@ -4,13 +4,23 @@ import (
 	"context"
 	"errors"
 	"io"
+	"time"
 )
 
 // Message LLM 消息
 type Message struct {
-	Role      string     `json:"role"`
-	Content   string     `json:"content"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	Role          string                 `json:"role"`
+	Content       string                 `json:"content"`
+	ToolCalls     []ToolCall             `json:"tool_calls,omitempty"`
+	ThinkingBlocks []ThinkingBlock       `json:"thinking_blocks,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// ThinkingBlock 思考块
+type ThinkingBlock struct {
+	Type      string `json:"type"`       // "thinking"
+	Thinking  string `json:"thinking"`   // 思考内容
+	Signature string `json:"signature"`  // 签名（可选）
 }
 
 // ToolCall 工具调用
@@ -25,31 +35,64 @@ type Tool struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description"`
 	InputSchema interface{} `json:"input_schema"`
+	CacheControl *CacheControl `json:"cache_control,omitempty"`
+}
+
+// CacheControl 缓存控制
+type CacheControl struct {
+	Type string `json:"type"` // "ephemeral"
 }
 
 // ChatRequest 聊天请求
 type ChatRequest struct {
-	Model      string    `json:"model"`
-	Messages   []Message `json:"messages"`
-	Tools      []Tool    `json:"tools,omitempty"`
-	MaxTokens  int       `json:"max_tokens,omitempty"`
-	Temperature float64   `json:"temperature,omitempty"`
-	Stream     bool      `json:"stream,omitempty"`
+	Model            string          `json:"model"`
+	Messages         []Message       `json:"messages"`
+	Tools            []Tool          `json:"tools,omitempty"`
+	MaxTokens        int             `json:"max_tokens,omitempty"`
+	Temperature      float64         `json:"temperature,omitempty"`
+	Stream           bool            `json:"stream,omitempty"`
+	ReasoningEffort string          `json:"reasoning_effort,omitempty"` // "low", "medium", "high", "adaptive", "none"
+	ToolChoice       string          `json:"tool_choice,omitempty"`
+	CacheEnabled     bool            `json:"cache_enabled,omitempty"`
+}
+
+// Usage 使用量
+type Usage struct {
+	InputTokens            int `json:"input_tokens"`
+	OutputTokens           int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
+	CachedTokens           int `json:"cached_tokens,omitempty"`
 }
 
 // ChatResponse 聊天响应
 type ChatResponse struct {
-	Content      string
-	ToolCalls    []ToolCall
-	FinishReason string
+	Content         string
+	ToolCalls       []ToolCall
+	ThinkingBlocks []ThinkingBlock
+	FinishReason    string
+	Usage          *Usage
+	RetryAfter     time.Duration
+	ErrorStatusCode int
+	ErrorType      string
+	ErrorCode      string
+	ErrorShouldRetry bool
 }
 
 // StreamChatResponse 流式聊天响应
 type StreamChatResponse struct {
-	Content      string
-	ToolCalls    []ToolCall
-	FinishReason string
-	Error        error
+	Content         string
+	ThinkingDelta   string
+	ToolCalls       []ToolCall
+	FinishReason    string
+	Error          error
+}
+
+// GenerationSettings 生成设置
+type GenerationSettings struct {
+	Temperature      float64
+	MaxTokens        int
+	ReasoningEffort string
 }
 
 // Provider LLM 提供商接口
@@ -60,6 +103,12 @@ type Provider interface {
 	Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error)
 	// ChatStream 流式聊天
 	ChatStream(ctx context.Context, req *ChatRequest) (<-chan StreamChatResponse, error)
+	// GetGenerationSettings 获取生成设置
+	GetGenerationSettings() GenerationSettings
+	// SetGenerationSettings 设置生成设置
+	SetGenerationSettings(settings GenerationSettings)
+	// GetDefaultModel 获取默认模型
+	GetDefaultModel() string
 }
 
 // StreamToolProvider 支持流式工具调用的提供商
@@ -68,6 +117,27 @@ type StreamToolProvider interface {
 	// ChatStreamWithTools 流式聊天（带工具调用支持）
 	ChatStreamWithTools(ctx context.Context, req *ChatRequest) (<-chan StreamChatResponse, error)
 }
+
+// RetryProvider 支持重试的提供商
+type RetryProvider interface {
+	Provider
+	// ChatWithRetry 带重试的聊天
+	ChatWithRetry(ctx context.Context, req *ChatRequest, retryMode string, onRetryWait func(string)) (*ChatResponse, error)
+	// ChatStreamWithRetry 带重试的流式聊天
+	ChatStreamWithRetry(ctx context.Context, req *ChatRequest, retryMode string, onRetryWait func(string)) (<-chan StreamChatResponse, error)
+}
+
+// FallbackConfig Fallback 配置
+type FallbackConfig struct {
+	Model            string
+	Provider         string
+	MaxTokens        int
+	Temperature      float64
+	ReasoningEffort string
+}
+
+// ProviderFactory 提供商工厂函数类型
+type ProviderFactory func(config FallbackConfig) (Provider, error)
 
 // FactoryProvider 提供商工厂
 type FactoryProvider interface {
@@ -142,4 +212,121 @@ func (m *ProviderManager) ListProviders() []string {
 type StreamReader interface {
 	io.ReadCloser
 	ReadResponse() (*StreamChatResponse, error)
+}
+
+// Error helper functions
+func IsTransientError(resp *ChatResponse) bool {
+	if resp == nil {
+		return false
+	}
+	if resp.ErrorShouldRetry {
+		return true
+	}
+	if resp.ErrorStatusCode >= 500 && resp.ErrorStatusCode < 600 {
+		return true
+	}
+	if resp.ErrorStatusCode == 408 || resp.ErrorStatusCode == 409 || resp.ErrorStatusCode == 429 {
+		if !IsNonRetryable429(resp) {
+			return true
+		}
+	}
+	transientTypes := map[string]bool{
+		"timeout": true,
+		"connection": true,
+		"server_error": true,
+		"rate_limit": true,
+		"overloaded": true,
+	}
+	if transientTypes[resp.ErrorType] {
+		return true
+	}
+	return false
+}
+
+func IsNonRetryable429(resp *ChatResponse) bool {
+	if resp == nil {
+		return false
+	}
+	nonRetryableTokens := []string{
+		"insufficient_quota",
+		"quota_exceeded",
+		"quota_exhausted",
+		"billing_hard_limit_reached",
+		"insufficient_balance",
+		"credit_balance_too_low",
+		"billing_not_active",
+		"payment_required",
+	}
+	for _, token := range nonRetryableTokens {
+		if resp.ErrorType == token || resp.ErrorCode == token {
+			return true
+		}
+	}
+	return false
+}
+
+func IsArrearageError(resp *ChatResponse) bool {
+	if resp == nil {
+		return false
+	}
+	if resp.ErrorStatusCode == 402 {
+		return true
+	}
+	return IsNonRetryable429(resp)
+}
+
+func ShouldFallbackError(resp *ChatResponse) bool {
+	if resp == nil {
+		return false
+	}
+	if resp.ErrorShouldRetry {
+		return true
+	}
+	if resp.ErrorStatusCode >= 500 && resp.ErrorStatusCode < 600 {
+		return true
+	}
+	if resp.ErrorStatusCode == 408 || resp.ErrorStatusCode == 409 || resp.ErrorStatusCode == 429 {
+		return true
+	}
+	if resp.ErrorStatusCode == 400 || resp.ErrorStatusCode == 401 || resp.ErrorStatusCode == 403 || resp.ErrorStatusCode == 404 || resp.ErrorStatusCode == 422 {
+		return false
+	}
+	nonFallbackTypes := map[string]bool{
+		"authentication": true,
+		"auth": true,
+		"permission": true,
+		"content_filter": true,
+		"refusal": true,
+		"context_length": true,
+		"invalid_request": true,
+	}
+	if nonFallbackTypes[resp.ErrorType] {
+		return false
+	}
+	fallbackTypes := map[string]bool{
+		"timeout": true,
+		"connection": true,
+		"server_error": true,
+		"rate_limit": true,
+		"overloaded": true,
+	}
+	if fallbackTypes[resp.ErrorType] {
+		return true
+	}
+	fallbackTokens := []string{
+		"rate_limit", "too_many_requests", "overloaded",
+		"server_error", "temporarily unavailable", "timeout",
+		"insufficient_quota", "quota_exceeded", "quota_exhausted",
+		"billing_hard_limit", "insufficient_balance", "balance", "out of credits",
+	}
+	for _, token := range fallbackTokens {
+		if containsToken(resp.ErrorType, token) || containsToken(resp.ErrorCode, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsToken(s, token string) bool {
+	return len(s) >= len(token) && (s == token || len(s) > len(token) && (s[:len(token)] == token || s[len(s)-len(token):] == token))
 }
