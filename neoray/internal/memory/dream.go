@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"neoray/internal/templates"
 )
 
 const (
@@ -259,6 +261,13 @@ func (d *Dream) phase2Edit(ctx context.Context, prompt string) (bool, error) {
 }
 
 func renderDreamPhase1Prompt() string {
+	// 尝试从模板加载
+	loader := templates.GetTemplateLoader()
+	if content, ok := loader.GetTemplate("agent/dream_phase1.md"); ok {
+		return content
+	}
+
+	// 如果模板加载失败，回退到硬编码版本
 	return `You are the "dream phase 1" analyzer for an AI assistant's long-term memory.
 
 Your role is to analyze the conversation history and current memory files, then produce an analysis report that identifies:
@@ -278,6 +287,13 @@ Stale threshold: {{.StaleThresholdDays}} days (information older than this is ma
 }
 
 func renderDreamPhase2Prompt() string {
+	// 尝试从模板加载
+	loader := templates.GetTemplateLoader()
+	if content, ok := loader.GetTemplate("agent/dream_phase2.md"); ok {
+		return content
+	}
+
+	// 如果模板加载失败，回退到硬编码版本
 	return `You are the "dream phase 2" editor for an AI assistant's long-term memory.
 
 Your role is to read the analysis result and current memory files, then decide what edits need to be made.

@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"neoray/internal/skills"
+	"neoray/internal/templates"
 )
 
 const (
@@ -168,11 +170,37 @@ func (cb *ContextBuilder) BuildMessages(
 
 func (cb *ContextBuilder) getIdentity(channel string) string {
 	workspacePath, _ := filepath.Abs(cb.workspace)
-	runtime := fmt.Sprintf("%s, Go", "unknown")
+	runtimeStr := fmt.Sprintf("%s, Go", "unknown")
 	if osName := getOSName(); osName != "" {
-		runtime = fmt.Sprintf("%s, Go", osName)
+		runtimeStr = fmt.Sprintf("%s, Go", osName)
 	}
 
+	// 尝试从模板加载
+	loader := templates.GetTemplateLoader()
+
+	// 构建 platform policy
+	systemName := "POSIX"
+	if runtime.GOOS == "windows" {
+		systemName = "Windows"
+	}
+
+	platformPolicy, _ := loader.RenderTemplate("agent/platform_policy.md", map[string]string{
+		"system": systemName,
+	})
+
+	// 渲染 identity 模板
+	vars := map[string]string{
+		"workspace_path":  workspacePath,
+		"channel":         channel,
+		"runtime":         runtimeStr,
+		"platform_policy": platformPolicy,
+	}
+
+	if content, err := loader.RenderTemplate("agent/identity.md", vars); err == nil {
+		return content
+	}
+
+	// 如果模板加载失败，回退到硬编码版本
 	return fmt.Sprintf(`# Identity
 
 You are NeoRay, an AI assistant with access to powerful tools.
@@ -192,7 +220,7 @@ Current directory: %s
 - Say what you know, flag what you don't, never fake confidence
 - Stay friendly and curious
 - Treat the user's time as the scarcest resource
-`, workspacePath, channel, runtime)
+`, workspacePath, channel, runtimeStr)
 }
 
 func (cb *ContextBuilder) loadBootstrapFiles() string {
@@ -217,6 +245,13 @@ func (cb *ContextBuilder) loadBootstrapFiles() string {
 }
 
 func (cb *ContextBuilder) getToolContract() string {
+	// 尝试从模板加载
+	loader := templates.GetTemplateLoader()
+	if content, ok := loader.GetTemplate("agent/tool_contract.md"); ok {
+		return content
+	}
+
+	// 如果模板加载失败，回退到硬编码版本
 	return `## Tool Contract
 
 When you use tools:
