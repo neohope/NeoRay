@@ -29,11 +29,11 @@ type SkillInfo struct {
 
 // SkillMetadata skill 元数据（从 YAML frontmatter 解析）
 type SkillMetadata struct {
-	Name        string            `yaml:"name"`
-	Description string            `yaml:"description"`
-	Always      bool              `yaml:"always"`
-	Metadata    map[string]any    `yaml:"metadata"` // neonanobot/openclaw 元数据
-	Requires    *SkillRequires    `yaml:"requires"` // 可选的依赖要求
+	Name        string         `yaml:"name"`
+	Description string         `yaml:"description"`
+	Always      bool           `yaml:"always"`
+	Metadata    map[string]any `yaml:"metadata"` // neoray/openclaw 元数据
+	Requires    *SkillRequires `yaml:"requires"` // 可选的依赖要求
 }
 
 // SkillRequires skill 依赖要求
@@ -228,8 +228,8 @@ func (l *SkillsLoader) GetAlwaysSkills() []string {
 	for _, s := range skills {
 		meta := l.GetSkillMetadata(s.Name)
 		if meta != nil && meta.Always {
-			// 检查 neonanobot/openclaw 元数据中的 always 字段
-			if neonabotMeta := l.parseNeonanobotMetadata(meta); neonabotMeta != nil {
+			// 检查 neoray/openclaw 元数据中的 always 字段
+			if neonabotMeta := l.parseneorayMetadata(meta); neonabotMeta != nil {
 				if alwaysFlag, ok := neonabotMeta["always"].(bool); ok && alwaysFlag {
 					always = append(always, s.Name)
 					continue
@@ -326,14 +326,14 @@ func (l *SkillsLoader) parseSkillContent(content string) (*SkillMetadata, string
 	return &meta, body, nil
 }
 
-// parseNeonanobotMetadata 解析 neonanobot/openclaw 元数据
-func (l *SkillsLoader) parseNeonanobotMetadata(meta *SkillMetadata) map[string]any {
+// parseneorayMetadata 解析 neoray/openclaw 元数据
+func (l *SkillsLoader) parseneorayMetadata(meta *SkillMetadata) map[string]any {
 	if meta.Metadata == nil {
 		return nil
 	}
 
-	// 检查是否有 neonanobot 或 openclaw 字段
-	for _, key := range []string{"neonanobot", "openclaw"} {
+	// 检查是否有 neoray 或 openclaw 字段
+	for _, key := range []string{"neoray", "openclaw"} {
 		if val, ok := meta.Metadata[key]; ok {
 			// 可能是 map 或 JSON 字符串
 			switch v := val.(type) {
@@ -348,7 +348,7 @@ func (l *SkillsLoader) parseNeonanobotMetadata(meta *SkillMetadata) map[string]a
 		}
 	}
 
-	// 直接使用 metadata 作为 neonanobot 元数据
+	// 直接使用 metadata 作为 neoray 元数据
 	return meta.Metadata
 }
 
