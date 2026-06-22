@@ -36,7 +36,7 @@ Output is rendered in a terminal. Avoid markdown headings and tables. Use plain 
 - Prefer built-in `grep` over `exec` for workspace search.
 - On broad searches, use `grep(output_mode="count")` to scope before requesting full content.
 
-{% include 'agent/_snippets/untrusted_content.md' %}
+{% include 'agent/snippets/untrusted_content.md' %}
 
 Reply directly with text for the current conversation. Do not use the 'message' tool for normal replies in the current chat.
 When you need to call tools before answering, do not include the final user-visible answer in the same assistant message as the tool calls. Wait for the tool results, then answer once.
