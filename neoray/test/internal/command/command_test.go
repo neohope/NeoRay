@@ -1,9 +1,10 @@
-package command
+package command_test
 
 import (
 	"context"
 	"testing"
 
+	"neoray/internal/command"
 	"neoray/internal/config"
 	"neoray/internal/provider"
 	"neoray/internal/session"
@@ -25,7 +26,7 @@ func testConfig() *config.Config {
 func TestIsCommand(t *testing.T) {
 	cfg := testConfig()
 	pm := provider.NewProviderManager(nil)
-	mgr := NewManager(cfg, pm)
+	mgr := command.NewManager(cfg, pm)
 
 	testCases := []struct {
 		input  string
@@ -53,7 +54,7 @@ func TestIsCommand(t *testing.T) {
 func TestHelpCommand(t *testing.T) {
 	cfg := testConfig()
 	pm := provider.NewProviderManager(nil)
-	mgr := NewManager(cfg, pm)
+	mgr := command.NewManager(cfg, pm)
 	ctx := context.Background()
 	sess := session.NewSession("test", "test")
 
@@ -73,7 +74,7 @@ func TestHelpCommand(t *testing.T) {
 func TestStatusCommand(t *testing.T) {
 	cfg := testConfig()
 	pm := provider.NewProviderManager(nil)
-	mgr := NewManager(cfg, pm)
+	mgr := command.NewManager(cfg, pm)
 	ctx := context.Background()
 	sess := session.NewSession("test", "test")
 
@@ -93,7 +94,7 @@ func TestStatusCommand(t *testing.T) {
 func TestNewAndClearCommands(t *testing.T) {
 	cfg := testConfig()
 	pm := provider.NewProviderManager(nil)
-	mgr := NewManager(cfg, pm)
+	mgr := command.NewManager(cfg, pm)
 	ctx := context.Background()
 	sess := session.NewSession("test", "test")
 
@@ -149,7 +150,7 @@ func TestNewAndClearCommands(t *testing.T) {
 func TestHistoryCommand(t *testing.T) {
 	cfg := testConfig()
 	pm := provider.NewProviderManager(nil)
-	mgr := NewManager(cfg, pm)
+	mgr := command.NewManager(cfg, pm)
 	ctx := context.Background()
 	sess := session.NewSession("test", "test")
 
@@ -176,7 +177,7 @@ func TestHistoryCommand(t *testing.T) {
 func TestModelCommand(t *testing.T) {
 	cfg := testConfig()
 	pm := provider.NewProviderManager(nil)
-	mgr := NewManager(cfg, pm)
+	mgr := command.NewManager(cfg, pm)
 	ctx := context.Background()
 	sess := session.NewSession("test", "test")
 
@@ -203,8 +204,8 @@ func TestModelCommand(t *testing.T) {
 }
 
 func TestCommandRouter(t *testing.T) {
-	router := NewCommandRouter()
-	RegisterBuiltinCommands(router)
+	router := command.NewCommandRouter()
+	command.RegisterBuiltinCommands(router)
 
 	commands := router.ListCommands()
 	if len(commands) == 0 {
