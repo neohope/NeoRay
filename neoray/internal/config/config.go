@@ -20,6 +20,7 @@ type Config struct {
 	Channels ChannelsConfig `mapstructure:"channels"`
 	Security SecurityConfig `mapstructure:"security"`
 	Web      WebConfig      `mapstructure:"web"`
+	Agent    AgentConfig    `mapstructure:"agent"`
 
 	// 内部字段
 	HomeDir string `mapstructure:"-"` // 用户数据目录 ~/.neoray
@@ -279,6 +280,34 @@ type SkillsConfig struct {
 	BuiltinSkillsDir string   `mapstructure:"builtin_skills_dir"`
 	DisabledSkills   []string `mapstructure:"disabled_skills"`
 	AutoLoadAlways   bool     `mapstructure:"auto_load_always"` // 自动加载标记为 always=true 的 skills
+}
+
+// AgentConfig Agent 配置
+type AgentConfig struct {
+	// 最大工具调用迭代次数
+	MaxIterations int `mapstructure:"max_iterations"`
+	// 是否使用统一会话
+	UnifiedSession bool `mapstructure:"unified_session"`
+	// 工具提示最大长度
+	ToolHintMaxLength int `mapstructure:"tool_hint_max_length"`
+	// 上下文窗口大小
+	ContextWindowTokens int `mapstructure:"context_window_tokens"`
+	// 上下文块限制
+	ContextBlockLimit int `mapstructure:"context_block_limit"`
+	// 最大工具结果字符数
+	MaxToolResultChars int `mapstructure:"max_tool_result_chars"`
+	// 提供者重试模式
+	ProviderRetryMode string `mapstructure:"provider_retry_mode"`
+	// 会话 TTL（分钟）
+	SessionTTLMinutes int `mapstructure:"session_ttl_minutes"`
+	// 合并比例
+	ConsolidationRatio float64 `mapstructure:"consolidation_ratio"`
+	// 最大消息数
+	MaxMessages int `mapstructure:"max_messages"`
+	// 时区
+	Timezone string `mapstructure:"timezone"`
+	// 禁用的技能
+	DisabledSkills []string `mapstructure:"disabled_skills"`
 }
 
 // WebConfig Web UI 配置

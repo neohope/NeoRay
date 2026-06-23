@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"fmt"
 
 	"neoray/internal/config"
 	"neoray/internal/logger"
@@ -69,4 +70,37 @@ func (m *Manager) IsCommand(input string) bool {
 // GetHelp 获取帮助文本
 func (m *Manager) GetHelp() string {
 	return m.router.GetCommandHelp()
+}
+
+// IsPriorityCommand 检查是否是优先级命令
+func (m *Manager) IsPriorityCommand(input string) bool {
+	return m.router.IsPriority(input)
+}
+
+// IsDispatchableCommand 检查是否是可分发的命令
+func (m *Manager) IsDispatchableCommand(input string) bool {
+	return m.router.IsCommand(input)
+}
+
+// DispatchPriority 分发优先级命令
+func (m *Manager) DispatchPriority(ctx context.Context, sess *session.Session, input string) (string, error) {
+	cmdCtx := &CommandContext{
+		Session:     sess,
+		ProviderMgr: m.providerMgr,
+		Config:      m.config,
+		Ctx:         ctx,
+		Extra: map[string]interface{}{
+			"router": m.router,
+		},
+	}
+	resp, ok, err := m.router.DispatchPriority(cmdCtx, input)
+	if !ok {
+		return "", fmt.Errorf("not a priority command")
+	}
+	return resp, err
+}
+
+// Dispatch 分发命令
+func (m *Manager) Dispatch(ctx context.Context, sess *session.Session, input string) (string, bool, error) {
+	return m.Process(ctx, sess, input)
 }

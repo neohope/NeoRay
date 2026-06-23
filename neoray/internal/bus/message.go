@@ -168,3 +168,31 @@ func (m *OutboundMessage) WithMedia(media []string) *OutboundMessage {
 func generateID() string {
 	return time.Now().Format("20060102150405.000000")
 }
+
+// SessionKey 获取会话键
+func (m *InboundMessage) SessionKey() string {
+	if m.ChannelID != "" && m.ChatID != "" {
+		return m.ChannelID + ":" + m.ChatID
+	}
+	return m.ID
+}
+
+// SessionKeyOverride 获取覆盖的会话键
+func (m *InboundMessage) SessionKeyOverride() string {
+	if m.Metadata == nil {
+		return ""
+	}
+	if override, ok := m.Metadata["session_key_override"].(string); ok {
+		return override
+	}
+	return ""
+}
+
+// WithSessionKeyOverride 设置覆盖的会话键
+func (m *InboundMessage) WithSessionKeyOverride(sessionKey string) *InboundMessage {
+	if m.Metadata == nil {
+		m.Metadata = make(map[string]interface{})
+	}
+	m.Metadata["session_key_override"] = sessionKey
+	return m
+}
