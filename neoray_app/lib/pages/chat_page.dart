@@ -5,7 +5,6 @@ import '../models/message.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 import '../utils/logger.dart';
-import 'config_page.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/sidebar.dart';
 

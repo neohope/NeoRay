@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/session.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
-import '../utils/logger.dart';
 
 class Sidebar extends ConsumerWidget {
   final VoidCallback onNewChat;
@@ -61,7 +60,8 @@ class Sidebar extends ConsumerWidget {
                           ref.read(sessionListProvider.notifier).loadSessions();
                         },
                         icon: const Icon(Icons.refresh, color: Colors.white),
-                        label: const Text('重试', style: TextStyle(color: Colors.white)),
+                        label: const Text('重试',
+                            style: TextStyle(color: Colors.white)),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.primary,
                         ),

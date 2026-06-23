@@ -27,6 +27,10 @@ mixin _$LLMConfig {
   int get maxTokens => throw _privateConstructorUsedError;
   double get temperature => throw _privateConstructorUsedError;
   int get timeout => throw _privateConstructorUsedError;
+  String get reasoningEffort => throw _privateConstructorUsedError;
+  bool get promptCacheEnabled => throw _privateConstructorUsedError;
+  List<FallbackModelConfig> get fallbackModels =>
+      throw _privateConstructorUsedError;
 
   Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
   @JsonKey(ignore: true)
@@ -46,7 +50,10 @@ abstract class $LLMConfigCopyWith<$Res> {
       String model,
       int maxTokens,
       double temperature,
-      int timeout});
+      int timeout,
+      String reasoningEffort,
+      bool promptCacheEnabled,
+      List<FallbackModelConfig> fallbackModels});
 }
 
 /// @nodoc
@@ -69,6 +76,9 @@ class _$LLMConfigCopyWithImpl<$Res, $Val extends LLMConfig>
     Object? maxTokens = null,
     Object? temperature = null,
     Object? timeout = null,
+    Object? reasoningEffort = null,
+    Object? promptCacheEnabled = null,
+    Object? fallbackModels = null,
   }) {
     return _then(_value.copyWith(
       provider: null == provider
@@ -99,6 +109,18 @@ class _$LLMConfigCopyWithImpl<$Res, $Val extends LLMConfig>
           ? _value.timeout
           : timeout // ignore: cast_nullable_to_non_nullable
               as int,
+      reasoningEffort: null == reasoningEffort
+          ? _value.reasoningEffort
+          : reasoningEffort // ignore: cast_nullable_to_non_nullable
+              as String,
+      promptCacheEnabled: null == promptCacheEnabled
+          ? _value.promptCacheEnabled
+          : promptCacheEnabled // ignore: cast_nullable_to_non_nullable
+              as bool,
+      fallbackModels: null == fallbackModels
+          ? _value.fallbackModels
+          : fallbackModels // ignore: cast_nullable_to_non_nullable
+              as List<FallbackModelConfig>,
     ) as $Val);
   }
 }
@@ -118,7 +140,10 @@ abstract class _$$LLMConfigImplCopyWith<$Res>
       String model,
       int maxTokens,
       double temperature,
-      int timeout});
+      int timeout,
+      String reasoningEffort,
+      bool promptCacheEnabled,
+      List<FallbackModelConfig> fallbackModels});
 }
 
 /// @nodoc
@@ -139,6 +164,9 @@ class __$$LLMConfigImplCopyWithImpl<$Res>
     Object? maxTokens = null,
     Object? temperature = null,
     Object? timeout = null,
+    Object? reasoningEffort = null,
+    Object? promptCacheEnabled = null,
+    Object? fallbackModels = null,
   }) {
     return _then(_$LLMConfigImpl(
       provider: null == provider
@@ -169,6 +197,18 @@ class __$$LLMConfigImplCopyWithImpl<$Res>
           ? _value.timeout
           : timeout // ignore: cast_nullable_to_non_nullable
               as int,
+      reasoningEffort: null == reasoningEffort
+          ? _value.reasoningEffort
+          : reasoningEffort // ignore: cast_nullable_to_non_nullable
+              as String,
+      promptCacheEnabled: null == promptCacheEnabled
+          ? _value.promptCacheEnabled
+          : promptCacheEnabled // ignore: cast_nullable_to_non_nullable
+              as bool,
+      fallbackModels: null == fallbackModels
+          ? _value._fallbackModels
+          : fallbackModels // ignore: cast_nullable_to_non_nullable
+              as List<FallbackModelConfig>,
     ));
   }
 }
@@ -183,7 +223,11 @@ class _$LLMConfigImpl implements _LLMConfig {
       this.model = 'gpt-4',
       this.maxTokens = 4096,
       this.temperature = 0.7,
-      this.timeout = 120});
+      this.timeout = 120,
+      this.reasoningEffort = 'none',
+      this.promptCacheEnabled = false,
+      final List<FallbackModelConfig> fallbackModels = const []})
+      : _fallbackModels = fallbackModels;
 
   factory _$LLMConfigImpl.fromJson(Map<String, dynamic> json) =>
       _$$LLMConfigImplFromJson(json);
@@ -209,10 +253,24 @@ class _$LLMConfigImpl implements _LLMConfig {
   @override
   @JsonKey()
   final int timeout;
+  @override
+  @JsonKey()
+  final String reasoningEffort;
+  @override
+  @JsonKey()
+  final bool promptCacheEnabled;
+  final List<FallbackModelConfig> _fallbackModels;
+  @override
+  @JsonKey()
+  List<FallbackModelConfig> get fallbackModels {
+    if (_fallbackModels is EqualUnmodifiableListView) return _fallbackModels;
+    // ignore: implicit_dynamic_type
+    return EqualUnmodifiableListView(_fallbackModels);
+  }
 
   @override
   String toString() {
-    return 'LLMConfig(provider: $provider, apiKey: $apiKey, apiUrl: $apiUrl, model: $model, maxTokens: $maxTokens, temperature: $temperature, timeout: $timeout)';
+    return 'LLMConfig(provider: $provider, apiKey: $apiKey, apiUrl: $apiUrl, model: $model, maxTokens: $maxTokens, temperature: $temperature, timeout: $timeout, reasoningEffort: $reasoningEffort, promptCacheEnabled: $promptCacheEnabled, fallbackModels: $fallbackModels)';
   }
 
   @override
@@ -229,13 +287,29 @@ class _$LLMConfigImpl implements _LLMConfig {
                 other.maxTokens == maxTokens) &&
             (identical(other.temperature, temperature) ||
                 other.temperature == temperature) &&
-            (identical(other.timeout, timeout) || other.timeout == timeout));
+            (identical(other.timeout, timeout) || other.timeout == timeout) &&
+            (identical(other.reasoningEffort, reasoningEffort) ||
+                other.reasoningEffort == reasoningEffort) &&
+            (identical(other.promptCacheEnabled, promptCacheEnabled) ||
+                other.promptCacheEnabled == promptCacheEnabled) &&
+            const DeepCollectionEquality()
+                .equals(other._fallbackModels, _fallbackModels));
   }
 
   @JsonKey(ignore: true)
   @override
-  int get hashCode => Object.hash(runtimeType, provider, apiKey, apiUrl, model,
-      maxTokens, temperature, timeout);
+  int get hashCode => Object.hash(
+      runtimeType,
+      provider,
+      apiKey,
+      apiUrl,
+      model,
+      maxTokens,
+      temperature,
+      timeout,
+      reasoningEffort,
+      promptCacheEnabled,
+      const DeepCollectionEquality().hash(_fallbackModels));
 
   @JsonKey(ignore: true)
   @override
@@ -259,7 +333,10 @@ abstract class _LLMConfig implements LLMConfig {
       final String model,
       final int maxTokens,
       final double temperature,
-      final int timeout}) = _$LLMConfigImpl;
+      final int timeout,
+      final String reasoningEffort,
+      final bool promptCacheEnabled,
+      final List<FallbackModelConfig> fallbackModels}) = _$LLMConfigImpl;
 
   factory _LLMConfig.fromJson(Map<String, dynamic> json) =
       _$LLMConfigImpl.fromJson;
@@ -279,8 +356,240 @@ abstract class _LLMConfig implements LLMConfig {
   @override
   int get timeout;
   @override
+  String get reasoningEffort;
+  @override
+  bool get promptCacheEnabled;
+  @override
+  List<FallbackModelConfig> get fallbackModels;
+  @override
   @JsonKey(ignore: true)
   _$$LLMConfigImplCopyWith<_$LLMConfigImpl> get copyWith =>
+      throw _privateConstructorUsedError;
+}
+
+FallbackModelConfig _$FallbackModelConfigFromJson(Map<String, dynamic> json) {
+  return _FallbackModelConfig.fromJson(json);
+}
+
+/// @nodoc
+mixin _$FallbackModelConfig {
+  String? get model => throw _privateConstructorUsedError;
+  String? get provider => throw _privateConstructorUsedError;
+  int? get maxTokens => throw _privateConstructorUsedError;
+  double? get temperature => throw _privateConstructorUsedError;
+  String? get reasoningEffort => throw _privateConstructorUsedError;
+
+  Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
+  @JsonKey(ignore: true)
+  $FallbackModelConfigCopyWith<FallbackModelConfig> get copyWith =>
+      throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class $FallbackModelConfigCopyWith<$Res> {
+  factory $FallbackModelConfigCopyWith(
+          FallbackModelConfig value, $Res Function(FallbackModelConfig) then) =
+      _$FallbackModelConfigCopyWithImpl<$Res, FallbackModelConfig>;
+  @useResult
+  $Res call(
+      {String? model,
+      String? provider,
+      int? maxTokens,
+      double? temperature,
+      String? reasoningEffort});
+}
+
+/// @nodoc
+class _$FallbackModelConfigCopyWithImpl<$Res, $Val extends FallbackModelConfig>
+    implements $FallbackModelConfigCopyWith<$Res> {
+  _$FallbackModelConfigCopyWithImpl(this._value, this._then);
+
+  // ignore: unused_field
+  final $Val _value;
+  // ignore: unused_field
+  final $Res Function($Val) _then;
+
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({
+    Object? model = freezed,
+    Object? provider = freezed,
+    Object? maxTokens = freezed,
+    Object? temperature = freezed,
+    Object? reasoningEffort = freezed,
+  }) {
+    return _then(_value.copyWith(
+      model: freezed == model
+          ? _value.model
+          : model // ignore: cast_nullable_to_non_nullable
+              as String?,
+      provider: freezed == provider
+          ? _value.provider
+          : provider // ignore: cast_nullable_to_non_nullable
+              as String?,
+      maxTokens: freezed == maxTokens
+          ? _value.maxTokens
+          : maxTokens // ignore: cast_nullable_to_non_nullable
+              as int?,
+      temperature: freezed == temperature
+          ? _value.temperature
+          : temperature // ignore: cast_nullable_to_non_nullable
+              as double?,
+      reasoningEffort: freezed == reasoningEffort
+          ? _value.reasoningEffort
+          : reasoningEffort // ignore: cast_nullable_to_non_nullable
+              as String?,
+    ) as $Val);
+  }
+}
+
+/// @nodoc
+abstract class _$$FallbackModelConfigImplCopyWith<$Res>
+    implements $FallbackModelConfigCopyWith<$Res> {
+  factory _$$FallbackModelConfigImplCopyWith(_$FallbackModelConfigImpl value,
+          $Res Function(_$FallbackModelConfigImpl) then) =
+      __$$FallbackModelConfigImplCopyWithImpl<$Res>;
+  @override
+  @useResult
+  $Res call(
+      {String? model,
+      String? provider,
+      int? maxTokens,
+      double? temperature,
+      String? reasoningEffort});
+}
+
+/// @nodoc
+class __$$FallbackModelConfigImplCopyWithImpl<$Res>
+    extends _$FallbackModelConfigCopyWithImpl<$Res, _$FallbackModelConfigImpl>
+    implements _$$FallbackModelConfigImplCopyWith<$Res> {
+  __$$FallbackModelConfigImplCopyWithImpl(_$FallbackModelConfigImpl _value,
+      $Res Function(_$FallbackModelConfigImpl) _then)
+      : super(_value, _then);
+
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({
+    Object? model = freezed,
+    Object? provider = freezed,
+    Object? maxTokens = freezed,
+    Object? temperature = freezed,
+    Object? reasoningEffort = freezed,
+  }) {
+    return _then(_$FallbackModelConfigImpl(
+      model: freezed == model
+          ? _value.model
+          : model // ignore: cast_nullable_to_non_nullable
+              as String?,
+      provider: freezed == provider
+          ? _value.provider
+          : provider // ignore: cast_nullable_to_non_nullable
+              as String?,
+      maxTokens: freezed == maxTokens
+          ? _value.maxTokens
+          : maxTokens // ignore: cast_nullable_to_non_nullable
+              as int?,
+      temperature: freezed == temperature
+          ? _value.temperature
+          : temperature // ignore: cast_nullable_to_non_nullable
+              as double?,
+      reasoningEffort: freezed == reasoningEffort
+          ? _value.reasoningEffort
+          : reasoningEffort // ignore: cast_nullable_to_non_nullable
+              as String?,
+    ));
+  }
+}
+
+/// @nodoc
+@JsonSerializable()
+class _$FallbackModelConfigImpl implements _FallbackModelConfig {
+  const _$FallbackModelConfigImpl(
+      {this.model,
+      this.provider,
+      this.maxTokens,
+      this.temperature,
+      this.reasoningEffort});
+
+  factory _$FallbackModelConfigImpl.fromJson(Map<String, dynamic> json) =>
+      _$$FallbackModelConfigImplFromJson(json);
+
+  @override
+  final String? model;
+  @override
+  final String? provider;
+  @override
+  final int? maxTokens;
+  @override
+  final double? temperature;
+  @override
+  final String? reasoningEffort;
+
+  @override
+  String toString() {
+    return 'FallbackModelConfig(model: $model, provider: $provider, maxTokens: $maxTokens, temperature: $temperature, reasoningEffort: $reasoningEffort)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$FallbackModelConfigImpl &&
+            (identical(other.model, model) || other.model == model) &&
+            (identical(other.provider, provider) ||
+                other.provider == provider) &&
+            (identical(other.maxTokens, maxTokens) ||
+                other.maxTokens == maxTokens) &&
+            (identical(other.temperature, temperature) ||
+                other.temperature == temperature) &&
+            (identical(other.reasoningEffort, reasoningEffort) ||
+                other.reasoningEffort == reasoningEffort));
+  }
+
+  @JsonKey(ignore: true)
+  @override
+  int get hashCode => Object.hash(
+      runtimeType, model, provider, maxTokens, temperature, reasoningEffort);
+
+  @JsonKey(ignore: true)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$FallbackModelConfigImplCopyWith<_$FallbackModelConfigImpl> get copyWith =>
+      __$$FallbackModelConfigImplCopyWithImpl<_$FallbackModelConfigImpl>(
+          this, _$identity);
+
+  @override
+  Map<String, dynamic> toJson() {
+    return _$$FallbackModelConfigImplToJson(
+      this,
+    );
+  }
+}
+
+abstract class _FallbackModelConfig implements FallbackModelConfig {
+  const factory _FallbackModelConfig(
+      {final String? model,
+      final String? provider,
+      final int? maxTokens,
+      final double? temperature,
+      final String? reasoningEffort}) = _$FallbackModelConfigImpl;
+
+  factory _FallbackModelConfig.fromJson(Map<String, dynamic> json) =
+      _$FallbackModelConfigImpl.fromJson;
+
+  @override
+  String? get model;
+  @override
+  String? get provider;
+  @override
+  int? get maxTokens;
+  @override
+  double? get temperature;
+  @override
+  String? get reasoningEffort;
+  @override
+  @JsonKey(ignore: true)
+  _$$FallbackModelConfigImplCopyWith<_$FallbackModelConfigImpl> get copyWith =>
       throw _privateConstructorUsedError;
 }
 

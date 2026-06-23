@@ -15,6 +15,13 @@ _$LLMConfigImpl _$$LLMConfigImplFromJson(Map<String, dynamic> json) =>
       maxTokens: (json['maxTokens'] as num?)?.toInt() ?? 4096,
       temperature: (json['temperature'] as num?)?.toDouble() ?? 0.7,
       timeout: (json['timeout'] as num?)?.toInt() ?? 120,
+      reasoningEffort: json['reasoningEffort'] as String? ?? 'none',
+      promptCacheEnabled: json['promptCacheEnabled'] as bool? ?? false,
+      fallbackModels: (json['fallbackModels'] as List<dynamic>?)
+              ?.map((e) =>
+                  FallbackModelConfig.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
     );
 
 Map<String, dynamic> _$$LLMConfigImplToJson(_$LLMConfigImpl instance) =>
@@ -26,6 +33,29 @@ Map<String, dynamic> _$$LLMConfigImplToJson(_$LLMConfigImpl instance) =>
       'maxTokens': instance.maxTokens,
       'temperature': instance.temperature,
       'timeout': instance.timeout,
+      'reasoningEffort': instance.reasoningEffort,
+      'promptCacheEnabled': instance.promptCacheEnabled,
+      'fallbackModels': instance.fallbackModels,
+    };
+
+_$FallbackModelConfigImpl _$$FallbackModelConfigImplFromJson(
+        Map<String, dynamic> json) =>
+    _$FallbackModelConfigImpl(
+      model: json['model'] as String?,
+      provider: json['provider'] as String?,
+      maxTokens: (json['maxTokens'] as num?)?.toInt(),
+      temperature: (json['temperature'] as num?)?.toDouble(),
+      reasoningEffort: json['reasoningEffort'] as String?,
+    );
+
+Map<String, dynamic> _$$FallbackModelConfigImplToJson(
+        _$FallbackModelConfigImpl instance) =>
+    <String, dynamic>{
+      'model': instance.model,
+      'provider': instance.provider,
+      'maxTokens': instance.maxTokens,
+      'temperature': instance.temperature,
+      'reasoningEffort': instance.reasoningEffort,
     };
 
 _$ChannelConfigImpl _$$ChannelConfigImplFromJson(Map<String, dynamic> json) =>

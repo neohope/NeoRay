@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'models/session.dart';
-import 'models/message.dart';
 import 'providers/providers.dart';
 import 'pages/chat_page.dart';
 import 'pages/config_page.dart';

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import '../models/message.dart';
 import '../utils/logger.dart';
 
 enum WebSocketMessageType {
@@ -26,7 +25,8 @@ class WebSocketEvent {
 
   factory WebSocketEvent.fromJson(Map<String, dynamic> json) {
     final type = _parseType(json['type'] as String? ?? '');
-    return WebSocketEvent(type: type, data: json['payload'] as Map<String, dynamic>? ?? {});
+    return WebSocketEvent(
+        type: type, data: json['payload'] as Map<String, dynamic>? ?? {});
   }
 
   static WebSocketMessageType _parseType(String type) {
