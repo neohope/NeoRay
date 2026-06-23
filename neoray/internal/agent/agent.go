@@ -15,6 +15,7 @@ import (
 	"neoray/internal/memory"
 	"neoray/internal/provider"
 	"neoray/internal/session"
+	"neoray/internal/subagent"
 	"neoray/internal/templates"
 	"neoray/internal/tools"
 )
@@ -33,6 +34,8 @@ type Agent struct {
 	memoryManager      *memory.MemoryManager
 	cmdManager         *command.Manager
 	continuationMgr    *ContinuationManager
+	subagentManager    *subagent.Manager
+	spawnTool          *subagent.SpawnTool
 }
 
 // AgentOption Agent 配置选项
@@ -88,6 +91,13 @@ func WithContinuationManager(cm *ContinuationManager) AgentOption {
 	}
 }
 
+// WithSubagentManager 设置子代理管理器
+func WithSubagentManager(sm *subagent.Manager) AgentOption {
+	return func(a *Agent) {
+		a.subagentManager = sm
+	}
+}
+
 // NewAgent 创建 Agent
 func NewAgent(
 	cfg *config.Config,
@@ -127,6 +137,42 @@ func NewAgent(
 	if a.traceManager == nil { a.traceManager = NewTraceManager(false) } // 默认禁用
 	if a.hook == nil { a.hook = NewBaseHook("noop") } // 默认空 Hook
 	if a.continuationMgr == nil { a.continuationMgr = NewContinuationManager() } // 默认启用续轮
+
+	// 初始化子代理管理器（如果配置启用或提供了）
+	if a.subagentManager == nil && a.toolRegistry != nil {
+		// 检查是否启用子代理
+		enabled := true
+		if a.cfg != nil && a.cfg.Tools.Subagent.Enabled == false {
+			enabled = false
+		}
+
+		if enabled {
+			a.subagentManager = subagent.NewManager(
+				a.cfg,
+				a.providerMgr,
+				a.msgBus,
+				a.toolRegistry,
+				a.memoryManager,
+			)
+
+			// 应用配置
+			if a.cfg != nil {
+				if a.cfg.Tools.Subagent.MaxConcurrent > 0 {
+					a.subagentManager = a.subagentManager.WithMaxConcurrent(a.cfg.Tools.Subagent.MaxConcurrent)
+				}
+				if a.cfg.Tools.Subagent.MaxIterations > 0 {
+					a.subagentManager = a.subagentManager.WithMaxIterations(a.cfg.Tools.Subagent.MaxIterations)
+				}
+				if a.cfg.Tools.Subagent.MaxToolResultChars > 0 {
+					a.subagentManager = a.subagentManager.WithMaxToolResultChars(a.cfg.Tools.Subagent.MaxToolResultChars)
+				}
+			}
+
+			// 创建并注册spawn工具
+			a.spawnTool = subagent.NewSpawnTool(a.subagentManager)
+			a.toolRegistry.Register(a.spawnTool)
+		}
+	}
 
 	return a
 }
@@ -171,6 +217,16 @@ func (a *Agent) finishChat(ctx context.Context, sess *session.Session, result *C
 // Chat 发送聊天消息
 func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput string) (*ChatResult, error) {
 	startTime := time.Now()
+
+	// 设置spawn工具的上下文（如果启用了子代理）
+	if a.spawnTool != nil {
+		a.spawnTool.SetOriginContext(
+			"cli",       // 频道ID
+			"direct",    // 聊天ID
+			sess.ID,     // 会话ID
+			"",          // 消息ID
+		)
+	}
 
 	// 先检查是否是指令
 	if a.cmdManager != nil {
@@ -467,6 +523,16 @@ type StreamChunk struct {
 
 func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput string) (<-chan StreamChunk, error) {
 	resultChan := make(chan StreamChunk, 100)
+
+	// 设置spawn工具的上下文（如果启用了子代理）
+	if a.spawnTool != nil {
+		a.spawnTool.SetOriginContext(
+			"cli",       // 频道ID
+			"direct",    // 聊天ID
+			sess.ID,     // 会话ID
+			"",          // 消息ID
+		)
+	}
 
 	// 先检查是否是指令
 	if a.cmdManager != nil {
@@ -812,6 +878,22 @@ func (a *Agent) handleInboundMessage(ctx context.Context, msg *bus.InboundMessag
 		logger.String("channel_id", msg.ChannelID),
 		logger.String("chat_id", msg.ChatID),
 	)
+
+	// 设置spawn工具的上下文（如果启用了子代理）
+	if a.spawnTool != nil {
+		sessionKey := fmt.Sprintf("%s:%s", msg.ChannelID, msg.ChatID)
+		if msg.Metadata != nil {
+			if sk, ok := msg.Metadata["session_key_override"].(string); ok {
+				sessionKey = sk
+			}
+		}
+		a.spawnTool.SetOriginContext(
+			msg.ChannelID, // 频道ID
+			msg.ChatID,    // 聊天ID
+			sessionKey,    // 会话ID
+			msg.ID,        // 消息ID
+		)
+	}
 
 	var sess *session.Session
 	var err error

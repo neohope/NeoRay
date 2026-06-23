@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -32,8 +33,8 @@ func NewAnthropicProvider(name string, cfg *config.ProviderConfig) *AnthropicPro
 			Timeout: cfg.Timeout,
 		},
 		generation: GenerationSettings{
-			Temperature:      cfg.Temperature,
-			MaxTokens:        cfg.MaxTokens,
+			Temperature:     cfg.Temperature,
+			MaxTokens:       cfg.MaxTokens,
 			ReasoningEffort: cfg.ReasoningEffort,
 		},
 		extraHeaders: make(map[string]string),
@@ -67,15 +68,15 @@ func (p *AnthropicProvider) SetExtraHeader(key, value string) {
 
 // anthropicRequest Anthropic API 请求
 type anthropicRequest struct {
-	Model         string                `json:"model"`
-	Messages      []anthropicMessage    `json:"messages"`
-	System        interface{}           `json:"system,omitempty"` // string or []anthropicSystemBlock
-	MaxTokens     int                   `json:"max_tokens"`
-	Temperature   float64               `json:"temperature,omitempty"`
-	Stream        bool                  `json:"stream,omitempty"`
-	Tools         []anthropicTool       `json:"tools,omitempty"`
-	Thinking      *anthropicThinking    `json:"thinking,omitempty"`
-	ToolChoice    interface{}           `json:"tool_choice,omitempty"`
+	Model       string             `json:"model"`
+	Messages    []anthropicMessage `json:"messages"`
+	System      interface{}        `json:"system,omitempty"` // string or []anthropicSystemBlock
+	MaxTokens   int                `json:"max_tokens"`
+	Temperature float64            `json:"temperature,omitempty"`
+	Stream      bool               `json:"stream,omitempty"`
+	Tools       []anthropicTool    `json:"tools,omitempty"`
+	Thinking    *anthropicThinking `json:"thinking,omitempty"`
+	ToolChoice  interface{}        `json:"tool_choice,omitempty"`
 }
 
 // anthropicSystemBlock 系统消息块（支持缓存）
@@ -116,9 +117,9 @@ type anthropicContentBlock struct {
 	Input map[string]interface{} `json:"input,omitempty"`
 
 	// Tool result block
-	ToolUseID string      `json:"tool_use_id,omitempty"`
-	Content   string      `json:"content,omitempty"`
-	IsError   bool        `json:"is_error,omitempty"`
+	ToolUseID string `json:"tool_use_id,omitempty"`
+	Content   string `json:"content,omitempty"`
+	IsError   bool   `json:"is_error,omitempty"`
 
 	// Thinking block
 	Thinking  string `json:"thinking,omitempty"`
@@ -139,8 +140,8 @@ type anthropicResponse struct {
 	StopReason   string                  `json:"stop_reason"`
 	StopSequence string                  `json:"stop_sequence"`
 	Usage        struct {
-		InputTokens            int `json:"input_tokens"`
-		OutputTokens           int `json:"output_tokens"`
+		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
 		CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
 		CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 	} `json:"usage"`
@@ -325,7 +326,7 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req *ChatRequest) (<
 
 		resp, err := p.client.Do(httpReq)
 		if err != nil {
-			errResp, _ := p.handleError(err, nil)
+			_, _ = p.handleError(err, nil)
 			resultChan <- StreamChatResponse{Error: fmt.Errorf("do request: %w", err)}
 			return
 		}
@@ -333,7 +334,7 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req *ChatRequest) (<
 
 		if resp.StatusCode != http.StatusOK {
 			errBody, _ := io.ReadAll(resp.Body)
-			errResp := p.parseErrorResponse(errBody)
+			_ = p.parseErrorResponse(errBody)
 			resultChan <- StreamChatResponse{
 				Error: fmt.Errorf("api error: %s, body: %s", resp.Status, string(errBody)),
 			}
@@ -588,8 +589,8 @@ func (p *AnthropicProvider) parseResponse(apiResp *anthropicResponse) *ChatRespo
 
 	// 转换停止原因
 	stopMap := map[string]string{
-		"tool_use": "tool_calls",
-		"end_turn": "stop",
+		"tool_use":   "tool_calls",
+		"end_turn":   "stop",
 		"max_tokens": "length",
 	}
 	finishReason := stopMap[apiResp.StopReason]
@@ -599,8 +600,8 @@ func (p *AnthropicProvider) parseResponse(apiResp *anthropicResponse) *ChatRespo
 
 	// 构建使用量
 	usage := &Usage{
-		InputTokens:            apiResp.Usage.InputTokens,
-		OutputTokens:           apiResp.Usage.OutputTokens,
+		InputTokens:              apiResp.Usage.InputTokens,
+		OutputTokens:             apiResp.Usage.OutputTokens,
 		CacheCreationInputTokens: apiResp.Usage.CacheCreationInputTokens,
 		CacheReadInputTokens:     apiResp.Usage.CacheReadInputTokens,
 	}
@@ -609,10 +610,10 @@ func (p *AnthropicProvider) parseResponse(apiResp *anthropicResponse) *ChatRespo
 	}
 
 	response := &ChatResponse{
-		Content:         content,
-		ToolCalls:       toolCalls,
+		Content:        content,
+		ToolCalls:      toolCalls,
 		ThinkingBlocks: thinkingBlocks,
-		FinishReason:    finishReason,
+		FinishReason:   finishReason,
 		Usage:          usage,
 	}
 
@@ -630,7 +631,7 @@ func (p *AnthropicProvider) parseResponse(apiResp *anthropicResponse) *ChatRespo
 
 // handleStreamResponse 处理流式响应
 func (p *AnthropicProvider) handleStreamResponse(ctx context.Context, body io.Reader, resultChan chan<- StreamChatResponse) {
-	decoder := json.NewDecoder(body)
+	scanner := bufio.NewScanner(body)
 	toolBlocks := make(map[int]*ToolCall)
 	var currentThinking string
 
@@ -646,15 +647,8 @@ func (p *AnthropicProvider) handleStreamResponse(ctx context.Context, body io.Re
 		var event anthropicStreamEvent
 
 		// 读取 SSE 格式
-		for {
-			var rawLine []byte
-			rawLine, err := decoder.Buffered().ReadBytes('\n')
-			if err != nil && err != io.EOF {
-				if err == io.EOF && len(rawLine) == 0 {
-					return
-				}
-			}
-
+		for scanner.Scan() {
+			rawLine := scanner.Bytes()
 			lineStr := string(rawLine)
 			lineStr = strings.TrimSpace(lineStr)
 
@@ -670,7 +664,7 @@ func (p *AnthropicProvider) handleStreamResponse(ctx context.Context, body io.Re
 					}
 					line = nil
 				}
-				if err == io.EOF {
+				if scanner.Err() == io.EOF {
 					return
 				}
 				continue
@@ -679,6 +673,11 @@ func (p *AnthropicProvider) handleStreamResponse(ctx context.Context, body io.Re
 			if strings.HasPrefix(lineStr, "data: ") {
 				line = append(line, rawLine...)
 			}
+		}
+
+		if err := scanner.Err(); err != nil && err != io.EOF {
+			resultChan <- StreamChatResponse{Error: err}
+			return
 		}
 
 		switch event.Type {
@@ -785,7 +784,7 @@ func (p *AnthropicProvider) handleStreamResponse(ctx context.Context, body io.Re
 // handleError 处理错误
 func (p *AnthropicProvider) handleError(err error, headers http.Header) (*ChatResponse, error) {
 	errResp := &ChatResponse{
-		Content:       fmt.Sprintf("Error calling LLM: %v", err),
+		Content:      fmt.Sprintf("Error calling LLM: %v", err),
 		FinishReason: "error",
 	}
 
@@ -859,7 +858,7 @@ func (p *AnthropicProvider) parseErrorResponse(body []byte) *ChatResponse {
 
 // extractRetryAfter 从文本中提取重试时间
 func (p *AnthropicProvider) extractRetryAfter(text string) time.Duration {
-	patterns := []string{
+	_ = []string{
 		`retry after\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|sec|seconds|m|min|minutes)?`,
 		`try again in\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|sec|seconds|m|min|minutes)`,
 		`wait\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|sec|seconds|m|min|minutes)\s*before retry`,

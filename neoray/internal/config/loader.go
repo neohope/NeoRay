@@ -159,6 +159,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("tools.web.timeout", "30s")
 	v.SetDefault("tools.cron.enabled", true)
 	v.SetDefault("tools.cron.max_jobs", 100)
+	// Subagent
+	v.SetDefault("tools.subagent.enabled", true)
+	v.SetDefault("tools.subagent.max_concurrent", 5)
+	v.SetDefault("tools.subagent.max_iterations", 10)
+	v.SetDefault("tools.subagent.max_tool_result_chars", 16000)
 
 	// Channels
 	v.SetDefault("channels.websocket.enabled", true)
@@ -294,6 +299,17 @@ dream_interval = "1h"
 session_ttl_minutes = 1440
 # 最大历史条目数
 max_history_entries = 1000
+
+# 子代理系统配置
+[tools.subagent]
+# 是否启用子代理系统
+enabled = true
+# 最大并发子代理数量
+max_concurrent = 5
+# 每个子代理的最大迭代次数
+max_iterations = 10
+# 子代理工具结果的最大字符数
+max_tool_result_chars = 16000
 
 # OpenAI 兼容的 API 配置示例
 [llm.openai]

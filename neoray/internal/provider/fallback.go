@@ -11,7 +11,7 @@ import (
 
 const (
 	primaryFailureThreshold = 3
-	primaryCooldownSeconds = 60
+	primaryCooldownSeconds  = 60
 )
 
 // FallbackProviderFactory 从 FallbackConfig 创建 Provider 的函数类型
@@ -26,8 +26,8 @@ type FallbackProvider struct {
 	generation      GenerationSettings
 
 	// Circuit breaker state
-	mu                sync.RWMutex
-	primaryFailures   int
+	mu               sync.RWMutex
+	primaryFailures  int
 	primaryTrippedAt time.Time
 }
 
@@ -134,8 +134,6 @@ func (p *FallbackProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-
 			streamChan, err := p.primary.ChatStream(ctx, req)
 			if err == nil {
 				// 流式接收响应
-				var lastResp *ChatResponse
-				bufferedContent := ""
 				for resp := range streamChan {
 					if resp.Error != nil {
 						// 如果已经输出了内容，就不 fallback
@@ -152,7 +150,6 @@ func (p *FallbackProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-
 					}
 
 					if resp.Content != "" {
-						bufferedContent += resp.Content
 						hasStreamed = true
 					}
 
@@ -398,7 +395,7 @@ func (p *FallbackProvider) tryChatWithFallback(
 
 	// 返回错误
 	return &ChatResponse{
-		Content:       fmt.Sprintf("Primary model %s circuit open and no fallbacks available", primaryModel),
+		Content:      fmt.Sprintf("Primary model %s circuit open and no fallbacks available", primaryModel),
 		FinishReason: "error",
 		ErrorType:    "no_fallback_available",
 	}, nil

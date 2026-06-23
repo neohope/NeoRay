@@ -238,6 +238,14 @@ func (m *MemoryManager) SkillsLoader() *skills.SkillsLoader {
 	return m.skillsLoader
 }
 
+// BuildSkillsSummary 构建所有可用技能的摘要
+func (m *MemoryManager) BuildSkillsSummary() string {
+	if m.skillsLoader == nil {
+		return ""
+	}
+	return m.skillsLoader.BuildSkillsSummary(nil)
+}
+
 // GetAlwaysSkills 获取标记为 always 的技能
 func (m *MemoryManager) GetAlwaysSkills() []string {
 	if m.skillsLoader != nil && m.cfg.Skills.AutoLoadAlways {

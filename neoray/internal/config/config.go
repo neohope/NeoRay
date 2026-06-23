@@ -162,6 +162,15 @@ type ToolsConfig struct {
 	Shell      ShellConfig      `mapstructure:"shell"`
 	Web        WebToolsConfig   `mapstructure:"web"`
 	Cron       CronConfig       `mapstructure:"cron"`
+	Subagent   SubagentConfig   `mapstructure:"subagent"`
+}
+
+// SubagentConfig 子代理配置
+type SubagentConfig struct {
+	Enabled           bool `mapstructure:"enabled"`
+	MaxConcurrent     int  `mapstructure:"max_concurrent"`
+	MaxIterations     int  `mapstructure:"max_iterations"`
+	MaxToolResultChars int `mapstructure:"max_tool_result_chars"`
 }
 
 // WorkspaceConfig 工作区配置

@@ -155,7 +155,7 @@ func (f *DefaultProviderFactory) CreateFallbackProvider(
 		"fallback_wrapper",
 		primary,
 		fallbackConfigs,
-		f,
+		f.CreateFallbackProviderFromConfig,
 	)
 }
 
