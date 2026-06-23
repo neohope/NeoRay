@@ -51,6 +51,8 @@ class MessageBubble extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (message.reasoningContent != null && message.reasoningContent!.isNotEmpty)
+                      _buildReasoningContent(context),
                     _buildContent(context),
                     if (message.toolCalls.isNotEmpty)
                       _buildToolCalls(context),
@@ -89,6 +91,67 @@ class MessageBubble extends StatelessWidget {
         Icons.smart_toy,
         color: Colors.white,
         size: 20,
+      ),
+    );
+  }
+
+  Widget _buildReasoningContent(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppTheme.primary.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: AppTheme.primary.withValues(alpha: 0.2),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.psychology,
+                  size: 16,
+                  color: AppTheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '思考过程',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.primary,
+                  ),
+                ),
+                if (!message.isReasoningComplete)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppTheme.primary,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message.reasoningContent!,
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.5,
+                color: AppTheme.textSecondaryLight,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

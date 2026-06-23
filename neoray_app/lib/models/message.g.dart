@@ -34,6 +34,8 @@ _$MessageImpl _$$MessageImplFromJson(Map<String, dynamic> json) =>
       timestamp: json['timestamp'] == null
           ? null
           : DateTime.parse(json['timestamp'] as String),
+      reasoningContent: json['reasoningContent'] as String?,
+      isReasoningComplete: json['isReasoningComplete'] as bool? ?? false,
     );
 
 Map<String, dynamic> _$$MessageImplToJson(_$MessageImpl instance) =>
@@ -45,4 +47,6 @@ Map<String, dynamic> _$$MessageImplToJson(_$MessageImpl instance) =>
       'sessionId': instance.sessionId,
       'toolCalls': instance.toolCalls,
       'timestamp': instance.timestamp?.toIso8601String(),
+      'reasoningContent': instance.reasoningContent,
+      'isReasoningComplete': instance.isReasoningComplete,
     };

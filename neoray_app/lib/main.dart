@@ -4,6 +4,7 @@ import 'providers/providers.dart';
 import 'pages/chat_page.dart';
 import 'pages/config_page.dart';
 import 'theme/app_theme.dart';
+import 'services/websocket_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,6 +35,65 @@ class _MyAppState extends ConsumerState<MyApp> {
   @override
   void initState() {
     super.initState();
+    _setupWebSocketListener();
+  }
+
+  void _setupWebSocketListener() {
+    final webSocket = ref.read(webSocketServiceProvider);
+
+    // 连接到 WebSocket
+    webSocket.connect('http://localhost:8080');
+
+    // 监听事件
+    webSocket.eventStream.listen((event) {
+      _handleWebSocketEvent(event, ref);
+    });
+  }
+
+  void _handleWebSocketEvent(WebSocketEvent event, WidgetRef ref) {
+    final currentSession = ref.read(currentSessionProvider.notifier);
+    final isStreaming = ref.read(chatStreamingProvider.notifier);
+    final streamingContent = ref.read(currentStreamingContentProvider.notifier);
+    final isReasoning = ref.read(reasoningStreamingProvider.notifier);
+    final reasoningContent = ref.read(currentReasoningContentProvider.notifier);
+
+    switch (event.type) {
+      case WebSocketMessageType.chatStart:
+        isStreaming.state = true;
+        streamingContent.state = '';
+        break;
+
+      case WebSocketMessageType.chatChunk:
+        final chunk = event.data['content'] as String? ?? '';
+        streamingContent.state += chunk;
+        currentSession.addStreamingChunk(chunk);
+        break;
+
+      case WebSocketMessageType.chatEnd:
+        isStreaming.state = false;
+        streamingContent.state = '';
+        break;
+
+      case WebSocketMessageType.reasoningStart:
+        isReasoning.state = true;
+        reasoningContent.state = '';
+        break;
+
+      case WebSocketMessageType.reasoningChunk:
+        final chunk = event.data['content'] as String? ?? '';
+        reasoningContent.state += chunk;
+        currentSession.addReasoningChunk(chunk);
+        break;
+
+      case WebSocketMessageType.reasoningEnd:
+        isReasoning.state = false;
+        reasoningContent.state = '';
+        currentSession.completeReasoning();
+        break;
+
+      default:
+        break;
+    }
   }
 
   @override

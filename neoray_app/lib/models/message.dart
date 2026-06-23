@@ -34,6 +34,8 @@ class Message with _$Message {
     String? sessionId,
     @Default([]) List<ToolCall> toolCalls,
     DateTime? timestamp,
+    String? reasoningContent,
+    @Default(false) bool isReasoningComplete,
   }) = _Message;
 
   factory Message.user(String content, {String? channelId, String? userId, String? sessionId}) => Message(
@@ -45,8 +47,15 @@ class Message with _$Message {
         timestamp: DateTime.now(),
       );
 
-  factory Message.assistant(String content, [List<ToolCall>? toolCalls, String? channelId, String? userId, String? sessionId]) =>
-      Message(
+  factory Message.assistant(
+    String content, [
+    List<ToolCall>? toolCalls,
+    String? channelId,
+    String? userId,
+    String? sessionId,
+    String? reasoningContent,
+    bool isReasoningComplete = false,
+  ]) => Message(
         role: MessageRole.assistant.name,
         content: content,
         channelId: channelId,
@@ -54,6 +63,8 @@ class Message with _$Message {
         sessionId: sessionId,
         toolCalls: toolCalls ?? [],
         timestamp: DateTime.now(),
+        reasoningContent: reasoningContent,
+        isReasoningComplete: isReasoningComplete,
       );
 
   factory Message.tool(String content, {String? channelId, String? userId, String? sessionId}) => Message(

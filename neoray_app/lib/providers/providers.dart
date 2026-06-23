@@ -196,6 +196,46 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
     state = session.copyWith(messages: messages);
   }
 
+  void addReasoningChunk(String content) {
+    final session = state;
+    if (session == null) return;
+
+    final messages = List<Message>.from(session.messages);
+    if (messages.isNotEmpty && messages.last.role == 'assistant') {
+      final lastMessage = messages.last;
+      messages[messages.length - 1] = lastMessage.copyWith(
+        reasoningContent: (lastMessage.reasoningContent ?? '') + content,
+      );
+    } else {
+      final channelId = _ref.read(channelIdProvider);
+      final userId = _ref.read(userIdProvider);
+      messages.add(Message.assistant(
+        '',
+        null,
+        channelId,
+        userId,
+        session.id,
+        content,
+        false,
+      ));
+    }
+    state = session.copyWith(messages: messages);
+  }
+
+  void completeReasoning() {
+    final session = state;
+    if (session == null) return;
+
+    final messages = List<Message>.from(session.messages);
+    if (messages.isNotEmpty && messages.last.role == 'assistant') {
+      final lastMessage = messages.last;
+      messages[messages.length - 1] = lastMessage.copyWith(
+        isReasoningComplete: true,
+      );
+      state = session.copyWith(messages: messages);
+    }
+  }
+
   void addMessage(Message message) {
     if (state == null) return;
     state = state!.copyWith(messages: [...state!.messages, message]);
@@ -209,6 +249,10 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
 // Chat Streaming State
 final chatStreamingProvider = StateProvider<bool>((ref) => false);
 final currentStreamingContentProvider = StateProvider<String>((ref) => '');
+
+// Reasoning Streaming State
+final reasoningStreamingProvider = StateProvider<bool>((ref) => false);
+final currentReasoningContentProvider = StateProvider<String>((ref) => '');
 
 // UI State Providers
 final activePageProvider = StateProvider<AppPage>((ref) => AppPage.chat);

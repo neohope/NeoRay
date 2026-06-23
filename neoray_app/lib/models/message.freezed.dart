@@ -199,6 +199,8 @@ mixin _$Message {
   String? get sessionId => throw _privateConstructorUsedError;
   List<ToolCall> get toolCalls => throw _privateConstructorUsedError;
   DateTime? get timestamp => throw _privateConstructorUsedError;
+  String? get reasoningContent => throw _privateConstructorUsedError;
+  bool get isReasoningComplete => throw _privateConstructorUsedError;
 
   Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
   @JsonKey(ignore: true)
@@ -217,7 +219,9 @@ abstract class $MessageCopyWith<$Res> {
       String? userId,
       String? sessionId,
       List<ToolCall> toolCalls,
-      DateTime? timestamp});
+      DateTime? timestamp,
+      String? reasoningContent,
+      bool isReasoningComplete});
 }
 
 /// @nodoc
@@ -240,6 +244,8 @@ class _$MessageCopyWithImpl<$Res, $Val extends Message>
     Object? sessionId = freezed,
     Object? toolCalls = null,
     Object? timestamp = freezed,
+    Object? reasoningContent = freezed,
+    Object? isReasoningComplete = null,
   }) {
     return _then(_value.copyWith(
       role: null == role
@@ -270,6 +276,14 @@ class _$MessageCopyWithImpl<$Res, $Val extends Message>
           ? _value.timestamp
           : timestamp // ignore: cast_nullable_to_non_nullable
               as DateTime?,
+      reasoningContent: freezed == reasoningContent
+          ? _value.reasoningContent
+          : reasoningContent // ignore: cast_nullable_to_non_nullable
+              as String?,
+      isReasoningComplete: null == isReasoningComplete
+          ? _value.isReasoningComplete
+          : isReasoningComplete // ignore: cast_nullable_to_non_nullable
+              as bool,
     ) as $Val);
   }
 }
@@ -288,7 +302,9 @@ abstract class _$$MessageImplCopyWith<$Res> implements $MessageCopyWith<$Res> {
       String? userId,
       String? sessionId,
       List<ToolCall> toolCalls,
-      DateTime? timestamp});
+      DateTime? timestamp,
+      String? reasoningContent,
+      bool isReasoningComplete});
 }
 
 /// @nodoc
@@ -309,6 +325,8 @@ class __$$MessageImplCopyWithImpl<$Res>
     Object? sessionId = freezed,
     Object? toolCalls = null,
     Object? timestamp = freezed,
+    Object? reasoningContent = freezed,
+    Object? isReasoningComplete = null,
   }) {
     return _then(_$MessageImpl(
       role: null == role
@@ -339,6 +357,14 @@ class __$$MessageImplCopyWithImpl<$Res>
           ? _value.timestamp
           : timestamp // ignore: cast_nullable_to_non_nullable
               as DateTime?,
+      reasoningContent: freezed == reasoningContent
+          ? _value.reasoningContent
+          : reasoningContent // ignore: cast_nullable_to_non_nullable
+              as String?,
+      isReasoningComplete: null == isReasoningComplete
+          ? _value.isReasoningComplete
+          : isReasoningComplete // ignore: cast_nullable_to_non_nullable
+              as bool,
     ));
   }
 }
@@ -353,7 +379,9 @@ class _$MessageImpl implements _Message {
       this.userId,
       this.sessionId,
       final List<ToolCall> toolCalls = const [],
-      this.timestamp})
+      this.timestamp,
+      this.reasoningContent,
+      this.isReasoningComplete = false})
       : _toolCalls = toolCalls;
 
   factory _$MessageImpl.fromJson(Map<String, dynamic> json) =>
@@ -380,10 +408,15 @@ class _$MessageImpl implements _Message {
 
   @override
   final DateTime? timestamp;
+  @override
+  final String? reasoningContent;
+  @override
+  @JsonKey()
+  final bool isReasoningComplete;
 
   @override
   String toString() {
-    return 'Message(role: $role, content: $content, channelId: $channelId, userId: $userId, sessionId: $sessionId, toolCalls: $toolCalls, timestamp: $timestamp)';
+    return 'Message(role: $role, content: $content, channelId: $channelId, userId: $userId, sessionId: $sessionId, toolCalls: $toolCalls, timestamp: $timestamp, reasoningContent: $reasoningContent, isReasoningComplete: $isReasoningComplete)';
   }
 
   @override
@@ -401,13 +434,26 @@ class _$MessageImpl implements _Message {
             const DeepCollectionEquality()
                 .equals(other._toolCalls, _toolCalls) &&
             (identical(other.timestamp, timestamp) ||
-                other.timestamp == timestamp));
+                other.timestamp == timestamp) &&
+            (identical(other.reasoningContent, reasoningContent) ||
+                other.reasoningContent == reasoningContent) &&
+            (identical(other.isReasoningComplete, isReasoningComplete) ||
+                other.isReasoningComplete == isReasoningComplete));
   }
 
   @JsonKey(ignore: true)
   @override
-  int get hashCode => Object.hash(runtimeType, role, content, channelId, userId,
-      sessionId, const DeepCollectionEquality().hash(_toolCalls), timestamp);
+  int get hashCode => Object.hash(
+      runtimeType,
+      role,
+      content,
+      channelId,
+      userId,
+      sessionId,
+      const DeepCollectionEquality().hash(_toolCalls),
+      timestamp,
+      reasoningContent,
+      isReasoningComplete);
 
   @JsonKey(ignore: true)
   @override
@@ -431,7 +477,9 @@ abstract class _Message implements Message {
       final String? userId,
       final String? sessionId,
       final List<ToolCall> toolCalls,
-      final DateTime? timestamp}) = _$MessageImpl;
+      final DateTime? timestamp,
+      final String? reasoningContent,
+      final bool isReasoningComplete}) = _$MessageImpl;
 
   factory _Message.fromJson(Map<String, dynamic> json) = _$MessageImpl.fromJson;
 
@@ -449,6 +497,10 @@ abstract class _Message implements Message {
   List<ToolCall> get toolCalls;
   @override
   DateTime? get timestamp;
+  @override
+  String? get reasoningContent;
+  @override
+  bool get isReasoningComplete;
   @override
   @JsonKey(ignore: true)
   _$$MessageImplCopyWith<_$MessageImpl> get copyWith =>

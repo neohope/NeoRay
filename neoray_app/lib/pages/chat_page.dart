@@ -217,17 +217,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     String streamingContent,
   ) {
     final hasMessages = session.messages.isNotEmpty;
+    final isReasoning = ref.watch(reasoningStreamingProvider);
+    final reasoningContent = ref.watch(currentReasoningContentProvider);
 
-    if (!hasMessages && !isStreaming) {
+    if (!hasMessages && !isStreaming && !isReasoning) {
       return _buildWelcomeScreen(context);
     }
 
     return ListView.builder(
       controller: _scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-      itemCount: session.messages.length + (isStreaming ? 1 : 0),
+      itemCount: session.messages.length + ((isStreaming || isReasoning) ? 1 : 0),
       itemBuilder: (context, index) {
-        if (index == session.messages.length && isStreaming) {
+        if (index == session.messages.length && (isStreaming || isReasoning)) {
           return MessageBubble(
             message: Message.assistant(
               streamingContent,
@@ -235,8 +237,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               session.channelId,
               session.userId,
               session.id,
+              isReasoning ? reasoningContent : null,
+              false,
             ),
-            isStreaming: true,
+            isStreaming: isStreaming,
           );
         }
 

@@ -7,6 +7,9 @@ enum WebSocketMessageType {
   chatStart,
   chatChunk,
   chatEnd,
+  reasoningStart,
+  reasoningChunk,
+  reasoningEnd,
   toolCallStart,
   toolCallResult,
   sessionCreated,
@@ -37,6 +40,12 @@ class WebSocketEvent {
         return WebSocketMessageType.chatChunk;
       case 'chat_end':
         return WebSocketMessageType.chatEnd;
+      case 'reasoning_start':
+        return WebSocketMessageType.reasoningStart;
+      case 'reasoning_chunk':
+        return WebSocketMessageType.reasoningChunk;
+      case 'reasoning_end':
+        return WebSocketMessageType.reasoningEnd;
       case 'tool_call_start':
         return WebSocketMessageType.toolCallStart;
       case 'tool_call_result':
