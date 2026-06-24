@@ -2,7 +2,7 @@
 
 ## 概述
 
-本文档总结了从 neonanobot 项目参考并在 neoray 项目中实现的 Provider 高级功能：
+本文档总结了 neoray 项目中实现的 Provider 高级功能：
 
 1. **Fallback Provider** - 主提供商失败时自动切换到备用提供商
 2. **Prompt Cache** - Anthropic API 的提示缓存支持，降低成本和延迟

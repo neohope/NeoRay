@@ -2,7 +2,7 @@
 
 ## 概述
 
-参考 `reference/neonanobot/neonanobot/` 项目，已在 `neoray` 项目中实现了完整的子代理系统。
+本文档总结了 neoray 项目中实现的子代理系统。
 
 ## 实现的文件
 
