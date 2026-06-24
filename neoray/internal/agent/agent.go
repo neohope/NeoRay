@@ -36,6 +36,9 @@ type Agent struct {
 	continuationMgr    *ContinuationManager
 	subagentManager    *subagent.Manager
 	spawnTool          *subagent.SpawnTool
+	runtimeState       *tools.RuntimeState
+	goalManager        *session.GoalManager
+	currentSession     *session.Session
 }
 
 // AgentOption Agent 配置选项
@@ -121,6 +124,12 @@ func NewAgent(
 		opt(a)
 	}
 
+	// 创建 runtime state
+	a.runtimeState = tools.NewRuntimeState()
+
+	// 创建 goal manager
+	a.goalManager = session.NewGoalManager(sessionMgr, a.msgBus)
+
 	// 创建 ContextBuilder（可能包含记忆管理器）
 	if a.memoryManager != nil {
 		a.contextBuilder = &ContextBuilder{
@@ -174,6 +183,19 @@ func NewAgent(
 		}
 	}
 
+	// 注册 reflection 工具（总是可用）
+	reflectionTool := tools.NewReflectionTool(a.runtimeState, true)
+	a.toolRegistry.Register(reflectionTool)
+
+	// 注册 long_task 和 complete_goal 工具
+	getSessionFunc := func() *session.Session {
+		return a.currentSession
+	}
+	longTaskTool := tools.NewLongTaskTool(a.goalManager, getSessionFunc)
+	completeGoalTool := tools.NewCompleteGoalTool(a.goalManager, getSessionFunc)
+	a.toolRegistry.Register(longTaskTool)
+	a.toolRegistry.Register(completeGoalTool)
+
 	return a
 }
 
@@ -217,6 +239,9 @@ func (a *Agent) finishChat(ctx context.Context, sess *session.Session, result *C
 // Chat 发送聊天消息
 func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput string) (*ChatResult, error) {
 	startTime := time.Now()
+
+	// 设置当前会话
+	a.currentSession = sess
 
 	// 设置spawn工具的上下文（如果启用了子代理）
 	if a.spawnTool != nil {
@@ -523,6 +548,9 @@ type StreamChunk struct {
 
 func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput string) (<-chan StreamChunk, error) {
 	resultChan := make(chan StreamChunk, 100)
+
+	// 设置当前会话
+	a.currentSession = sess
 
 	// 设置spawn工具的上下文（如果启用了子代理）
 	if a.spawnTool != nil {
