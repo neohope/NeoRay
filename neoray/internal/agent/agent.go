@@ -40,6 +40,7 @@ type Agent struct {
 	goalManager        *session.GoalManager
 	currentSession     *session.Session
 	fileStateStore     *tools.FileStateStore
+	execSessionManager *tools.ExecSessionManager
 }
 
 // AgentOption Agent 配置选项
@@ -133,6 +134,15 @@ func NewAgent(
 
 	// 创建 file state store
 	a.fileStateStore = tools.NewFileStateStore()
+
+	// 创建 exec session manager
+	a.execSessionManager = tools.NewExecSessionManager()
+
+	// 创建并注册新的 exec session 工具
+	writeStdinTool := tools.NewWriteStdinToolWithSessionManager(a.cfg, a.execSessionManager)
+	listExecSessionsTool := tools.NewListExecSessionsToolWithSessionManager(a.cfg, a.execSessionManager)
+	a.toolRegistry.Register(writeStdinTool)
+	a.toolRegistry.Register(listExecSessionsTool)
 
 	// 创建 ContextBuilder（可能包含记忆管理器）
 	if a.memoryManager != nil {
@@ -259,6 +269,26 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 		if tool, ok := a.toolRegistry.Get("apply_patch"); ok {
 			if patchTool, ok := tool.(*tools.ApplyPatchTool); ok {
 				patchTool.SetFileStates(fileStates)
+			}
+		}
+	}
+
+	// 为当前会话设置 ExecSession 相关工具
+	if a.execSessionManager != nil {
+		if tool, ok := a.toolRegistry.Get("shell"); ok {
+			if shellTool, ok := tool.(*tools.ShellTool); ok {
+				shellTool.SetSessionManager(a.execSessionManager)
+				shellTool.SetSessionKey(sess.ID)
+			}
+		}
+		if tool, ok := a.toolRegistry.Get("write_stdin"); ok {
+			if writeTool, ok := tool.(*tools.WriteStdinTool); ok {
+				writeTool.SetSessionKey(sess.ID)
+			}
+		}
+		if tool, ok := a.toolRegistry.Get("list_exec_sessions"); ok {
+			if listTool, ok := tool.(*tools.ListExecSessionsTool); ok {
+				listTool.SetSessionKey(sess.ID)
 			}
 		}
 	}
@@ -584,6 +614,26 @@ func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput
 		if tool, ok := a.toolRegistry.Get("apply_patch"); ok {
 			if patchTool, ok := tool.(*tools.ApplyPatchTool); ok {
 				patchTool.SetFileStates(fileStates)
+			}
+		}
+	}
+
+	// 为当前会话设置 ExecSession 相关工具
+	if a.execSessionManager != nil {
+		if tool, ok := a.toolRegistry.Get("shell"); ok {
+			if shellTool, ok := tool.(*tools.ShellTool); ok {
+				shellTool.SetSessionManager(a.execSessionManager)
+				shellTool.SetSessionKey(sess.ID)
+			}
+		}
+		if tool, ok := a.toolRegistry.Get("write_stdin"); ok {
+			if writeTool, ok := tool.(*tools.WriteStdinTool); ok {
+				writeTool.SetSessionKey(sess.ID)
+			}
+		}
+		if tool, ok := a.toolRegistry.Get("list_exec_sessions"); ok {
+			if listTool, ok := tool.(*tools.ListExecSessionsTool); ok {
+				listTool.SetSessionKey(sess.ID)
 			}
 		}
 	}
