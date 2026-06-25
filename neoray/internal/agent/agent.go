@@ -41,6 +41,7 @@ type Agent struct {
 	currentSession     *session.Session
 	fileStateStore     *tools.FileStateStore
 	execSessionManager *tools.ExecSessionManager
+	messageTool        *tools.MessageTool
 }
 
 // AgentOption Agent 配置选项
@@ -143,6 +144,10 @@ func NewAgent(
 	listExecSessionsTool := tools.NewListExecSessionsToolWithSessionManager(a.cfg, a.execSessionManager)
 	a.toolRegistry.Register(writeStdinTool)
 	a.toolRegistry.Register(listExecSessionsTool)
+
+	// 创建并注册 MessageTool
+	a.messageTool = tools.NewMessageToolWithBus(a.cfg, a.msgBus)
+	a.toolRegistry.Register(a.messageTool)
 
 	// 创建 ContextBuilder（可能包含记忆管理器）
 	if a.memoryManager != nil {

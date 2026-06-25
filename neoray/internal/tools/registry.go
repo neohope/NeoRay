@@ -133,3 +133,12 @@ func BooleanParam(description string) map[string]any {
 		"description": description,
 	}
 }
+
+// ArrayParam 数组参数
+func ArrayParam(items any, description string) map[string]any {
+	return map[string]any{
+		"type":        "array",
+		"description": description,
+		"items":       items,
+	}
+}
