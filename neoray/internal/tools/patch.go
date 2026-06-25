@@ -19,7 +19,8 @@ var absoluteWindowsRe = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
 // ======================================
 
 type ApplyPatchTool struct {
-	workspace string
+	workspace  string
+	fileStates *FileStates
 }
 
 type PatchEdit struct {
@@ -43,8 +44,27 @@ type patchSummary struct {
 
 func NewApplyPatchTool() *ApplyPatchTool {
 	return &ApplyPatchTool{
-		workspace: config.GetWorkspace(),
+		workspace:  config.GetWorkspace(),
+		fileStates: NewFileStates(),
 	}
+}
+
+// NewApplyPatchToolWithFileStates 创建带 FileStates 的 ApplyPatchTool
+func NewApplyPatchToolWithFileStates(fileStates *FileStates) *ApplyPatchTool {
+	return &ApplyPatchTool{
+		workspace:  config.GetWorkspace(),
+		fileStates: fileStates,
+	}
+}
+
+// SetFileStates 设置 FileStates
+func (t *ApplyPatchTool) SetFileStates(fileStates *FileStates) {
+	t.fileStates = fileStates
+}
+
+// GetFileStates 获取 FileStates
+func (t *ApplyPatchTool) GetFileStates() *FileStates {
+	return t.fileStates
 }
 
 func (t *ApplyPatchTool) Name() string {
@@ -90,6 +110,25 @@ func (t *ApplyPatchTool) Execute(ctx context.Context, args json.RawMessage) (jso
 	if len(input.Edits) == 0 {
 		result := "Error applying patch: must provide edits"
 		return json.Marshal(result)
+	}
+
+	// 在应用补丁前检查文件是否已读取
+	var warnings []string
+	if t.fileStates != nil {
+		for _, edit := range input.Edits {
+			path, err := validateRelativePath(edit.Path)
+			if err == nil {
+				source := filepath.Join(t.workspace, path)
+				if warning := t.fileStates.CheckRead(source); warning != "" {
+					warnings = append(warnings, fmt.Sprintf("%s: %s", path, warning))
+				}
+			}
+		}
+	}
+
+	// 如果有警告但不是 dry_run，我们先警告，但仍然继续
+	if len(warnings) > 0 && !input.DryRun {
+		// 我们继续执行，但把警告包含在结果中
 	}
 
 	writes := make(map[string]string)
@@ -261,10 +300,21 @@ func (t *ApplyPatchTool) Execute(ctx context.Context, args json.RawMessage) (jso
 			result := fmt.Sprintf("Error applying patch: %v", err)
 			return json.Marshal(result)
 		}
+		// 记录写入操作
+		if t.fileStates != nil {
+			t.fileStates.RecordWrite(path)
+		}
 	}
 
 	// Generate result
 	var resultLines []string
+	if len(warnings) > 0 {
+		resultLines = append(resultLines, "Warnings:")
+		for _, warning := range warnings {
+			resultLines = append(resultLines, fmt.Sprintf("- %s", warning))
+		}
+		resultLines = append(resultLines, "")
+	}
 	resultLines = append(resultLines, "Patch applied:")
 	for _, summary := range summaries {
 		resultLines = append(resultLines, formatSummary(summary))

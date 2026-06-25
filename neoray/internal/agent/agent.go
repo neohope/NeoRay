@@ -39,6 +39,7 @@ type Agent struct {
 	runtimeState       *tools.RuntimeState
 	goalManager        *session.GoalManager
 	currentSession     *session.Session
+	fileStateStore     *tools.FileStateStore
 }
 
 // AgentOption Agent 配置选项
@@ -129,6 +130,9 @@ func NewAgent(
 
 	// 创建 goal manager
 	a.goalManager = session.NewGoalManager(sessionMgr, a.msgBus)
+
+	// 创建 file state store
+	a.fileStateStore = tools.NewFileStateStore()
 
 	// 创建 ContextBuilder（可能包含记忆管理器）
 	if a.memoryManager != nil {
@@ -242,6 +246,22 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 
 	// 设置当前会话
 	a.currentSession = sess
+
+	// 为当前会话设置 FileStates
+	if a.fileStateStore != nil {
+		fileStates := a.fileStateStore.ForSession(sess.ID)
+		// 更新已注册的文件系统工具和 patch 工具
+		if tool, ok := a.toolRegistry.Get("filesystem"); ok {
+			if fsTool, ok := tool.(*tools.FileSystemTool); ok {
+				fsTool.SetFileStates(fileStates)
+			}
+		}
+		if tool, ok := a.toolRegistry.Get("apply_patch"); ok {
+			if patchTool, ok := tool.(*tools.ApplyPatchTool); ok {
+				patchTool.SetFileStates(fileStates)
+			}
+		}
+	}
 
 	// 设置spawn工具的上下文（如果启用了子代理）
 	if a.spawnTool != nil {
@@ -551,6 +571,22 @@ func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput
 
 	// 设置当前会话
 	a.currentSession = sess
+
+	// 为当前会话设置 FileStates
+	if a.fileStateStore != nil {
+		fileStates := a.fileStateStore.ForSession(sess.ID)
+		// 更新已注册的文件系统工具和 patch 工具
+		if tool, ok := a.toolRegistry.Get("filesystem"); ok {
+			if fsTool, ok := tool.(*tools.FileSystemTool); ok {
+				fsTool.SetFileStates(fileStates)
+			}
+		}
+		if tool, ok := a.toolRegistry.Get("apply_patch"); ok {
+			if patchTool, ok := tool.(*tools.ApplyPatchTool); ok {
+				patchTool.SetFileStates(fileStates)
+			}
+		}
+	}
 
 	// 设置spawn工具的上下文（如果启用了子代理）
 	if a.spawnTool != nil {

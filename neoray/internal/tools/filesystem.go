@@ -14,16 +14,37 @@ import (
 
 // FileSystemTool 文件系统工具
 type FileSystemTool struct {
-	cfg       *config.Config
-	workspace string
+	cfg         *config.Config
+	workspace   string
+	fileStates  *FileStates
 }
 
 // NewFileSystemTool 创建文件系统工具
 func NewFileSystemTool(cfg *config.Config) *FileSystemTool {
 	return &FileSystemTool{
-		cfg:       cfg,
-		workspace: cfg.ResolvePath("workspace"),
+		cfg:         cfg,
+		workspace:   cfg.ResolvePath("workspace"),
+		fileStates:  NewFileStates(),
 	}
+}
+
+// NewFileSystemToolWithFileStates 创建带 FileStates 的文件系统工具
+func NewFileSystemToolWithFileStates(cfg *config.Config, fileStates *FileStates) *FileSystemTool {
+	return &FileSystemTool{
+		cfg:         cfg,
+		workspace:   cfg.ResolvePath("workspace"),
+		fileStates:  fileStates,
+	}
+}
+
+// SetFileStates 设置 FileStates
+func (t *FileSystemTool) SetFileStates(fileStates *FileStates) {
+	t.fileStates = fileStates
+}
+
+// GetFileStates 获取 FileStates
+func (t *FileSystemTool) GetFileStates() *FileStates {
+	return t.fileStates
 }
 
 // Name 工具名称
@@ -90,9 +111,27 @@ func (t *FileSystemTool) Execute(ctx context.Context, args json.RawMessage) (jso
 }
 
 func (t *FileSystemTool) readFile(path string) (json.RawMessage, error) {
+	// 先检查是否可以去重
+	offset := 1
+	var limit *int = nil
+	if t.fileStates != nil && t.fileStates.IsUnchanged(path, offset, limit) {
+		result := map[string]any{
+			"success": true,
+			"path":    path,
+			"content": "[unchanged since last read]",
+			"cached":  true,
+		}
+		return json.Marshal(result)
+	}
+
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
+	}
+
+	// 记录读取操作
+	if t.fileStates != nil {
+		t.fileStates.RecordRead(path, offset, limit)
 	}
 
 	result := map[string]any{
@@ -117,6 +156,11 @@ func (t *FileSystemTool) writeFile(path string, content string, overwrite bool) 
 
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		return nil, fmt.Errorf("write file: %w", err)
+	}
+
+	// 记录写入操作
+	if t.fileStates != nil {
+		t.fileStates.RecordWrite(path)
 	}
 
 	result := map[string]any{
