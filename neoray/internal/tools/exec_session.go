@@ -16,6 +16,7 @@ import (
 
 	"neoray/internal/config"
 	"neoray/internal/logger"
+	"neoray/internal/security"
 )
 
 const (
@@ -495,14 +496,28 @@ func (m *ExecSessionManager) cleanupLocked() {
 
 // spawnCommand spawns a command (similar to ShellTool)
 func spawnCommand(ctx context.Context, command string, cwd string, cfg *config.Config, withStdin bool) (*exec.Cmd, error) {
+	workspace := cfg.ResolvePath(cfg.Tools.Shell.WorkingDir)
+	if workspace == "" {
+		workspace = cwd
+	}
+
+	// 应用安全检查
+	if cfg.Security.RestrictToWorkspace {
+		var err error
+		command, err = security.FilterCommandForPathSafety(command, workspace)
+		if err != nil {
+			return nil, err
+		}
+
+		allowLoopback := cfg.Security.WebUIAllowLocalServiceAccess && security.CurrentScopeAllowsLoopback(cfg.Security.WebUIAllowLocalServiceAccess)
+		if security.ContainsInternalURL(command, allowLoopback) {
+			return nil, fmt.Errorf("command contains URL targeting internal/private address")
+		}
+	}
+
 	// 应用沙盒包装（如果配置了）
 	if cfg.Tools.Shell.Sandbox != "" && runtime.GOOS != "windows" {
-		workspace := cfg.ResolvePath(cfg.Tools.Shell.WorkingDir)
-		if workspace == "" {
-			workspace = cwd
-		}
-		// 获取媒体目录（暂时留空，后续可以从配置中获取）
-		mediaDir := ""
+		mediaDir := cfg.Tools.Shell.MediaDir
 		registry := GetSandboxRegistry(mediaDir)
 		var err error
 		command, err = registry.WrapCommand(cfg.Tools.Shell.Sandbox, command, workspace, cwd)

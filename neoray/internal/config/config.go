@@ -197,6 +197,7 @@ type ShellConfig struct {
 	BlockedCommands []string      `mapstructure:"blocked_commands"`
 	WorkingDir      string        `mapstructure:"working_dir"`
 	Sandbox         string        `mapstructure:"sandbox"`
+	MediaDir        string        `mapstructure:"media_dir"`
 }
 
 // WebToolsConfig Web 工具配置
@@ -248,9 +249,12 @@ type FeishuChannelConfig struct {
 
 // SecurityConfig 安全配置
 type SecurityConfig struct {
-	Auth      AuthConfig      `mapstructure:"auth"`
-	RateLimit RateLimitConfig `mapstructure:"rate_limit"`
-	Upload    UploadConfig    `mapstructure:"upload"`
+	Auth                     AuthConfig       `mapstructure:"auth"`
+	RateLimit                RateLimitConfig  `mapstructure:"rate_limit"`
+	Upload                   UploadConfig     `mapstructure:"upload"`
+	RestrictToWorkspace      bool             `mapstructure:"restrict_to_workspace"`
+	WebUIAllowLocalServiceAccess bool         `mapstructure:"webui_allow_local_service_access"`
+	SSRFWhitelist            []string         `mapstructure:"ssrf_whitelist"`
 }
 
 // AuthConfig 认证配置

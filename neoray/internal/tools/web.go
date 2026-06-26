@@ -13,6 +13,9 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"neoray/internal/config"
+	"neoray/internal/security"
 )
 
 const (
@@ -439,8 +442,10 @@ func formatResults(query string, items []SearchResult, n int) string {
 // ======================================
 
 type WebFetchTool struct {
-	useJinaReader bool
-	maxChars      int
+	cfg               *config.Config
+	useJinaReader     bool
+	maxChars          int
+	allowLocalService bool
 }
 
 type WebFetchArgs struct {
@@ -461,11 +466,23 @@ type WebFetchResult struct {
 	Error     string `json:"error,omitempty"`
 }
 
-func NewWebFetchTool() *WebFetchTool {
+func NewWebFetchTool(cfg *config.Config) *WebFetchTool {
 	useJinaReader := os.Getenv("NEORAY_WEB_FETCH_USE_JINA") != "false"
+
+	var allowLocalService bool
+	if cfg != nil {
+		allowLocalService = cfg.Security.WebUIAllowLocalServiceAccess
+
+		if len(cfg.Security.SSRFWhitelist) > 0 {
+			security.ConfigureSSRFWhitelist(cfg.Security.SSRFWhitelist)
+		}
+	}
+
 	return &WebFetchTool{
-		useJinaReader: useJinaReader,
-		maxChars:      defaultMaxChars,
+		cfg:               cfg,
+		useJinaReader:     useJinaReader,
+		maxChars:          defaultMaxChars,
+		allowLocalService: allowLocalService,
 	}
 }
 
@@ -509,7 +526,7 @@ func (t *WebFetchTool) Execute(ctx context.Context, args json.RawMessage) (json.
 		maxChars = t.maxChars
 	}
 
-	valid, errMsg := validateURLSafe(urlStr)
+	valid, errMsg := t.validateURLSafe(urlStr)
 	if !valid {
 		result := WebFetchResult{URL: urlStr, Error: fmt.Sprintf("URL validation failed: %s", errMsg)}
 		return json.Marshal(result)
@@ -673,18 +690,9 @@ func normalizeText(s string) string {
 	return newlineRe.ReplaceAllString(s, "\n\n")
 }
 
-func validateURLSafe(urlStr string) (bool, string) {
-	u, err := url.Parse(urlStr)
-	if err != nil {
-		return false, err.Error()
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return false, fmt.Sprintf("Only http/https allowed, got '%s'", u.Scheme)
-	}
-	if u.Host == "" {
-		return false, "Missing domain"
-	}
-	return true, ""
+func (t *WebFetchTool) validateURLSafe(urlStr string) (bool, string) {
+	allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(t.allowLocalService)
+	return security.ValidateURLTarget(urlStr, allowLoopback)
 }
 
 func toMarkdownFunc(htmlContent string) string {

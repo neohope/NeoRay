@@ -235,9 +235,11 @@ func main() {
 	logger.Info("ApplyPatch tool registered")
 	toolRegistry.Register(tools.NewWebSearchTool())
 	logger.Info("WebSearch tool registered")
-	toolRegistry.Register(tools.NewWebFetchTool())
+	toolRegistry.Register(tools.NewWebFetchTool(cfg))
 	logger.Info("WebFetch tool registered")
-	logger.Info("Tool registry initialized", logger.Int("tool_count", len(toolRegistry.List())))
+		toolRegistry.Register(tools.NewSandboxStatusTool(cfg))
+		logger.Info("SandboxStatus tool registered")
+		logger.Info("Tool registry initialized", logger.Int("tool_count", len(toolRegistry.List())))
 
 	// 初始化会话存储和管理器（使用文件存储）
 	sessionDir := cfg.ResolvePath("sessions")

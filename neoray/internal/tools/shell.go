@@ -11,6 +11,7 @@ import (
 
 	"neoray/internal/config"
 	"neoray/internal/logger"
+	"neoray/internal/security"
 )
 
 // ShellTool Shell 执行工具
@@ -140,12 +141,35 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 	execCtx, cancel := context.WithTimeout(ctx, execTimeout)
 	defer cancel()
 
-	// 应用沙盒包装（如果配置了）
+	// 应用安全检查
 	command := params.Command
+	if t.cfg.Security.RestrictToWorkspace {
+		var err error
+		command, err = security.FilterCommandForPathSafety(command, t.workspace)
+		if err != nil {
+			result := map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			}
+			res, _ := json.Marshal(result)
+			return res, nil
+		}
+
+		allowLoopback := t.cfg.Security.WebUIAllowLocalServiceAccess && security.CurrentScopeAllowsLoopback(t.cfg.Security.WebUIAllowLocalServiceAccess)
+		if security.ContainsInternalURL(command, allowLoopback) {
+			result := map[string]interface{}{
+				"success": false,
+				"error":   "Command contains URL targeting internal/private address",
+			}
+			res, _ := json.Marshal(result)
+			return res, nil
+		}
+	}
+
+	// 应用沙盒包装（如果配置了）
 	if t.cfg.Tools.Shell.Sandbox != "" && runtime.GOOS != "windows" {
 		workspace := t.workspace
-		// 获取媒体目录（暂时留空，后续可以从配置中获取）
-		mediaDir := ""
+		mediaDir := t.cfg.Tools.Shell.MediaDir
 		registry := GetSandboxRegistry(mediaDir)
 		var err error
 		command, err = registry.WrapCommand(t.cfg.Tools.Shell.Sandbox, command, workspace, workspace)

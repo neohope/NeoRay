@@ -91,6 +91,8 @@ working_dir = "workspace"
 # 沙盒配置，可选值："bwrap"（使用 bubblewrap 沙盒）或空字符串（不使用沙盒）
 # 注意：bwrap 只在 Linux 系统上可用
 sandbox = ""
+# 媒体目录，沙盒环境中会以只读方式挂载
+media_dir = ""
 
 [tools.web]
 enabled = true
@@ -133,6 +135,18 @@ enabled = true
 max_size = 10485760
 allowed_types = ["text/*", "image/*", "application/json"]
 temp_dir = "tmp/uploads"
+
+# 工作区限制配置
+# 当设置为 true 时，所有工具访问将被限制在工作区目录内
+restrict_to_workspace = false
+
+# WebUI 本地服务访问配置
+# 当设置为 true 时，允许 WebUI Full Access 模式访问本地服务
+webui_allow_local_service_access = false
+
+# SSRF 防护白名单
+# 允许访问的 IP 或 CIDR 范围列表
+ssrf_whitelist = []
 
 [web]
 enabled = false
