@@ -140,8 +140,24 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 	execCtx, cancel := context.WithTimeout(ctx, execTimeout)
 	defer cancel()
 
+	// 应用沙盒包装（如果配置了）
+	command := params.Command
+	if t.cfg.Tools.Shell.Sandbox != "" && runtime.GOOS != "windows" {
+		workspace := t.workspace
+		// 获取媒体目录（暂时留空，后续可以从配置中获取）
+		mediaDir := ""
+		registry := GetSandboxRegistry(mediaDir)
+		var err error
+		command, err = registry.WrapCommand(t.cfg.Tools.Shell.Sandbox, command, workspace, workspace)
+		if err != nil {
+			logger.Debug("Sandbox wrap failed, falling back to normal execution", logger.ErrorField(err))
+			// 沙盒失败时回退到正常执行
+			command = params.Command
+		}
+	}
+
 	logger.Debug("Shell command",
-		logger.String("command", params.Command),
+		logger.String("command", command),
 		logger.String("workspace", t.workspace),
 	)
 
@@ -151,11 +167,16 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 
 	switch runtime.GOOS {
 	case "windows":
-		shellCmd = "cmd.exe"
-		shellArgs = []string{"/c", params.Command}
+		if bytes.Contains([]byte(command), []byte("\n")) {
+			shellCmd = "powershell"
+			shellArgs = []string{"-NoProfile", "-Command", command}
+		} else {
+			shellCmd = "cmd.exe"
+			shellArgs = []string{"/c", command}
+		}
 	default:
 		shellCmd = "bash"
-		shellArgs = []string{"/c", params.Command}
+		shellArgs = []string{"-c", command}
 	}
 
 	// 创建命令

@@ -495,6 +495,23 @@ func (m *ExecSessionManager) cleanupLocked() {
 
 // spawnCommand spawns a command (similar to ShellTool)
 func spawnCommand(ctx context.Context, command string, cwd string, cfg *config.Config, withStdin bool) (*exec.Cmd, error) {
+	// 应用沙盒包装（如果配置了）
+	if cfg.Tools.Shell.Sandbox != "" && runtime.GOOS != "windows" {
+		workspace := cfg.ResolvePath(cfg.Tools.Shell.WorkingDir)
+		if workspace == "" {
+			workspace = cwd
+		}
+		// 获取媒体目录（暂时留空，后续可以从配置中获取）
+		mediaDir := ""
+		registry := GetSandboxRegistry(mediaDir)
+		var err error
+		command, err = registry.WrapCommand(cfg.Tools.Shell.Sandbox, command, workspace, cwd)
+		if err != nil {
+			logger.Debug("Sandbox wrap failed, falling back to normal execution", logger.ErrorField(err))
+			// 沙盒失败时回退到正常执行
+		}
+	}
+
 	var shellCmd string
 	var shellArgs []string
 

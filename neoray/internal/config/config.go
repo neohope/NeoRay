@@ -191,11 +191,12 @@ type FilesystemConfig struct {
 
 // ShellConfig Shell 工具配置
 type ShellConfig struct {
-	Enabled        bool          `mapstructure:"enabled"`
-	Timeout        time.Duration `mapstructure:"timeout"`
-	AllowedCommands []string    `mapstructure:"allowed_commands"`
-	BlockedCommands []string    `mapstructure:"blocked_commands"`
-	WorkingDir     string        `mapstructure:"working_dir"`
+	Enabled         bool          `mapstructure:"enabled"`
+	Timeout         time.Duration `mapstructure:"timeout"`
+	AllowedCommands []string      `mapstructure:"allowed_commands"`
+	BlockedCommands []string      `mapstructure:"blocked_commands"`
+	WorkingDir      string        `mapstructure:"working_dir"`
+	Sandbox         string        `mapstructure:"sandbox"`
 }
 
 // WebToolsConfig Web 工具配置
