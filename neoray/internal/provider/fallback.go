@@ -197,32 +197,21 @@ func (p *FallbackProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-
 				continue
 			}
 
-			// 保存原始请求参数
-			originalModel := req.Model
-			originalMaxTokens := req.MaxTokens
-			originalTemperature := req.Temperature
-			originalReasoningEffort := req.ReasoningEffort
-
-			// 应用 fallback 配置
-			req.Model = fallbackConfig.Model
+			// 创建请求副本，避免修改调用方的原始请求
+			fallbackReq := *req
+			fallbackReq.Model = fallbackConfig.Model
 			if fallbackConfig.MaxTokens > 0 {
-				req.MaxTokens = fallbackConfig.MaxTokens
+				fallbackReq.MaxTokens = fallbackConfig.MaxTokens
 			}
 			if fallbackConfig.Temperature > 0 {
-				req.Temperature = fallbackConfig.Temperature
+				fallbackReq.Temperature = fallbackConfig.Temperature
 			}
 			if fallbackConfig.ReasoningEffort != "" {
-				req.ReasoningEffort = fallbackConfig.ReasoningEffort
+				fallbackReq.ReasoningEffort = fallbackConfig.ReasoningEffort
 			}
 
 			// 尝试 fallback 流式请求
-			streamChan, err := fallbackProvider.ChatStream(ctx, req)
-
-			// 恢复原始请求参数
-			req.Model = originalModel
-			req.MaxTokens = originalMaxTokens
-			req.Temperature = originalTemperature
-			req.ReasoningEffort = originalReasoningEffort
+			streamChan, err := fallbackProvider.ChatStream(ctx, &fallbackReq)
 
 			if err != nil {
 				logger.Warn("Fallback provider failed",
@@ -336,32 +325,21 @@ func (p *FallbackProvider) tryChatWithFallback(
 			continue
 		}
 
-		// 保存原始请求参数
-		originalModel := req.Model
-		originalMaxTokens := req.MaxTokens
-		originalTemperature := req.Temperature
-		originalReasoningEffort := req.ReasoningEffort
-
-		// 应用 fallback 配置
-		req.Model = fallbackConfig.Model
+		// 创建请求副本，避免修改调用方的原始请求
+		fallbackReq := *req
+		fallbackReq.Model = fallbackConfig.Model
 		if fallbackConfig.MaxTokens > 0 {
-			req.MaxTokens = fallbackConfig.MaxTokens
+			fallbackReq.MaxTokens = fallbackConfig.MaxTokens
 		}
 		if fallbackConfig.Temperature > 0 {
-			req.Temperature = fallbackConfig.Temperature
+			fallbackReq.Temperature = fallbackConfig.Temperature
 		}
 		if fallbackConfig.ReasoningEffort != "" {
-			req.ReasoningEffort = fallbackConfig.ReasoningEffort
+			fallbackReq.ReasoningEffort = fallbackConfig.ReasoningEffort
 		}
 
 		// 尝试 fallback 请求
-		resp, err := fallbackProvider.Chat(ctx, req)
-
-		// 恢复原始请求参数
-		req.Model = originalModel
-		req.MaxTokens = originalMaxTokens
-		req.Temperature = originalTemperature
-		req.ReasoningEffort = originalReasoningEffort
+		resp, err := fallbackProvider.Chat(ctx, &fallbackReq)
 
 		if err != nil {
 			logger.Warn("Fallback provider failed",

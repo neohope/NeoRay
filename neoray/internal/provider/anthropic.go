@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,7 +21,8 @@ import (
 type AnthropicProvider struct {
 	name         string
 	cfg          *config.ProviderConfig
-	client       *http.Client
+	client       *http.Client       // 带超时，用于非流式请求
+	streamClient *http.Client       // 无超时，用于 SSE 流式请求（依赖 context 取消）
 	generation   GenerationSettings
 	extraHeaders map[string]string
 }
@@ -31,6 +34,10 @@ func NewAnthropicProvider(name string, cfg *config.ProviderConfig) *AnthropicPro
 		cfg:  cfg,
 		client: &http.Client{
 			Timeout: cfg.Timeout,
+		},
+		// 流式客户端无超时，依赖 context 取消控制生命周期
+		streamClient: &http.Client{
+			Timeout: 0,
 		},
 		generation: GenerationSettings{
 			Temperature:     cfg.Temperature,
@@ -219,13 +226,16 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatRe
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("x-api-key", p.cfg.APIKey)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
-	// 添加提示缓存 beta 头
+	// 构建 beta 头（多个 beta 特性用逗号分隔）
+	var betaFeatures []string
 	if req.CacheEnabled {
-		httpReq.Header.Set("anthropic-beta", "prompt-caching-2024-07-31")
+		betaFeatures = append(betaFeatures, "prompt-caching-2024-07-31")
 	}
-	// 添加思考模式 beta 头
 	if req.ReasoningEffort != "" && req.ReasoningEffort != "none" {
-		httpReq.Header.Set("anthropic-beta", "extended-thinking-2025-07-31")
+		betaFeatures = append(betaFeatures, "extended-thinking-2025-07-31")
+	}
+	if len(betaFeatures) > 0 {
+		httpReq.Header.Set("anthropic-beta", strings.Join(betaFeatures, ","))
 	}
 	// 添加额外的请求头
 	for k, v := range p.extraHeaders {
@@ -307,13 +317,16 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req *ChatRequest) (<
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("x-api-key", p.cfg.APIKey)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
-	// 添加提示缓存 beta 头
+	// 构建 beta 头（多个 beta 特性用逗号分隔）
+	var betaFeatures []string
 	if req.CacheEnabled {
-		httpReq.Header.Set("anthropic-beta", "prompt-caching-2024-07-31")
+		betaFeatures = append(betaFeatures, "prompt-caching-2024-07-31")
 	}
-	// 添加思考模式 beta 头
 	if req.ReasoningEffort != "" && req.ReasoningEffort != "none" {
-		httpReq.Header.Set("anthropic-beta", "extended-thinking-2025-07-31")
+		betaFeatures = append(betaFeatures, "extended-thinking-2025-07-31")
+	}
+	if len(betaFeatures) > 0 {
+		httpReq.Header.Set("anthropic-beta", strings.Join(betaFeatures, ","))
 	}
 	// 添加额外的请求头
 	for k, v := range p.extraHeaders {
@@ -324,7 +337,7 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req *ChatRequest) (<
 	go func() {
 		defer close(resultChan)
 
-		resp, err := p.client.Do(httpReq)
+		resp, err := p.streamClient.Do(httpReq)
 		if err != nil {
 			_, _ = p.handleError(err, nil)
 			resultChan <- StreamChatResponse{Error: fmt.Errorf("do request: %w", err)}
@@ -444,10 +457,15 @@ func (p *AnthropicProvider) buildRequest(req *ChatRequest) (*anthropicRequest, e
 			logger.String("name", tool.Name),
 			logger.String("description", tool.Description),
 		)
+		schema, ok := tool.InputSchema.(map[string]interface{})
+		if !ok {
+			logger.Warn("Skipping tool with invalid InputSchema", logger.String("tool", tool.Name))
+			continue
+		}
 		apiTool := anthropicTool{
 			Name:        tool.Name,
 			Description: tool.Description,
-			InputSchema: tool.InputSchema.(map[string]interface{}),
+			InputSchema: schema,
 		}
 		if tool.CacheControl != nil && req.CacheEnabled {
 			apiTool.CacheControl = &anthropicCacheControl{
@@ -856,26 +874,46 @@ func (p *AnthropicProvider) parseErrorResponse(body []byte) *ChatResponse {
 	return errResp
 }
 
+var retryAfterPatterns = regexp.MustCompile(
+	`(?i)(?:retry after|try again in|wait)\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|sec|seconds|m|min|minutes)?`)
+
 // extractRetryAfter 从文本中提取重试时间
 func (p *AnthropicProvider) extractRetryAfter(text string) time.Duration {
-	_ = []string{
-		`retry after\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|sec|seconds|m|min|minutes)?`,
-		`try again in\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|sec|seconds|m|min|minutes)`,
-		`wait\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|sec|seconds|m|min|minutes)\s*before retry`,
+	matches := retryAfterPatterns.FindStringSubmatch(text)
+	if matches == nil {
+		return 0
 	}
-	// 简化实现，这里不做复杂的正则匹配
-	return 0
+	val, err := strconv.ParseFloat(matches[1], 64)
+	if err != nil || val <= 0 {
+		return 0
+	}
+	unit := "s" // 默认秒
+	if len(matches) > 2 {
+		unit = strings.ToLower(matches[2])
+	}
+	switch unit {
+	case "ms", "milliseconds":
+		return time.Duration(val * float64(time.Millisecond))
+	case "m", "min", "minutes":
+		return time.Duration(val * float64(time.Minute))
+	default: // s, sec, seconds, or unspecified
+		return time.Duration(val * float64(time.Second))
+	}
 }
 
 // extractRetryAfterFromHeaders 从响应头提取重试时间
 func (p *AnthropicProvider) extractRetryAfterFromHeaders(headers http.Header) time.Duration {
-	if retryAfter := headers.Get("retry-after"); retryAfter != "" {
-		// 简化实现
-		return 0
-	}
+	// retry-after-ms 是毫秒精度
 	if retryAfterMs := headers.Get("retry-after-ms"); retryAfterMs != "" {
-		// 简化实现
-		return 0
+		if ms, err := strconv.ParseFloat(retryAfterMs, 64); err == nil && ms > 0 {
+			return time.Duration(ms * float64(time.Millisecond))
+		}
+	}
+	// retry-after 可以是秒数或 HTTP 日期
+	if retryAfter := headers.Get("retry-after"); retryAfter != "" {
+		if secs, err := strconv.ParseFloat(retryAfter, 64); err == nil && secs > 0 {
+			return time.Duration(secs * float64(time.Second))
+		}
 	}
 	return 0
 }

@@ -196,12 +196,17 @@ func (p *GenericProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 		logger.Debug("Adding tool to request",
 			logger.String("name", tool.Name),
 			logger.String("description", tool.Description))
+		schema, ok := tool.InputSchema.(map[string]interface{})
+		if !ok {
+			logger.Warn("Skipping tool with invalid InputSchema", logger.String("tool", tool.Name))
+			continue
+		}
 		apiTools = append(apiTools, openaiTool{
 			Type: "function",
 			Function: openaiFunction{
 				Name:        tool.Name,
 				Description: tool.Description,
-				Parameters:  tool.InputSchema.(map[string]interface{}),
+				Parameters:  schema,
 			},
 		})
 	}
