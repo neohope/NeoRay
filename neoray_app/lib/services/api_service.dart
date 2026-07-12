@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/session.dart';
 import '../models/message.dart';
+import '../constants/constants.dart';
 import '../utils/logger.dart';
 
 class ApiService {
@@ -17,9 +18,9 @@ class ApiService {
   ApiService({
     required this.baseUrl,
     http.Client? httpClient,
-    this.timeout = const Duration(seconds: 120),
-    this.channelId = 'default',
-    this.userId = 'default',
+    this.timeout = const Duration(seconds: AppTimings.apiTimeoutSec),
+    this.channelId = AppStrings.defaultChannelId,
+    this.userId = AppStrings.defaultUserId,
   }) : _httpClient = httpClient ?? http.Client();
 
   Uri _buildUri(String path, [Map<String, String>? queryParams]) {

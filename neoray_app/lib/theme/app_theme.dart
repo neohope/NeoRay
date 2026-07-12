@@ -1,23 +1,47 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
+  // 主色调
   static const Color primary = Color(0xFF6366F1);
   static const Color primaryLight = Color(0xFF818CF8);
   static const Color primaryDark = Color(0xFF4F46E5);
 
+  // 功能色
   static const Color secondary = Color(0xFF10B981);
   static const Color accent = Color(0xFFF59E0B);
   static const Color danger = Color(0xFFEF4444);
 
+  // 浅色主题颜色
   static const Color backgroundLight = Color(0xFFF8F9FA);
   static const Color surfaceLight = Color(0xFFFFFFFF);
   static const Color textPrimaryLight = Color(0xFF1F2937);
   static const Color textSecondaryLight = Color(0xFF64748B);
 
+  // 深色主题颜色
   static const Color backgroundDark = Color(0xFF0F172A);
   static const Color surfaceDark = Color(0xFF1E293B);
   static const Color textPrimaryDark = Color(0xFFF1F5F9);
   static const Color textSecondaryDark = Color(0xFF94A3B8);
+
+  // 补充颜色 - 通用界面元素
+  static const Color sidebarBackgroundLight = Color(0xFFF0F2F5);
+  static const Color sidebarBackgroundDark = Color(0xFF1E293B);
+
+  static const Color borderLight = Color(0xFFE5E7EB);
+  static const Color borderDark = Color(0xFF374151);
+
+  static const Color inputBackgroundLight = Color(0xFFF9FAFB);
+  static const Color inputBackgroundDark = Color(0xFF1E293B);
+
+  static const Color selectedItemBackgroundLight = Color(0xFFE5E7EB);
+  static const Color selectedItemBackgroundDark = Color(0xFF334155);
+
+  // 半透明颜色
+  static Color get primaryTransparent10 => primary.withValues(alpha: 0.1);
+  static Color get primaryTransparent20 => primary.withValues(alpha: 0.2);
+  static Color get dangerTransparent60 => danger.withValues(alpha: 0.6);
+  static Color get whiteTransparent10 => Colors.white.withValues(alpha: 0.1);
+  static Color get whiteTransparent70 => Colors.white.withValues(alpha: 0.7);
 
   static ThemeData get lightTheme {
     return ThemeData(
@@ -59,14 +83,14 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: const Color(0xFFF9FAFB),
+        fillColor: inputBackgroundLight,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+          borderSide: const BorderSide(color: borderLight),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+          borderSide: const BorderSide(color: borderLight),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
@@ -136,14 +160,14 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: const Color(0xFF1E293B),
+        fillColor: inputBackgroundDark,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFF374151)),
+          borderSide: const BorderSide(color: borderDark),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFF374151)),
+          borderSide: const BorderSide(color: borderDark),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),

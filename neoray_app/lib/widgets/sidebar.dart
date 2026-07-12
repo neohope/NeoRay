@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/session.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
+import '../constants/constants.dart';
 
 class Sidebar extends ConsumerWidget {
   final VoidCallback onNewChat;
@@ -20,8 +21,8 @@ class Sidebar extends ConsumerWidget {
     final currentSession = ref.watch(currentSessionProvider);
 
     return Container(
-      width: 280,
-      color: const Color(0xFFF0F2F5),
+      width: AppDimensions.sidebarWidth,
+      color: AppTheme.sidebarBackgroundLight,
       child: Column(
         children: [
           _buildHeader(context),
@@ -32,21 +33,21 @@ class Sidebar extends ConsumerWidget {
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (error, stackTrace) => Center(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(AppDimensions.spacingLg),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(
                         Icons.error_outline,
                         size: 48,
-                        color: AppTheme.danger.withValues(alpha: 0.6),
+                        color: AppTheme.dangerTransparent60,
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: AppDimensions.spacingLg),
                       Text(
-                        '加载失败',
+                        AppStrings.loadFailed,
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: AppDimensions.spacingSm),
                       Text(
                         error.toString(),
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -54,13 +55,13 @@ class Sidebar extends ConsumerWidget {
                             ),
                         textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: AppDimensions.spacingLg),
                       ElevatedButton.icon(
                         onPressed: () {
                           ref.read(sessionListProvider.notifier).loadSessions();
                         },
                         icon: const Icon(Icons.refresh, color: Colors.white),
-                        label: const Text('重试',
+                        label: const Text(AppStrings.retry,
                             style: TextStyle(color: Colors.white)),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.primary,
@@ -86,26 +87,26 @@ class Sidebar extends ConsumerWidget {
 
   Widget _buildHeader(BuildContext context) {
     return Container(
-      height: 70,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      height: AppDimensions.headerHeight,
+      padding: const EdgeInsets.symmetric(horizontal: AppDimensions.spacingXl),
       child: Row(
         children: [
           Container(
-            width: 32,
-            height: 32,
+            width: AppDimensions.logoContainerSize,
+            height: AppDimensions.logoContainerSize,
             decoration: BoxDecoration(
               color: AppTheme.primary,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
             ),
             child: const Icon(
               Icons.smart_toy,
               color: Colors.white,
-              size: 20,
+              size: AppDimensions.iconSizeMedium,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: AppDimensions.spacingMd),
           Text(
-            'NeoRay',
+            AppStrings.appName,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: AppTheme.textPrimaryLight,
@@ -118,16 +119,16 @@ class Sidebar extends ConsumerWidget {
 
   Widget _buildNewChatButton(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: AppDimensions.spacingLg),
       child: ElevatedButton.icon(
         onPressed: onNewChat,
         icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text('新聊天', style: TextStyle(color: Colors.white)),
+        label: const Text(AppStrings.defaultSessionTitle, style: TextStyle(color: Colors.white)),
         style: ElevatedButton.styleFrom(
           backgroundColor: AppTheme.primary,
-          minimumSize: const Size(double.infinity, 44),
+          minimumSize: const Size(double.infinity, AppDimensions.buttonMinHeight),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(AppDimensions.borderRadiusMd),
           ),
           elevation: 0,
         ),
@@ -137,11 +138,16 @@ class Sidebar extends ConsumerWidget {
 
   Widget _buildHistoryLabel(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(left: 20, right: 20, top: 12, bottom: 8),
+      padding: const EdgeInsets.only(
+        left: AppDimensions.spacingXl,
+        right: AppDimensions.spacingXl,
+        top: AppDimensions.spacingMd,
+        bottom: AppDimensions.spacingSm,
+      ),
       child: Align(
         alignment: Alignment.centerLeft,
         child: Text(
-          '历史聊天',
+          AppStrings.historyLabel,
           style: Theme.of(context).textTheme.labelLarge?.copyWith(
                 color: AppTheme.textSecondaryLight,
                 fontWeight: FontWeight.w600,
@@ -160,7 +166,7 @@ class Sidebar extends ConsumerWidget {
     if (sessions.isEmpty) {
       return Center(
         child: Text(
-          '暂无聊天记录',
+          AppStrings.noChatHistory,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: AppTheme.textSecondaryLight,
               ),
@@ -169,17 +175,17 @@ class Sidebar extends ConsumerWidget {
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: AppDimensions.spacingLg),
       itemCount: sessions.length,
       itemBuilder: (context, index) {
         final session = sessions[index];
         final isSelected = currentSession?.id == session.id;
 
         return Padding(
-          padding: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.only(bottom: AppDimensions.spacingSm),
           child: Material(
-            color: isSelected ? const Color(0xFFE5E7EB) : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
+            color: isSelected ? AppTheme.selectedItemBackgroundLight : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
             child: InkWell(
               onTap: () async {
                 try {
@@ -190,33 +196,33 @@ class Sidebar extends ConsumerWidget {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('加载会话失败: $e'),
+                        content: Text('${AppStrings.loadSessionFailed}: $e'),
                         backgroundColor: AppTheme.danger,
-                        duration: const Duration(seconds: 3),
+                        duration: const Duration(seconds: AppTimings.snackBarDurationShortSec),
                       ),
                     );
                   }
                 }
               },
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
               child: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(AppDimensions.spacingMd),
                 child: Row(
                   children: [
                     Icon(
                       Icons.chat_outlined,
-                      size: 18,
+                      size: AppDimensions.iconSizeSmall,
                       color: isSelected
                           ? AppTheme.primary
                           : AppTheme.textSecondaryLight,
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: AppDimensions.spacingMd),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            session.title ?? '新聊天',
+                            session.title ?? AppStrings.defaultSessionTitle,
                             style: Theme.of(context)
                                 .textTheme
                                 .bodyMedium
@@ -227,7 +233,7 @@ class Sidebar extends ConsumerWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 2),
+                          const SizedBox(height: AppDimensions.spacingXs),
                           Text(
                             _getPreview(session),
                             style:
@@ -251,32 +257,35 @@ class Sidebar extends ConsumerWidget {
   }
 
   String _getPreview(Session session) {
-    if (session.messages.isEmpty) return '暂无消息';
+    if (session.messages.isEmpty) return AppStrings.noMessagesPreview;
     final lastMessage = session.messages.last;
     return lastMessage.content;
   }
 
   Widget _buildFooter(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppDimensions.spacingLg),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
         child: InkWell(
           onTap: onOpenSettings,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppDimensions.spacingMd,
+              vertical: AppDimensions.spacingMd,
+            ),
             child: Row(
               children: [
                 const Icon(
                   Icons.settings_outlined,
-                  size: 18,
+                  size: AppDimensions.iconSizeSmall,
                   color: AppTheme.textSecondaryLight,
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: AppDimensions.spacingMd),
                 Text(
-                  '配置',
+                  AppStrings.settingsLabel,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w500,
                         color: AppTheme.textPrimaryLight,

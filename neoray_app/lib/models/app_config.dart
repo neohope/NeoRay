@@ -1,4 +1,5 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
+import '../constants/constants.dart';
 
 part 'app_config.freezed.dart';
 part 'app_config.g.dart';
@@ -6,15 +7,15 @@ part 'app_config.g.dart';
 @freezed
 class LLMConfig with _$LLMConfig {
   const factory LLMConfig({
-    @Default('openai') String provider,
+    @Default(AppDefaults.defaultLLMProvider) String provider,
     @Default('') String apiKey,
-    @Default('https://api.openai.com/v1') String apiUrl,
-    @Default('gpt-4') String model,
-    @Default(4096) int maxTokens,
-    @Default(0.7) double temperature,
-    @Default(120) int timeout,
-    @Default('none') String reasoningEffort,
-    @Default(false) bool promptCacheEnabled,
+    @Default(AppDefaults.defaultApiUrl) String apiUrl,
+    @Default(AppDefaults.defaultLLMModel) String model,
+    @Default(AppDefaults.defaultMaxTokens) int maxTokens,
+    @Default(AppDefaults.defaultTemperature) double temperature,
+    @Default(AppDefaults.defaultTimeoutSec) int timeout,
+    @Default(AppDefaults.defaultReasoningEffort) String reasoningEffort,
+    @Default(AppDefaults.defaultPromptCacheEnabled) bool promptCacheEnabled,
     @Default([]) List<FallbackModelConfig> fallbackModels,
   }) = _LLMConfig;
 
@@ -39,8 +40,8 @@ class FallbackModelConfig with _$FallbackModelConfig {
 @freezed
 class ChannelConfig with _$ChannelConfig {
   const factory ChannelConfig({
-    @Default(false) bool enabled,
-    @Default('feishu') String provider,
+    @Default(AppDefaults.defaultChannelEnabled) bool enabled,
+    @Default(AppDefaults.defaultChannelProvider) String provider,
     @Default('') String appId,
     @Default('') String appSecret,
   }) = _ChannelConfig;
@@ -52,9 +53,9 @@ class ChannelConfig with _$ChannelConfig {
 @freezed
 class ToolConfig with _$ToolConfig {
   const factory ToolConfig({
-    @Default(true) bool shellEnabled,
-    @Default(true) bool cronEnabled,
-    @Default(false) bool webEnabled,
+    @Default(AppDefaults.defaultShellEnabled) bool shellEnabled,
+    @Default(AppDefaults.defaultCronEnabled) bool cronEnabled,
+    @Default(AppDefaults.defaultWebEnabled) bool webEnabled,
   }) = _ToolConfig;
 
   factory ToolConfig.fromJson(Map<String, dynamic> json) =>
@@ -64,7 +65,7 @@ class ToolConfig with _$ToolConfig {
 @freezed
 class AppConfig with _$AppConfig {
   const factory AppConfig({
-    @Default('http://localhost:8080') String serverUrl,
+    @Default(AppDefaults.defaultServerUrl) String serverUrl,
     @Default(LLMConfig()) LLMConfig llm,
     @Default(ChannelConfig()) ChannelConfig channel,
     @Default(ToolConfig()) ToolConfig tools,

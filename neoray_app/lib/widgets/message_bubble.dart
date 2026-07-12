@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/message.dart';
 import '../theme/app_theme.dart';
+import '../constants/constants.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
@@ -19,7 +20,7 @@ class MessageBubble extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: AppDimensions.spacingMd),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment:
@@ -27,26 +28,26 @@ class MessageBubble extends StatelessWidget {
         children: [
           if (!isUser) ...[
             _buildAvatar(context),
-            const SizedBox(width: 12),
+            const SizedBox(width: AppDimensions.spacingMd),
           ],
           Flexible(
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.6,
+                maxWidth: MediaQuery.of(context).size.width * AppDimensions.messageBubbleMaxWidthRatio,
               ),
               child: Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 14,
+                  horizontal: AppDimensions.messageBubbleHorizontalPadding,
+                  vertical: AppDimensions.messageBubbleVerticalPadding,
                 ),
                 decoration: BoxDecoration(
                   color: isUser
                       ? AppTheme.primary
                       : Theme.of(context).cardColor,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(AppDimensions.borderRadiusLg),
                   border: isUser
                       ? null
-                      : Border.all(color: const Color(0xFFE5E7EB)),
+                      : Border.all(color: AppTheme.borderLight),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -58,10 +59,10 @@ class MessageBubble extends StatelessWidget {
                       _buildToolCalls(context),
                     if (isStreaming)
                       Padding(
-                        padding: const EdgeInsets.only(top: 8),
+                        padding: const EdgeInsets.only(top: AppDimensions.spacingSm),
                         child: SizedBox(
-                          width: 12,
-                          height: 12,
+                          width: AppDimensions.loadingIndicatorSize,
+                          height: AppDimensions.loadingIndicatorSize,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
                             color: colorScheme.onSurface.withValues(alpha: 0.5),
@@ -73,7 +74,7 @@ class MessageBubble extends StatelessWidget {
               ),
             ),
           ),
-          if (isUser) const SizedBox(width: 12),
+          if (isUser) const SizedBox(width: AppDimensions.spacingMd),
         ],
       ),
     );
@@ -81,30 +82,30 @@ class MessageBubble extends StatelessWidget {
 
   Widget _buildAvatar(BuildContext context) {
     return Container(
-      width: 36,
-      height: 36,
+      width: AppDimensions.avatarContainerSize,
+      height: AppDimensions.avatarContainerSize,
       decoration: BoxDecoration(
         color: AppTheme.primary,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
       ),
       child: const Icon(
         Icons.smart_toy,
         color: Colors.white,
-        size: 20,
+        size: AppDimensions.iconSizeMedium,
       ),
     );
   }
 
   Widget _buildReasoningContent(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: AppDimensions.spacingMd),
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(AppDimensions.spacingMd),
         decoration: BoxDecoration(
-          color: AppTheme.primary.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(8),
+          color: AppTheme.primaryTransparent10,
+          borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
           border: Border.all(
-            color: AppTheme.primary.withValues(alpha: 0.2),
+            color: AppTheme.primaryTransparent20,
           ),
         ),
         child: Column(
@@ -112,27 +113,27 @@ class MessageBubble extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(
+                const Icon(
                   Icons.psychology,
                   size: 16,
                   color: AppTheme.primary,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: AppDimensions.spacingSm),
                 Text(
-                  '思考过程',
-                  style: TextStyle(
-                    fontSize: 13,
+                  AppStrings.thinking,
+                  style: const TextStyle(
+                    fontSize: AppDimensions.fontSizeXs,
                     fontWeight: FontWeight.w600,
                     color: AppTheme.primary,
                   ),
                 ),
                 if (!message.isReasoningComplete)
                   Padding(
-                    padding: const EdgeInsets.only(left: 8),
+                    padding: const EdgeInsets.only(left: AppDimensions.spacingSm),
                     child: SizedBox(
-                      width: 12,
-                      height: 12,
-                      child: CircularProgressIndicator(
+                      width: AppDimensions.loadingIndicatorSize,
+                      height: AppDimensions.loadingIndicatorSize,
+                      child: const CircularProgressIndicator(
                         strokeWidth: 2,
                         color: AppTheme.primary,
                       ),
@@ -140,12 +141,12 @@ class MessageBubble extends StatelessWidget {
                   ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppDimensions.spacingSm),
             Text(
               message.reasoningContent!,
-              style: TextStyle(
-                fontSize: 14,
-                height: 1.5,
+              style: const TextStyle(
+                fontSize: AppDimensions.fontSizeSm,
+                height: AppDimensions.lineHeightMd,
                 color: AppTheme.textSecondaryLight,
                 fontStyle: FontStyle.italic,
               ),
@@ -160,8 +161,8 @@ class MessageBubble extends StatelessWidget {
     return Text(
       message.content,
       style: TextStyle(
-        fontSize: 15,
-        height: 1.6,
+        fontSize: AppDimensions.fontSizeMd,
+        height: AppDimensions.lineHeightLg,
         color: isUser ? Colors.white : AppTheme.textPrimaryLight,
       ),
     );
@@ -169,34 +170,34 @@ class MessageBubble extends StatelessWidget {
 
   Widget _buildToolCalls(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.only(top: AppDimensions.spacingMd),
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(AppDimensions.spacingMd),
         decoration: BoxDecoration(
           color: isUser
-              ? Colors.white.withValues(alpha: 0.1)
+              ? AppTheme.whiteTransparent10
               : AppTheme.backgroundLight,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: message.toolCalls.map((toolCall) {
             return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.symmetric(vertical: AppDimensions.spacingXs),
               child: Row(
                 children: [
                   Icon(
                     Icons.build_circle_outlined,
                     size: 16,
-                    color: isUser ? Colors.white70 : AppTheme.textSecondaryLight,
+                    color: isUser ? AppTheme.whiteTransparent70 : AppTheme.textSecondaryLight,
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: AppDimensions.spacingSm),
                   Expanded(
                     child: Text(
                       '${toolCall.name}(${toolCall.arguments})',
                       style: TextStyle(
-                        fontSize: 13,
-                        color: isUser ? Colors.white70 : AppTheme.textSecondaryLight,
+                        fontSize: AppDimensions.fontSizeXs,
+                        color: isUser ? AppTheme.whiteTransparent70 : AppTheme.textSecondaryLight,
                       ),
                     ),
                   ),

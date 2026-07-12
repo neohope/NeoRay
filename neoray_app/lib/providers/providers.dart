@@ -4,20 +4,22 @@ import '../models/message.dart';
 import '../models/app_config.dart';
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
+import '../constants/constants.dart';
 import '../utils/logger.dart';
 
 // Channel ID Provider
-final channelIdProvider = StateProvider<String>((ref) => 'default');
+final channelIdProvider = StateProvider<String>((ref) => AppStrings.defaultChannelId);
 
 // User ID Provider
-final userIdProvider = StateProvider<String>((ref) => 'default');
+final userIdProvider = StateProvider<String>((ref) => AppStrings.defaultUserId);
 
-// API Service Provider
+// API Service Provider - 首先获取配置中的服务器地址
 final apiServiceProvider = Provider<ApiService>((ref) {
   final channelId = ref.watch(channelIdProvider);
   final userId = ref.watch(userIdProvider);
+  final config = ref.watch(appConfigProvider);
   return ApiService(
-    baseUrl: 'http://localhost:8080',
+    baseUrl: config.serverUrl,
     channelId: channelId,
     userId: userId,
   );

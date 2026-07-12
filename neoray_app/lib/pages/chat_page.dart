@@ -4,6 +4,7 @@ import '../models/session.dart';
 import '../models/message.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
+import '../constants/constants.dart';
 import '../utils/logger.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/sidebar.dart';
@@ -62,9 +63,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('发送失败: $e'),
+            content: Text('${AppStrings.sendFailed}: $e'),
             backgroundColor: AppTheme.danger,
-            duration: const Duration(seconds: 4),
+            duration: const Duration(seconds: AppTimings.snackBarDurationLongSec),
           ),
         );
       }
@@ -80,11 +81,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void _scrollToBottom() {
-    Future.delayed(const Duration(milliseconds: 100), () {
+    Future.delayed(const Duration(milliseconds: AppTimings.scrollDelayMs), () {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
           _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
+          duration: const Duration(milliseconds: AppTimings.animationDurationShortMs),
           curve: Curves.easeOut,
         );
       }
@@ -101,9 +102,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('创建会话失败: $e'),
+            content: Text('${AppStrings.createSessionFailed}: $e'),
             backgroundColor: AppTheme.danger,
-            duration: const Duration(seconds: 3),
+            duration: const Duration(seconds: AppTimings.snackBarDurationShortSec),
           ),
         );
       }
@@ -119,7 +120,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final currentSession = ref.watch(currentSessionProvider);
     final isStreaming = ref.watch(chatStreamingProvider);
     final streamingContent = ref.watch(currentStreamingContentProvider);
-    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       body: Row(
@@ -158,12 +158,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     return Container(
       color: Theme.of(context).cardColor,
-      height: 70,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      height: AppDimensions.headerHeight,
+      padding: const EdgeInsets.symmetric(horizontal: AppDimensions.spacing2Xl),
       child: Row(
         children: [
           Text(
-            currentSession?.title ?? '新聊天',
+            currentSession?.title ?? AppStrings.defaultSessionTitle,
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
@@ -184,25 +184,25 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     return Center(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
+        padding: const EdgeInsets.symmetric(horizontal: AppDimensions.spacing2Xl),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               Icons.chat_outlined,
-              size: 80,
+              size: AppDimensions.iconSizeXXLarge,
               color: colorScheme.primary.withValues(alpha: 0.3),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: AppDimensions.spacing2Xl),
             Text(
-              '开始新对话',
+              AppStrings.startNewChat,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     color: AppTheme.textPrimaryLight,
                   ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppDimensions.spacingSm),
             Text(
-              '向 NeoRay 发送第一条消息',
+              AppStrings.sendFirstMessage,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
@@ -226,7 +226,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     return ListView.builder(
       controller: _scrollController,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      padding: const EdgeInsets.symmetric(horizontal: AppDimensions.spacing2Xl, vertical: AppDimensions.spacing2Xl),
       itemCount: session.messages.length + ((isStreaming || isReasoning) ? 1 : 0),
       itemBuilder: (context, index) {
         if (index == session.messages.length && (isStreaming || isReasoning)) {
@@ -253,26 +253,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   Widget _buildInputArea(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
     return Container(
       color: Theme.of(context).cardColor,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: AppDimensions.spacing2Xl, vertical: AppDimensions.spacingLg),
       child: SafeArea(
         child: Row(
           children: [
             Expanded(
               child: TextField(
                 controller: _messageController,
-                decoration: const InputDecoration(
-                  hintText: '输入消息...',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  hintText: AppStrings.inputMessageHint,
+                  border: const OutlineInputBorder(),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(12)),
-                    borderSide: BorderSide(color: Color(0xFFE5E7EB)),
+                    borderRadius: const BorderRadius.all(Radius.circular(AppDimensions.borderRadiusLg)),
+                    borderSide: const BorderSide(color: AppTheme.borderLight),
                   ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(12)),
+                  focusedBorder: const OutlineInputBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(AppDimensions.borderRadiusLg)),
                     borderSide: BorderSide(color: AppTheme.primary),
                   ),
                 ),
@@ -280,11 +278,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 onSubmitted: (_) => _sendMessage(),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: AppDimensions.spacingMd),
             Container(
               decoration: BoxDecoration(
                 color: AppTheme.primary,
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
               ),
               child: IconButton(
                 icon: const Icon(

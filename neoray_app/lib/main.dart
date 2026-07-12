@@ -4,6 +4,7 @@ import 'providers/providers.dart';
 import 'pages/chat_page.dart';
 import 'pages/config_page.dart';
 import 'theme/app_theme.dart';
+import 'constants/constants.dart';
 import 'services/websocket_service.dart';
 
 void main() async {
@@ -40,9 +41,10 @@ class _MyAppState extends ConsumerState<MyApp> {
 
   void _setupWebSocketListener() {
     final webSocket = ref.read(webSocketServiceProvider);
+    final config = ref.read(appConfigProvider);
 
     // 连接到 WebSocket
-    webSocket.connect('http://localhost:8080');
+    webSocket.connect(config.serverUrl);
 
     // 监听事件
     webSocket.eventStream.listen((event) {
@@ -99,7 +101,7 @@ class _MyAppState extends ConsumerState<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'NeoRay',
+      title: AppStrings.appName,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,

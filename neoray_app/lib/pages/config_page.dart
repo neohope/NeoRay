@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/app_config.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
+import '../constants/constants.dart';
 
 class ConfigPage extends ConsumerWidget {
   const ConfigPage({super.key});
@@ -27,41 +28,41 @@ class ConfigPage extends ConsumerWidget {
     final currentPage = ref.watch(activePageProvider);
 
     return Container(
-      width: 280,
-      color: const Color(0xFFF0F2F5),
+      width: AppDimensions.sidebarWidth,
+      color: AppTheme.sidebarBackgroundLight,
       child: Column(
         children: [
           _buildSidebarHeader(context),
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(AppDimensions.spacingLg),
               child: Column(
                 children: [
                   _buildNavItem(
                     context,
                     icon: Icons.chat_outlined,
-                    label: '返回聊天',
+                    label: AppStrings.navBackToChat,
                     onTap: () =>
                         ref.read(activePageProvider.notifier).state = AppPage.chat,
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppDimensions.spacingMd),
                   _buildNavItem(
                     context,
                     icon: Icons.smart_toy_outlined,
-                    label: '大模型配置',
+                    label: AppStrings.navLLMConfig,
                     isSelected: true,
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: AppDimensions.spacingSm),
                   _buildNavItem(
                     context,
                     icon: Icons.forum_outlined,
-                    label: 'Channel配置',
+                    label: AppStrings.navChannelConfig,
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: AppDimensions.spacingSm),
                   _buildNavItem(
                     context,
                     icon: Icons.build_outlined,
-                    label: '工具配置',
+                    label: AppStrings.navToolConfig,
                   ),
                 ],
               ),
@@ -74,26 +75,26 @@ class ConfigPage extends ConsumerWidget {
 
   Widget _buildSidebarHeader(BuildContext context) {
     return Container(
-      height: 70,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      height: AppDimensions.headerHeight,
+      padding: const EdgeInsets.symmetric(horizontal: AppDimensions.spacingXl),
       child: Row(
         children: [
           Container(
-            width: 32,
-            height: 32,
+            width: AppDimensions.logoContainerSize,
+            height: AppDimensions.logoContainerSize,
             decoration: BoxDecoration(
               color: AppTheme.primary,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
             ),
             child: const Icon(
               Icons.smart_toy,
               color: Colors.white,
-              size: 20,
+              size: AppDimensions.iconSizeMedium,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: AppDimensions.spacingMd),
           Text(
-            'NeoRay',
+            AppStrings.appName,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: AppTheme.textPrimaryLight,
@@ -113,24 +114,27 @@ class ConfigPage extends ConsumerWidget {
   }) {
     return Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppDimensions.spacingMd,
+            vertical: AppDimensions.spacingMd,
+          ),
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFFE5E7EB) : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
+            color: isSelected ? AppTheme.selectedItemBackgroundLight : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
           ),
           child: Row(
             children: [
               Icon(
                 icon,
                 color: isSelected ? AppTheme.primary : AppTheme.textSecondaryLight,
-                size: 18,
+                size: AppDimensions.iconSizeSmall,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppDimensions.spacingMd),
               Text(
                 label,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -153,16 +157,16 @@ class ConfigPage extends ConsumerWidget {
           _buildContentHeader(context),
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(AppDimensions.spacing2Xl),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildLLMSection(context, ref, config.llm),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: AppDimensions.spacing2Xl),
                   _buildChannelSection(context, ref, config.channel),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: AppDimensions.spacing2Xl),
                   _buildToolSection(context, ref, config.tools),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: AppDimensions.spacing2Xl),
                   _buildSaveButton(context, ref),
                 ],
               ),
@@ -176,12 +180,12 @@ class ConfigPage extends ConsumerWidget {
   Widget _buildContentHeader(BuildContext context) {
     return Container(
       color: Theme.of(context).cardColor,
-      height: 70,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      height: AppDimensions.headerHeight,
+      padding: const EdgeInsets.symmetric(horizontal: AppDimensions.spacing2Xl),
       child: Row(
         children: [
           Text(
-            '模型配置',
+            AppStrings.configModelSection,
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
@@ -194,24 +198,21 @@ class ConfigPage extends ConsumerWidget {
   Widget _buildLLMSection(BuildContext context, WidgetRef ref, LLMConfig config) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(AppDimensions.cardPadding),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '大模型配置',
+              AppStrings.configLLMSection,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppDimensions.spacingLg),
             _buildDropdownField(
-              label: '服务商',
+              label: AppStrings.configProvider,
               value: config.provider,
-              items: const [
-                'openai',
-                'anthropic',
-              ],
+              items: AppDefaults.availableProviders,
               onChanged: (value) {
                 if (value != null) {
                   ref
@@ -220,9 +221,9 @@ class ConfigPage extends ConsumerWidget {
                 }
               },
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppDimensions.spacingLg),
             _buildTextField(
-              label: 'API Key',
+              label: AppStrings.configApiKey,
               value: config.apiKey,
               obscureText: true,
               onChanged: (value) =>
@@ -230,25 +231,20 @@ class ConfigPage extends ConsumerWidget {
                         config.copyWith(apiKey: value),
                       ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppDimensions.spacingLg),
             _buildTextField(
-              label: 'API URL',
+              label: AppStrings.configApiUrl,
               value: config.apiUrl,
               onChanged: (value) =>
                   ref.read(appConfigProvider.notifier).updateLLMConfig(
                         config.copyWith(apiUrl: value),
                       ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppDimensions.spacingLg),
             _buildDropdownField(
-              label: 'Model',
+              label: AppStrings.configModel,
               value: config.model,
-              items: const [
-                'gpt-4',
-                'gpt-3.5-turbo',
-                'claude-3-opus',
-                'claude-3-sonnet',
-              ],
+              items: AppDefaults.availableModels,
               onChanged: (value) {
                 if (value != null) {
                   ref
@@ -257,27 +253,27 @@ class ConfigPage extends ConsumerWidget {
                 }
               },
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppDimensions.spacingLg),
             _buildNumberField(
-              label: 'Max Tokens',
+              label: AppStrings.configMaxTokens,
               value: config.maxTokens,
               onChanged: (value) =>
                   ref.read(appConfigProvider.notifier).updateLLMConfig(
                         config.copyWith(maxTokens: value),
                       ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppDimensions.spacingLg),
             _buildSliderField(
-              label: 'Temperature',
+              label: AppStrings.configTemperature,
               value: config.temperature,
               onChanged: (value) =>
                   ref.read(appConfigProvider.notifier).updateLLMConfig(
                         config.copyWith(temperature: value),
                       ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppDimensions.spacingLg),
             _buildNumberField(
-              label: 'Timeout (秒)',
+              label: AppStrings.configTimeout,
               value: config.timeout,
               onChanged: (value) =>
                   ref.read(appConfigProvider.notifier).updateLLMConfig(
@@ -293,30 +289,30 @@ class ConfigPage extends ConsumerWidget {
   Widget _buildChannelSection(BuildContext context, WidgetRef ref, ChannelConfig config) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(AppDimensions.cardPadding),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Channel配置',
+              AppStrings.configChannelSection,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppDimensions.spacingLg),
             _buildSwitchField(
-              label: '启用飞书',
+              label: AppStrings.configEnableFeishu,
               value: config.enabled,
               onChanged: (value) =>
                   ref.read(appConfigProvider.notifier).updateChannelConfig(
                         config.copyWith(enabled: value),
                       ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppDimensions.spacingLg),
             _buildDropdownField(
-              label: 'Channel类型',
+              label: AppStrings.configChannelType,
               value: config.provider,
-              items: const ['feishu'],
+              items: AppDefaults.availableChannelProviders,
               onChanged: (value) {
                 if (value != null) {
                   ref.read(appConfigProvider.notifier).updateChannelConfig(
@@ -325,18 +321,18 @@ class ConfigPage extends ConsumerWidget {
                 }
               },
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppDimensions.spacingLg),
             _buildTextField(
-              label: 'App ID',
+              label: AppStrings.configAppId,
               value: config.appId,
               onChanged: (value) =>
                   ref.read(appConfigProvider.notifier).updateChannelConfig(
                         config.copyWith(appId: value),
                       ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppDimensions.spacingLg),
             _buildTextField(
-              label: 'App Secret',
+              label: AppStrings.configAppSecret,
               value: config.appSecret,
               obscureText: true,
               onChanged: (value) =>
@@ -353,37 +349,37 @@ class ConfigPage extends ConsumerWidget {
   Widget _buildToolSection(BuildContext context, WidgetRef ref, ToolConfig config) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(AppDimensions.cardPadding),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '工具配置',
+              AppStrings.configToolSection,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppDimensions.spacingLg),
             _buildSwitchField(
-              label: 'Shell工具',
+              label: AppStrings.configShellTool,
               value: config.shellEnabled,
               onChanged: (value) =>
                   ref.read(appConfigProvider.notifier).updateToolConfig(
                         config.copyWith(shellEnabled: value),
                       ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppDimensions.spacingMd),
             _buildSwitchField(
-              label: 'Cron定时任务',
+              label: AppStrings.configCronTool,
               value: config.cronEnabled,
               onChanged: (value) =>
                   ref.read(appConfigProvider.notifier).updateToolConfig(
                         config.copyWith(cronEnabled: value),
                       ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppDimensions.spacingMd),
             _buildSwitchField(
-              label: 'Web工具',
+              label: AppStrings.configWebTool,
               value: config.webEnabled,
               onChanged: (value) =>
                   ref.read(appConfigProvider.notifier).updateToolConfig(
@@ -403,10 +399,10 @@ class ConfigPage extends ConsumerWidget {
         ElevatedButton(
           onPressed: () {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('配置已保存')),
+              const SnackBar(content: Text(AppStrings.configSaved)),
             );
           },
-          child: const Text('保存配置'),
+          child: const Text(AppStrings.saveConfig),
         ),
       ],
     );
@@ -424,25 +420,28 @@ class ConfigPage extends ConsumerWidget {
         Text(
           label,
           style: const TextStyle(
-            fontSize: 14,
+            fontSize: AppDimensions.fontSizeSm,
             fontWeight: FontWeight.w500,
             color: AppTheme.textPrimaryLight,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: AppDimensions.spacingSm),
         TextField(
           controller: TextEditingController(text: value),
           onChanged: onChanged,
           obscureText: obscureText,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
-            enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: Color(0xFFE5E7EB)),
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            enabledBorder: const OutlineInputBorder(
+              borderSide: BorderSide(color: AppTheme.borderLight),
             ),
-            focusedBorder: OutlineInputBorder(
+            focusedBorder: const OutlineInputBorder(
               borderSide: BorderSide(color: AppTheme.primary),
             ),
-            contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: AppDimensions.inputHorizontalPadding,
+              vertical: AppDimensions.inputVerticalPadding,
+            ),
           ),
         ),
       ],
@@ -460,27 +459,30 @@ class ConfigPage extends ConsumerWidget {
         Text(
           label,
           style: const TextStyle(
-            fontSize: 14,
+            fontSize: AppDimensions.fontSizeSm,
             fontWeight: FontWeight.w500,
             color: AppTheme.textPrimaryLight,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: AppDimensions.spacingSm),
         TextField(
           controller: TextEditingController(text: value.toString()),
           keyboardType: TextInputType.number,
           onChanged: (value) {
             onChanged(int.tryParse(value) ?? 0);
           },
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
-            enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: Color(0xFFE5E7EB)),
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            enabledBorder: const OutlineInputBorder(
+              borderSide: BorderSide(color: AppTheme.borderLight),
             ),
-            focusedBorder: OutlineInputBorder(
+            focusedBorder: const OutlineInputBorder(
               borderSide: BorderSide(color: AppTheme.primary),
             ),
-            contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: AppDimensions.inputHorizontalPadding,
+              vertical: AppDimensions.inputVerticalPadding,
+            ),
           ),
         ),
       ],
@@ -499,18 +501,18 @@ class ConfigPage extends ConsumerWidget {
         Text(
           label,
           style: const TextStyle(
-            fontSize: 14,
+            fontSize: AppDimensions.fontSizeSm,
             fontWeight: FontWeight.w500,
             color: AppTheme.textPrimaryLight,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: AppDimensions.spacingSm),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: AppDimensions.inputHorizontalPadding),
           decoration: BoxDecoration(
-            color: const Color(0xFFF9FAFB),
-            border: Border.all(color: const Color(0xFFE5E7EB)),
-            borderRadius: BorderRadius.circular(8),
+            color: AppTheme.inputBackgroundLight,
+            border: Border.all(color: AppTheme.borderLight),
+            borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
@@ -541,7 +543,7 @@ class ConfigPage extends ConsumerWidget {
         Text(
           label,
           style: const TextStyle(
-            fontSize: 14,
+            fontSize: AppDimensions.fontSizeSm,
             fontWeight: FontWeight.w500,
             color: AppTheme.textPrimaryLight,
           ),
@@ -568,7 +570,7 @@ class ConfigPage extends ConsumerWidget {
             Text(
               label,
               style: const TextStyle(
-                fontSize: 14,
+                fontSize: AppDimensions.fontSizeSm,
                 fontWeight: FontWeight.w500,
                 color: AppTheme.textPrimaryLight,
               ),
@@ -576,19 +578,19 @@ class ConfigPage extends ConsumerWidget {
             Text(
               value.toStringAsFixed(1),
               style: const TextStyle(
-                fontSize: 14,
+                fontSize: AppDimensions.fontSizeSm,
                 fontWeight: FontWeight.w500,
                 color: AppTheme.primary,
               ),
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: AppDimensions.spacingSm),
         Slider(
           value: value,
-          min: 0,
-          max: 2,
-          divisions: 20,
+          min: AppDimensions.sliderMin,
+          max: AppDimensions.sliderMax,
+          divisions: AppDimensions.sliderDivisions,
           onChanged: onChanged,
         ),
       ],
