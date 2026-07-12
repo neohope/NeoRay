@@ -32,6 +32,9 @@ neoray_app/build/web/
 *.swo
 *~
 
+# Local agent state
+.claude/
+
 # 其他
 *.db
 *.log
