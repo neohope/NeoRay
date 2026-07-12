@@ -57,13 +57,34 @@ func ResolvePath(path string, workspace string, strict bool) (string, error) {
 	return absPath, nil
 }
 
+// resolveWithSymlinks resolves a path with symlink evaluation.
+// If the path doesn't exist, it resolves symlinks on the parent directory.
+func resolveWithSymlinks(path string) (string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		// Path may not exist yet; resolve parent and rejoin
+		parent := filepath.Dir(absPath)
+		resolvedParent, perr := filepath.EvalSymlinks(parent)
+		if perr != nil {
+			return "", fmt.Errorf("cannot resolve path or parent: %w", err)
+		}
+		return filepath.Join(resolvedParent, filepath.Base(absPath)), nil
+	}
+	return resolved, nil
+}
+
 // IsPathWithin returns true when path resolves to root or a descendant of root.
+// Symlinks are fully resolved to prevent symlink-based workspace escapes.
 func IsPathWithin(path string, root string) bool {
-	resolvedPath, err := ResolvePath(path, "", false)
+	resolvedPath, err := resolveWithSymlinks(path)
 	if err != nil {
 		return false
 	}
-	resolvedRoot, err := ResolvePath(root, "", false)
+	resolvedRoot, err := resolveWithSymlinks(root)
 	if err != nil {
 		return false
 	}

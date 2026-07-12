@@ -201,6 +201,20 @@ func (s *Server) wrapMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// CORS 中间件
 		s.corsMiddleware(w, r)
 
+		// 如果是预检请求，直接返回
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// 认证中间件
+		if !s.authenticateRequest(r) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"Unauthorized: invalid or missing API key"}`))
+			return
+		}
+
 		// 日志中间件
 		start := time.Now()
 		logger.Info("API request",
@@ -208,12 +222,6 @@ func (s *Server) wrapMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			logger.String("path", r.URL.Path),
 			logger.String("remote", r.RemoteAddr),
 		)
-
-		// 如果是预检请求，直接返回
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
 
 		// 调用实际处理函数
 		next(w, r)
@@ -241,8 +249,45 @@ func (s *Server) corsMiddleware(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Max-Age", "86400")
 }
 
+// authenticateRequest checks the API key if auth is enabled.
+// Returns true if authentication succeeds or is disabled.
+func (s *Server) authenticateRequest(r *http.Request) bool {
+	if !s.cfg.Security.Auth.Enabled {
+		return true
+	}
+	expectedKey := s.cfg.Security.Auth.SecretKey
+	if expectedKey == "" {
+		return true
+	}
+
+	// Check Authorization: Bearer <key>
+	if authHeader := r.Header.Get("Authorization"); authHeader != "" {
+		const prefix = "Bearer "
+		if len(authHeader) > len(prefix) && authHeader[:len(prefix)] == prefix {
+			if authHeader[len(prefix):] == expectedKey {
+				return true
+			}
+		}
+	}
+
+	// Check X-Api-Key header
+	if apiKey := r.Header.Get("X-Api-Key"); apiKey == expectedKey {
+		return true
+	}
+
+	return false
+}
+
 // handleWebSocket WebSocket 处理
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// 认证检查
+	if !s.authenticateRequest(r) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"Unauthorized: invalid or missing API key"}`))
+		return
+	}
+
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		logger.Error("WebSocket upgrade failed", logger.ErrorField(err))

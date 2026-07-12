@@ -12,6 +12,14 @@ import (
 	"neoray/internal/session"
 )
 
+// writeJSONError writes a properly escaped JSON error response.
+func writeJSONError(w http.ResponseWriter, statusCode int, errMsg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	resp, _ := json.Marshal(map[string]string{"error": errMsg})
+	_, _ = w.Write(resp)
+}
+
 // handleChat 处理聊天消息
 func (c *Client) handleChat(payload interface{}) {
 	var chatPayload ChatPayload
@@ -47,10 +55,14 @@ func (c *Client) handleChat(payload interface{}) {
 	if chatPayload.SessionID != "" {
 		sess, err = c.Server.sessionMgr.GetSessionWithValidation(chatPayload.SessionID, c.ChannelID, c.UserID)
 		if err != nil {
-			sess, _ = c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
+			sess, err = c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
 		}
 	} else {
-		sess, _ = c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
+		sess, err = c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
+	}
+	if err != nil {
+		c.sendError("session_error", "Failed to create or retrieve session")
+		return
 	}
 
 	c.SessionID = sess.ID
@@ -124,10 +136,14 @@ func (c *Client) handleChatStream(payload interface{}) {
 	if chatPayload.SessionID != "" {
 		sess, err = c.Server.sessionMgr.GetSessionWithValidation(chatPayload.SessionID, c.ChannelID, c.UserID)
 		if err != nil {
-			sess, _ = c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
+			sess, err = c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
 		}
 	} else {
-		sess, _ = c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
+		sess, err = c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
+	}
+	if err != nil {
+		c.sendError("session_error", "Failed to create or retrieve session")
+		return
 	}
 
 	c.SessionID = sess.ID
@@ -216,7 +232,11 @@ func (c *Client) handleCreateSession(payload interface{}) {
 		title = "New Session"
 	}
 
-	sess, _ := c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
+	sess, err := c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
+	if err != nil {
+		c.sendError("session_error", "Failed to create session")
+		return
+	}
 	if title != "New Session" {
 		sess.Title = title
 		_ = c.Server.sessionMgr.SaveSession(sess)
@@ -394,7 +414,11 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			title = "New Session"
 		}
 
-		sess, _ := s.sessionMgr.CreateSession(reqChannelID, reqUserID)
+		sess, err := s.sessionMgr.CreateSession(reqChannelID, reqUserID)
+		if err != nil {
+			http.Error(w, `{"error":"Failed to create session"}`, http.StatusInternalServerError)
+			return
+		}
 		if title != "New Session" {
 			sess.Title = title
 			_ = s.sessionMgr.SaveSession(sess)
@@ -499,7 +523,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 
 			streamChan, err := s.agent.ChatStream(ctx, sess, req.Message)
 			if err != nil {
-				http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
+				writeJSONError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 
@@ -549,7 +573,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			// 非流式响应
 			result, err := s.agent.Chat(ctx, sess, req.Message)
 			if err != nil {
-				http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
+				writeJSONError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 

@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	urlRe = regexp.MustCompile(`(?i)https?://[^\s"'` + "`|<>]+" + "`" + `]` + "`")
+	urlRe = regexp.MustCompile(`(?i)https?://[^\s"'` + "`|<>\\[\\]]+")
 
 	blockedNetworks []netip.Prefix
 	allowedNetworks []netip.Prefix
@@ -173,12 +173,12 @@ func ValidateURLTarget(urlStr string, allowLoopback bool) (bool, string) {
 func ValidateResolvedURL(urlStr string) (bool, string) {
 	u, err := url.Parse(urlStr)
 	if err != nil {
-		return true, ""
+		return false, fmt.Sprintf("Redirect target URL is malformed: %v", err)
 	}
 
 	hostname := u.Hostname()
 	if hostname == "" {
-		return true, ""
+		return false, "Redirect target URL has no hostname"
 	}
 
 	addr, err := netip.ParseAddr(hostname)
@@ -188,11 +188,12 @@ func ValidateResolvedURL(urlStr string) (bool, string) {
 		}
 	} else {
 		addrs, err := resolveHost(hostname)
-		if err == nil {
-			for _, a := range addrs {
-				if isPrivate(a) {
-					return false, fmt.Sprintf("Redirect target %s resolves to private address %s", hostname, a)
-				}
+		if err != nil {
+			return false, fmt.Sprintf("Failed to resolve redirect target hostname %q: %v", hostname, err)
+		}
+		for _, a := range addrs {
+			if isPrivate(a) {
+				return false, fmt.Sprintf("Redirect target %s resolves to private address %s", hostname, a)
 			}
 		}
 	}

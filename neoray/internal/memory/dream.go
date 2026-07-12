@@ -334,6 +334,45 @@ type DreamTool struct {
 	Handler     func(ctx context.Context, args map[string]interface{}) (string, error)
 }
 
+// validateDreamPath validates that a path is within the workspace directory.
+// Returns the resolved absolute path or an error if the path escapes.
+func validateDreamPath(workspace, path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("path required")
+	}
+	// Clean the path to resolve any .. components
+	cleaned := filepath.Clean(path)
+	// If relative, join with workspace; if absolute, use as-is
+	var absPath string
+	if filepath.IsAbs(cleaned) {
+		absPath = cleaned
+	} else {
+		absPath = filepath.Join(workspace, cleaned)
+	}
+	// Resolve symlinks to prevent symlink-based escape
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		// If file doesn't exist yet, resolve the parent directory
+		parent := filepath.Dir(absPath)
+		resolvedParent, perr := filepath.EvalSymlinks(parent)
+		if perr != nil {
+			return "", fmt.Errorf("cannot resolve path: %w", err)
+		}
+		resolved = filepath.Join(resolvedParent, filepath.Base(absPath))
+	}
+	// Ensure workspace is also resolved for comparison
+	resolvedWorkspace, err := filepath.EvalSymlinks(workspace)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve workspace: %w", err)
+	}
+	// Check containment
+	rel, err := filepath.Rel(resolvedWorkspace, resolved)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return "", fmt.Errorf("path %q is outside workspace", path)
+	}
+	return resolved, nil
+}
+
 // BuildDreamTools 构建 Dream 工具
 func BuildDreamTools(store *MemoryStore) []DreamTool {
 	return []DreamTool{
@@ -342,12 +381,9 @@ func BuildDreamTools(store *MemoryStore) []DreamTool {
 			Description: "Read a file from the workspace",
 			Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 				path, _ := args["path"].(string)
-				if path == "" {
-					return "", fmt.Errorf("path required")
-				}
-				fullPath := path
-				if !strings.HasPrefix(path, "/") && !strings.Contains(path, ":") {
-					fullPath = filepath.Join(store.workspace, path)
+				fullPath, err := validateDreamPath(store.workspace, path)
+				if err != nil {
+					return "", err
 				}
 				data, err := os.ReadFile(fullPath)
 				if err != nil {
@@ -362,15 +398,20 @@ func BuildDreamTools(store *MemoryStore) []DreamTool {
 			Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 				path, _ := args["path"].(string)
 				content, _ := args["content"].(string)
-				if path == "" {
-					return "", fmt.Errorf("path required")
+				fullPath, err := validateDreamPath(store.workspace, path)
+				if err != nil {
+					return "", err
 				}
-				// 只允许写入 skills 目录
-				normalized := strings.ToLower(path)
-				if !strings.Contains(normalized, "skills/") && !strings.Contains(normalized, "skills\\") {
+				// Ensure the resolved path is within the skills directory
+				skillsDir := filepath.Join(store.workspace, "skills")
+				resolvedSkills, serr := filepath.EvalSymlinks(skillsDir)
+				if serr != nil {
+					return "", fmt.Errorf("cannot resolve skills directory: %w", serr)
+				}
+				rel, err := filepath.Rel(resolvedSkills, fullPath)
+				if err != nil || strings.HasPrefix(rel, "..") {
 					return "", fmt.Errorf("can only write to skills directory")
 				}
-				fullPath := filepath.Join(store.workspace, path)
 				_ = os.MkdirAll(filepath.Dir(fullPath), 0755)
 				if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
 					return "", err
@@ -385,12 +426,9 @@ func BuildDreamTools(store *MemoryStore) []DreamTool {
 				path, _ := args["path"].(string)
 				oldStr, _ := args["old_string"].(string)
 				newStr, _ := args["new_string"].(string)
-				if path == "" {
-					return "", fmt.Errorf("path required")
-				}
-				fullPath := path
-				if !strings.HasPrefix(path, "/") && !strings.Contains(path, ":") {
-					fullPath = filepath.Join(store.workspace, path)
+				fullPath, err := validateDreamPath(store.workspace, path)
+				if err != nil {
+					return "", err
 				}
 				data, err := os.ReadFile(fullPath)
 				if err != nil {
