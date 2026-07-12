@@ -409,6 +409,12 @@ func (m *ExecSessionManager) Write(
 
 	// Clean up stale sessions
 	m.cleanupLocked()
+
+	// Re-validate session still exists after cleanup
+	if m.sessions[sessionID] == nil {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("session not found: %s", sessionID)
+	}
 	m.mu.Unlock()
 
 	var writeErr error
@@ -434,7 +440,10 @@ func (m *ExecSessionManager) Write(
 
 	if poll.Done {
 		m.mu.Lock()
-		delete(m.sessions, sessionID)
+		// Only delete if the session in the map is still the same object
+		if m.sessions[sessionID] == session {
+			delete(m.sessions, sessionID)
+		}
 		m.mu.Unlock()
 	}
 

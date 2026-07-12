@@ -99,15 +99,16 @@ func (fs *FileStates) RecordWrite(path string) {
 // 返回 nil 如果没问题，或者返回警告字符串
 // 当修改时间改变但文件内容相同时（例如 touch、编辑器保存），检查通过以避免误报
 func (fs *FileStates) CheckRead(path string) string {
-	fs.mu.RLock()
-	defer fs.mu.RUnlock()
-
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		absPath = path
 	}
 
+	// Use full lock to avoid RLock→Lock upgrade TOCTOU race
+	fs.mu.Lock()
 	entry, exists := fs.state[absPath]
+	fs.mu.Unlock()
+
 	if !exists {
 		return "Warning: file has not been read yet. Read it first to verify content before editing."
 	}
@@ -121,13 +122,11 @@ func (fs *FileStates) CheckRead(path string) string {
 		currentHash, err := hashFile(absPath)
 		if err == nil && currentHash == entry.ContentHash {
 			// 内容相同，只更新 mtime
-			fs.mu.RUnlock()
 			fs.mu.Lock()
 			if s, ok := fs.state[absPath]; ok {
 				s.Mtime = info.ModTime()
 			}
 			fs.mu.Unlock()
-			fs.mu.RLock()
 			return ""
 		}
 		return "Warning: file has been modified since last read. Re-read to verify content before editing."

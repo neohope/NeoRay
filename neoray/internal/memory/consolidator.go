@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"neoray/internal/templates"
@@ -28,7 +29,8 @@ type Consolidator struct {
 	buildMessages       func(session interface{}) []interface{}
 	getToolDefinitions  func() []interface{}
 
-	locks sync.Map // session key -> *sync.Mutex
+	locks     sync.Map // session key -> *sync.Mutex
+	lockCount int32    // atomic counter for approximate size
 }
 
 // ConsolidatorProvider Consolidator 需要的 LLM 提供商接口
@@ -108,10 +110,37 @@ func (c *Consolidator) SetProvider(provider ConsolidatorProvider, model string, 
 	c.contextWindowTokens = contextWindowTokens
 }
 
-// getLock 获取会话锁
+// getLock 获取会话锁，超过上限时清理未使用的锁
 func (c *Consolidator) getLock(sessionKey string) *sync.Mutex {
-	lock, _ := c.locks.LoadOrStore(sessionKey, &sync.Mutex{})
+	lock, loaded := c.locks.LoadOrStore(sessionKey, &sync.Mutex{})
+	if !loaded {
+		atomic.AddInt32(&c.lockCount, 1)
+	}
+	// 超过上限时尝试清理（非精确，允许短暂超额）
+	if atomic.LoadInt32(&c.lockCount) > 500 {
+		c.cleanupStaleLocks()
+	}
 	return lock.(*sync.Mutex)
+}
+
+// cleanupStaleLocks removes locks that are not currently held.
+func (c *Consolidator) cleanupStaleLocks() {
+	c.locks.Range(func(key, value any) bool {
+		mu := value.(*sync.Mutex)
+		// TryLock 非阻塞尝试：如果锁未被持有则可获取
+		if mu.TryLock() {
+			mu.Unlock()
+			c.locks.Delete(key)
+			atomic.AddInt32(&c.lockCount, -1)
+		}
+		return atomic.LoadInt32(&c.lockCount) > 200 // 降到 200 以下停止
+	})
+}
+
+// RemoveLock explicitly removes a session lock. Call when session is done.
+func (c *Consolidator) RemoveLock(sessionKey string) {
+	c.locks.Delete(sessionKey)
+	atomic.AddInt32(&c.lockCount, -1)
 }
 
 // PickConsolidationBoundary 选择压缩边界

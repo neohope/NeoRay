@@ -348,7 +348,14 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 	sess.AddMessage(userMsg)
 
 	p, err := a.providerMgr.GetProvider(a.cfg.LLM.DefaultProvider)
-	if err != nil || p == nil { p = a.providerMgr.DefaultProvider() }
+	if err != nil {
+		logger.Warn("Failed to get configured provider, falling back to default",
+			logger.String("provider", a.cfg.LLM.DefaultProvider),
+			logger.ErrorField(err))
+		p = a.providerMgr.DefaultProvider()
+	} else if p == nil {
+		p = a.providerMgr.DefaultProvider()
+	}
 
 	if p == nil {
 		errMsg := "⚠️ No LLM provider configured! Please edit your config.toml and add an API key for Anthropic or OpenAI."
@@ -601,6 +608,17 @@ type StreamChunk struct {
 	SessionMsg   *session.Message
 }
 
+// sendChunk sends a chunk to the result channel, respecting context cancellation.
+// Returns false if the send was aborted due to context cancellation.
+func sendChunk(ctx context.Context, ch chan<- StreamChunk, chunk StreamChunk) bool {
+	select {
+	case ch <- chunk:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput string) (<-chan StreamChunk, error) {
 	resultChan := make(chan StreamChunk, 100)
 
@@ -666,7 +684,7 @@ func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput
 				}
 				sess.AddMessage(assistantMsg)
 				_ = a.sessionMgr.SaveSession(sess)
-				resultChan <- StreamChunk{Type: "end", Content: resp, SessionMsg: &assistantMsg}
+				sendChunk(ctx, resultChan, StreamChunk{Type: "end", Content: resp, SessionMsg: &assistantMsg})
 			}()
 			return resultChan, nil
 		}
@@ -693,10 +711,17 @@ func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput
 		}
 
 		p, err := a.providerMgr.GetProvider(a.cfg.LLM.DefaultProvider)
-		if err != nil || p == nil { p = a.providerMgr.DefaultProvider() }
+		if err != nil {
+			logger.Warn("Failed to get configured provider, falling back to default",
+				logger.String("provider", a.cfg.LLM.DefaultProvider),
+				logger.ErrorField(err))
+			p = a.providerMgr.DefaultProvider()
+		} else if p == nil {
+			p = a.providerMgr.DefaultProvider()
+		}
 
 		if p == nil {
-			resultChan <- StreamChunk{Type: "error", Error: fmt.Errorf("no LLM provider configured")}
+			sendChunk(ctx, resultChan, StreamChunk{Type: "error", Error: fmt.Errorf("no LLM provider configured")})
 			return
 		}
 
@@ -724,14 +749,14 @@ func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput
 
 			if streamProvider, ok := p.(provider.StreamToolProvider); ok {
 				done, err := a.handleNativeStreamTool(ctx, streamProvider, req, sess, resultChan, trace, providerTools)
-				if err != nil { resultChan <- StreamChunk{Type: "error", Error: err}; return }
+				if err != nil { sendChunk(ctx, resultChan, StreamChunk{Type: "error", Error: err}); return }
 				if done {
 					if err := a.hook.AfterStream(ctx, sess); err != nil { logger.Warn("Hook AfterStream failed", logger.ErrorField(err)) }
 					return
 				}
 			} else {
 				done, err := a.handleFallbackStream(ctx, p, req, sess, resultChan, trace, providerTools)
-				if err != nil { resultChan <- StreamChunk{Type: "error", Error: err}; return }
+				if err != nil { sendChunk(ctx, resultChan, StreamChunk{Type: "error", Error: err}); return }
 				if done {
 					if err := a.hook.AfterStream(ctx, sess); err != nil { logger.Warn("Hook AfterStream failed", logger.ErrorField(err)) }
 					return
@@ -754,8 +779,8 @@ func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput
 		assistantMsg := session.NewAssistantMessage("", "", "", maxIterMsg)
 		sess.AddMessage(assistantMsg)
 		// 发送给用户
-		resultChan <- StreamChunk{Type: "text", Content: maxIterMsg}
-		resultChan <- StreamChunk{Type: "end", Content: maxIterMsg, SessionMsg: &assistantMsg}
+		sendChunk(ctx, resultChan, StreamChunk{Type: "text", Content: maxIterMsg})
+		sendChunk(ctx, resultChan, StreamChunk{Type: "end", Content: maxIterMsg, SessionMsg: &assistantMsg})
 		if err := a.hook.AfterStream(ctx, sess); err != nil { logger.Warn("Hook AfterStream failed", logger.ErrorField(err)) }
 	}()
 
@@ -790,14 +815,18 @@ func (a *Agent) handleNativeStreamTool(
 
 		if chunk.Content != "" {
 			fullContent += chunk.Content
-			resultChan <- StreamChunk{Type: "text", Content: chunk.Content}
+			if !sendChunk(ctx, resultChan, StreamChunk{Type: "text", Content: chunk.Content}) {
+				return true, ctx.Err()
+			}
 			if err := a.hook.OnStreamDelta(ctx, chunk.Content); err != nil { logger.Warn("Hook OnStreamDelta failed", logger.ErrorField(err)) }
 		}
 
 		if len(chunk.ToolCalls) > 0 && !toolCallInProgress {
 			toolCallInProgress = true
 			currentToolCalls = append(currentToolCalls, chunk.ToolCalls...)
-			resultChan <- StreamChunk{Type: "tool_start", ToolCalls: chunk.ToolCalls}
+			if !sendChunk(ctx, resultChan, StreamChunk{Type: "tool_start", ToolCalls: chunk.ToolCalls}) {
+				return true, ctx.Err()
+			}
 		}
 
 		if chunk.FinishReason != "" {
@@ -818,7 +847,9 @@ func (a *Agent) handleNativeStreamTool(
 		sess.AddMessage(assistantMsg)
 
 		toolResponses := a.executeToolCalls(ctx, currentToolCalls, trace)
-		resultChan <- StreamChunk{Type: "tool_result", ToolResults: toolResponses}
+		if !sendChunk(ctx, resultChan, StreamChunk{Type: "tool_result", ToolResults: toolResponses}) {
+			return true, ctx.Err()
+		}
 
 		toolRespJSON, _ := json.Marshal(toolResponses)
 		toolMsg := session.NewToolMessage("", "", "", string(toolRespJSON))
@@ -853,7 +884,9 @@ func (a *Agent) handleNativeStreamTool(
 					select {
 					case <-ctx.Done(): return true, ctx.Err()
 					case <-time.After(5 * time.Millisecond):
-						resultChan <- StreamChunk{Type: "text", Content: string(c)}
+						if !sendChunk(ctx, resultChan, StreamChunk{Type: "text", Content: string(c)}) {
+							return true, ctx.Err()
+						}
 						if err := a.hook.OnStreamDelta(ctx, string(c)); err != nil { logger.Warn("Hook OnStreamDelta failed", logger.ErrorField(err)) }
 					}
 				}
@@ -879,7 +912,7 @@ func (a *Agent) handleNativeStreamTool(
 		}
 
 		if err := a.sessionMgr.SaveSession(sess); err != nil { logger.Warn("Failed to save session", logger.ErrorField(err)) }
-		resultChan <- StreamChunk{Type: "end", Content: assistantMsg.Content, SessionMsg: &assistantMsg}
+		sendChunk(ctx, resultChan, StreamChunk{Type: "end", Content: assistantMsg.Content, SessionMsg: &assistantMsg})
 	}
 	return true, nil
 }
@@ -902,14 +935,18 @@ func (a *Agent) handleFallbackStream(
 			select {
 			case <-ctx.Done(): return true, ctx.Err()
 			case <-time.After(5 * time.Millisecond):
-				resultChan <- StreamChunk{Type: "text", Content: string(c)}
+				if !sendChunk(ctx, resultChan, StreamChunk{Type: "text", Content: string(c)}) {
+					return true, ctx.Err()
+				}
 				if err := a.hook.OnStreamDelta(ctx, string(c)); err != nil { logger.Warn("Hook OnStreamDelta failed", logger.ErrorField(err)) }
 			}
 		}
 	}
 
 	if len(resp.ToolCalls) > 0 && a.toolRegistry != nil {
-		resultChan <- StreamChunk{Type: "tool_start", ToolCalls: resp.ToolCalls}
+		if !sendChunk(ctx, resultChan, StreamChunk{Type: "tool_start", ToolCalls: resp.ToolCalls}) {
+			return true, ctx.Err()
+		}
 
 		assistantMsg := session.NewAssistantMessage("", "", "", resp.Content)
 		if len(resp.ToolCalls) > 0 {
@@ -921,7 +958,9 @@ func (a *Agent) handleFallbackStream(
 		sess.AddMessage(assistantMsg)
 
 		toolResponses := a.executeToolCalls(ctx, resp.ToolCalls, trace)
-		resultChan <- StreamChunk{Type: "tool_result", ToolResults: toolResponses}
+		if !sendChunk(ctx, resultChan, StreamChunk{Type: "tool_result", ToolResults: toolResponses}) {
+			return true, ctx.Err()
+		}
 
 		toolRespJSON, _ := json.Marshal(toolResponses)
 		toolMsg := session.NewToolMessage("", "", "", string(toolRespJSON))
@@ -954,7 +993,9 @@ func (a *Agent) handleFallbackStream(
 				select {
 				case <-ctx.Done(): return true, ctx.Err()
 				case <-time.After(5 * time.Millisecond):
-					resultChan <- StreamChunk{Type: "text", Content: string(c)}
+					if !sendChunk(ctx, resultChan, StreamChunk{Type: "text", Content: string(c)}) {
+						return true, ctx.Err()
+					}
 					if err := a.hook.OnStreamDelta(ctx, string(c)); err != nil { logger.Warn("Hook OnStreamDelta failed", logger.ErrorField(err)) }
 				}
 			}
@@ -980,7 +1021,7 @@ func (a *Agent) handleFallbackStream(
 	}
 
 	if err := a.sessionMgr.SaveSession(sess); err != nil { logger.Warn("Failed to save session", logger.ErrorField(err)) }
-	resultChan <- StreamChunk{Type: "end", Content: assistantMsg.Content, SessionMsg: &assistantMsg}
+	sendChunk(ctx, resultChan, StreamChunk{Type: "end", Content: assistantMsg.Content, SessionMsg: &assistantMsg})
 	return true, nil
 }
 

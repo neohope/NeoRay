@@ -4,7 +4,15 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
+)
+
+const (
+	// MaxSummaryEntries is the maximum cached summaries before forced eviction.
+	MaxSummaryEntries = 500
+	// SummaryEntryTTL is how long a cached summary lives before eviction.
+	SummaryEntryTTL = 48 * time.Hour
 )
 
 const (
@@ -17,8 +25,9 @@ type AutoCompact struct {
 	consolidator      *Consolidator
 	sessionTTLMinutes int
 
-	archiving     sync.Map // session key -> struct{}
-	summaries     sync.Map // session key -> summaryInfo
+	archiving      sync.Map // session key -> struct{}
+	summaries      sync.Map // session key -> summaryInfo
+	summaryCount   int32    // atomic counter for summaries map size
 }
 
 // AutoCompactSessionManager 会话管理器接口
@@ -123,6 +132,7 @@ func (ac *AutoCompact) CheckExpired(ctx context.Context, activeSessionKeys []str
 func (ac *AutoCompact) PrepareSession(key string) (interface{}, string, error) {
 	// 从内存缓存获取
 	if v, ok := ac.summaries.LoadAndDelete(key); ok {
+		atomic.AddInt32(&ac.summaryCount, -1)
 		if si, ok := v.(summaryInfo); ok {
 			session, err := ac.sessions.GetSession(key)
 			if err != nil {
@@ -187,7 +197,27 @@ func (ac *AutoCompact) archiveSession(ctx context.Context, key string) {
 			text:       summary,
 			lastActive: lastActive,
 		})
+		atomic.AddInt32(&ac.summaryCount, 1)
+
+		// 超过上限时清理过期条目
+		if atomic.LoadInt32(&ac.summaryCount) > MaxSummaryEntries {
+			ac.cleanupStaleSummaries()
+		}
 	}
+}
+
+// cleanupStaleSummaries removes summary entries older than SummaryEntryTTL.
+func (ac *AutoCompact) cleanupStaleSummaries() {
+	now := time.Now()
+	ac.summaries.Range(func(key, value any) bool {
+		if si, ok := value.(summaryInfo); ok {
+			if now.Sub(si.lastActive) > SummaryEntryTTL {
+				ac.summaries.Delete(key)
+				atomic.AddInt32(&ac.summaryCount, -1)
+			}
+		}
+		return atomic.LoadInt32(&ac.summaryCount) > MaxSummaryEntries/2
+	})
 }
 
 func (ac *AutoCompact) getSummaryFromSession(session interface{}) (string, time.Time) {
