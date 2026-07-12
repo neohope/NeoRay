@@ -86,8 +86,8 @@ func (t *FileSystemTool) Execute(ctx context.Context, args json.RawMessage) (jso
 
 	// 安全检查：确保路径在 workspace 内
 	fullPath := filepath.Join(t.workspace, params.Path)
-	relPath, err := filepath.Rel(t.workspace, fullPath)
-	if err != nil || strings.HasPrefix(relPath, "..") {
+	// 使用 IsPathWithin 进行更严格的验证
+	if !security.IsPathWithin(fullPath, t.workspace) {
 		return nil, fmt.Errorf("path outside workspace: %s", params.Path)
 	}
 

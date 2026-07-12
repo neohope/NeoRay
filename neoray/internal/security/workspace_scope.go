@@ -313,12 +313,23 @@ func ValidateWorkspaceScopePayload(
 		return nil, &WorkspaceScopeError{Message: "project_path contains invalid characters", Status: 400}
 	}
 
-	// Resolve project path
-	project := os.ExpandEnv(rawPath)
-	if strings.HasPrefix(project, "~") {
+	// Validate path before expanding environment variables
+	// Check for potentially malicious patterns
+	if ContainsPathTraversal(rawPath) {
+		return nil, &WorkspaceScopeError{Message: "project_path contains invalid patterns", Status: 400}
+	}
+
+	// Now resolve project path
+	var project string
+	if strings.HasPrefix(rawPath, "~") {
 		if home, err := os.UserHomeDir(); err == nil {
-			project = filepath.Join(home, project[1:])
+			project = filepath.Join(home, rawPath[1:])
+		} else {
+			project = rawPath
 		}
+	} else {
+		// Expand environment variables only after validation
+		project = os.ExpandEnv(rawPath)
 	}
 
 	if !filepath.IsAbs(project) {

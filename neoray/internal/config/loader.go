@@ -159,6 +159,13 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("tools.web.timeout", "30s")
 	v.SetDefault("tools.cron.enabled", true)
 	v.SetDefault("tools.cron.max_jobs", 100)
+	// New tools - default to enabled for backward compatibility
+	v.SetDefault("tools.find_files.enabled", true)
+	v.SetDefault("tools.grep.enabled", true)
+	v.SetDefault("tools.apply_patch.enabled", true)
+	v.SetDefault("tools.web_search.enabled", true)
+	v.SetDefault("tools.web_fetch.enabled", true)
+	v.SetDefault("tools.sandbox_status.enabled", true)
 	// Subagent
 	v.SetDefault("tools.subagent.enabled", true)
 	v.SetDefault("tools.subagent.max_concurrent", 5)

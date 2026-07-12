@@ -143,9 +143,11 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 
 	// 应用安全检查
 	command := params.Command
+	var finalCommand string = command
 	if t.cfg.Security.RestrictToWorkspace {
 		var err error
-		command, err = security.FilterCommandForPathSafety(command, t.workspace)
+		// Filter the original command first
+		filteredCmd, err := security.FilterCommandForPathSafety(command, t.workspace)
 		if err != nil {
 			result := map[string]interface{}{
 				"success": false,
@@ -156,7 +158,7 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 		}
 
 		allowLoopback := t.cfg.Security.WebUIAllowLocalServiceAccess && security.CurrentScopeAllowsLoopback(t.cfg.Security.WebUIAllowLocalServiceAccess)
-		if security.ContainsInternalURL(command, allowLoopback) {
+		if security.ContainsInternalURL(filteredCmd, allowLoopback) {
 			result := map[string]interface{}{
 				"success": false,
 				"error":   "Command contains URL targeting internal/private address",
@@ -164,24 +166,27 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 			res, _ := json.Marshal(result)
 			return res, nil
 		}
+		finalCommand = filteredCmd
 	}
 
-	// 应用沙盒包装（如果配置了）
+	// 应用沙盒包装（如果配置了） - ALWAYS use the filtered command
 	if t.cfg.Tools.Shell.Sandbox != "" && runtime.GOOS != "windows" {
 		workspace := t.workspace
 		mediaDir := t.cfg.Tools.Shell.MediaDir
 		registry := GetSandboxRegistry(mediaDir)
 		var err error
-		command, err = registry.WrapCommand(t.cfg.Tools.Shell.Sandbox, command, workspace, workspace)
+		// Wrap the already filtered command
+		wrappedCmd, err := registry.WrapCommand(t.cfg.Tools.Shell.Sandbox, finalCommand, workspace, workspace)
 		if err != nil {
-			logger.Debug("Sandbox wrap failed, falling back to normal execution", logger.ErrorField(err))
-			// 沙盒失败时回退到正常执行
-			command = params.Command
+			logger.Debug("Sandbox wrap failed, using filtered command directly", logger.ErrorField(err))
+			// If sandbox fails, still use the filtered command - NEVER revert to unfiltered params.Command
+		} else {
+			finalCommand = wrappedCmd
 		}
 	}
 
 	logger.Debug("Shell command",
-		logger.String("command", command),
+		logger.String("command", finalCommand),
 		logger.String("workspace", t.workspace),
 	)
 
@@ -191,16 +196,16 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 
 	switch runtime.GOOS {
 	case "windows":
-		if bytes.Contains([]byte(command), []byte("\n")) {
+		if bytes.Contains([]byte(finalCommand), []byte("\n")) {
 			shellCmd = "powershell"
-			shellArgs = []string{"-NoProfile", "-Command", command}
+			shellArgs = []string{"-NoProfile", "-Command", finalCommand}
 		} else {
 			shellCmd = "cmd.exe"
-			shellArgs = []string{"/c", command}
+			shellArgs = []string{"/c", finalCommand}
 		}
 	default:
 		shellCmd = "bash"
-		shellArgs = []string{"-c", command}
+		shellArgs = []string{"-c", finalCommand}
 	}
 
 	// 创建命令

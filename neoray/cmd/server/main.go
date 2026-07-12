@@ -226,20 +226,32 @@ func main() {
 		toolRegistry.Register(tools.NewShellTool(cfg))
 		logger.Info("Shell tool registered")
 	}
-	// 注册新工具
-	toolRegistry.Register(tools.NewFindFilesTool())
-	logger.Info("FindFiles tool registered")
-	toolRegistry.Register(tools.NewGrepTool())
-	logger.Info("Grep tool registered")
-	toolRegistry.Register(tools.NewApplyPatchTool())
-	logger.Info("ApplyPatch tool registered")
-	toolRegistry.Register(tools.NewWebSearchTool())
-	logger.Info("WebSearch tool registered")
-	toolRegistry.Register(tools.NewWebFetchTool(cfg))
-	logger.Info("WebFetch tool registered")
+	// 注册新工具 - 统一使用 Enabled 检查
+	if cfg.Tools.FindFiles.Enabled {
+		toolRegistry.Register(tools.NewFindFilesTool())
+		logger.Info("FindFiles tool registered")
+	}
+	if cfg.Tools.Grep.Enabled {
+		toolRegistry.Register(tools.NewGrepTool())
+		logger.Info("Grep tool registered")
+	}
+	if cfg.Tools.ApplyPatch.Enabled {
+		toolRegistry.Register(tools.NewApplyPatchTool())
+		logger.Info("ApplyPatch tool registered")
+	}
+	if cfg.Tools.WebSearch.Enabled {
+		toolRegistry.Register(tools.NewWebSearchTool())
+		logger.Info("WebSearch tool registered")
+	}
+	if cfg.Tools.WebFetch.Enabled {
+		toolRegistry.Register(tools.NewWebFetchTool(cfg))
+		logger.Info("WebFetch tool registered")
+	}
+	if cfg.Tools.SandboxStatus.Enabled {
 		toolRegistry.Register(tools.NewSandboxStatusTool(cfg))
 		logger.Info("SandboxStatus tool registered")
-		logger.Info("Tool registry initialized", logger.Int("tool_count", len(toolRegistry.List())))
+	}
+	logger.Info("Tool registry initialized", logger.Int("tool_count", len(toolRegistry.List())))
 
 	// 初始化会话存储和管理器（使用文件存储）
 	sessionDir := cfg.ResolvePath("sessions")

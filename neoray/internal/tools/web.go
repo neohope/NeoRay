@@ -600,7 +600,19 @@ func (t *WebFetchTool) fetchJina(urlStr string, maxChars int) *WebFetchResult {
 }
 
 func (t *WebFetchTool) fetchReadability(urlStr string, extractMode string, maxChars int) *WebFetchResult {
-	client := &http.Client{Timeout: 30 * time.Second}
+	// Create a client with redirect validation
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// Validate each redirect URL
+			allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(t.allowLocalService)
+			valid, errMsg := security.ValidateURLTarget(req.URL.String(), allowLoopback)
+			if !valid {
+				return fmt.Errorf("redirect blocked: %s", errMsg)
+			}
+			return nil
+		},
+	}
 
 	req, _ := http.NewRequest("GET", urlStr, nil)
 	req.Header.Set("User-Agent", defaultUserAgent)
@@ -614,11 +626,26 @@ func (t *WebFetchTool) fetchReadability(urlStr string, extractMode string, maxCh
 	}
 	defer resp.Body.Close()
 
+	// Validate the final URL after all redirects
+	finalURL := resp.Request.URL.String()
+	if finalURL != urlStr {
+		allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(t.allowLocalService)
+		valid, errMsg := security.ValidateURLTarget(finalURL, allowLoopback)
+		if !valid {
+			return &WebFetchResult{
+				URL:      urlStr,
+				FinalURL: finalURL,
+				Error:    fmt.Sprintf("Final URL blocked: %s", errMsg),
+			}
+		}
+	}
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &WebFetchResult{
-			URL:    urlStr,
-			Status: resp.StatusCode,
-			Error:  fmt.Sprintf("Error: status %d", resp.StatusCode),
+			URL:      urlStr,
+			FinalURL: finalURL,
+			Status:   resp.StatusCode,
+			Error:    fmt.Sprintf("Error: status %d", resp.StatusCode),
 		}
 	}
 

@@ -158,12 +158,23 @@ type SessionContextConfig struct {
 
 // ToolsConfig 工具配置
 type ToolsConfig struct {
-	Workspace  WorkspaceConfig  `mapstructure:"workspace"`
-	Filesystem FilesystemConfig `mapstructure:"filesystem"`
-	Shell      ShellConfig      `mapstructure:"shell"`
-	Web        WebToolsConfig   `mapstructure:"web"`
-	Cron       CronConfig       `mapstructure:"cron"`
-	Subagent   SubagentConfig   `mapstructure:"subagent"`
+	Workspace   WorkspaceConfig   `mapstructure:"workspace"`
+	Filesystem  FilesystemConfig  `mapstructure:"filesystem"`
+	Shell       ShellConfig       `mapstructure:"shell"`
+	Web         WebToolsConfig    `mapstructure:"web"`
+	Cron        CronConfig        `mapstructure:"cron"`
+	Subagent    SubagentConfig    `mapstructure:"subagent"`
+	FindFiles   GenericToolConfig `mapstructure:"find_files"`
+	Grep        GenericToolConfig `mapstructure:"grep"`
+	ApplyPatch  GenericToolConfig `mapstructure:"apply_patch"`
+	WebSearch   GenericToolConfig `mapstructure:"web_search"`
+	WebFetch    GenericToolConfig `mapstructure:"web_fetch"`
+	SandboxStatus GenericToolConfig `mapstructure:"sandbox_status"`
+}
+
+// GenericToolConfig 通用工具配置
+type GenericToolConfig struct {
+	Enabled bool `mapstructure:"enabled"`
 }
 
 // SubagentConfig 子代理配置

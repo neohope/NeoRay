@@ -195,6 +195,16 @@ func ContainsPathTraversal(command string) bool {
 
 // FilterCommandForPathSafety filters a command for potentially unsafe path access.
 func FilterCommandForPathSafety(command string, workspace string) (string, error) {
+	// Check for path traversal patterns first
+	if ContainsPathTraversal(command) {
+		return "", fmt.Errorf("command contains path traversal patterns")
+	}
+
+	// Check for device paths in the entire command
+	if ContainsDevicePath(command) {
+		return "", fmt.Errorf("command contains restricted device paths")
+	}
+
 	// Split into parts to check
 	parts := strings.Fields(command)
 
@@ -209,13 +219,30 @@ func FilterCommandForPathSafety(command string, workspace string) (string, error
 			return "", fmt.Errorf("command contains access to restricted device path: %s", part)
 		}
 
-		// Check if path is within workspace if it looks like a path
+		// Check if path is within workspace
 		if filepath.IsAbs(part) {
 			if !IsPathWithin(part, workspace) {
 				return "", fmt.Errorf("command contains absolute path outside workspace: %s", part)
+			}
+		} else {
+			// Check relative path by joining with workspace first
+			absPart := filepath.Join(workspace, part)
+			if !IsPathWithin(absPart, workspace) {
+				return "", fmt.Errorf("command contains path outside workspace: %s", part)
 			}
 		}
 	}
 
 	return command, nil
+}
+
+// ContainsDevicePath checks if a command contains any device paths.
+func ContainsDevicePath(command string) bool {
+	parts := strings.Fields(command)
+	for _, part := range parts {
+		if IsDevicePath(part) && !IsBenignDevicePath(part) {
+			return true
+		}
+	}
+	return false
 }
