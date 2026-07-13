@@ -11,6 +11,7 @@ class AppStrings {
   static const String startNewChat = '开始新对话';
   static const String sendFirstMessage = '向 NeoRay 发送第一条消息';
   static const String inputMessageHint = '输入消息...';
+  static const String waitingResponse = '等待响应中...';
   static const String configSaved = '配置已保存';
   static const String saveConfig = '保存配置';
 

@@ -174,8 +174,9 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
       final userId = _ref.read(userIdProvider);
       final session = Session.create(channelId: channelId, userId: userId, title: title);
       state = session;
-    } catch (e) {
-      // Handle error
+    } catch (e, stackTrace) {
+      logger.e('创建新会话失败', error: e, stackTrace: stackTrace);
+      rethrow;
     }
   }
 
@@ -204,11 +205,14 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
           userId: userId,
           message: message,
         );
-        state = state?.copyWith(messages: [...state!.messages, response]);
+        final current = state;
+        if (current == null) return;
+        state = current.copyWith(messages: [...current.messages, response]);
       } catch (e) {
-        // Remove user message from the list on error
-        state = state?.copyWith(
-          messages: [...state!.messages.where((m) => m != userMessage)],
+        final current = state;
+        if (current == null) return;
+        state = current.copyWith(
+          messages: current.messages.where((m) => m != userMessage).toList(),
         );
         rethrow;
       }

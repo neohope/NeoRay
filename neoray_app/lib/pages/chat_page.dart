@@ -253,6 +253,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   Widget _buildInputArea(BuildContext context) {
+    final isStreaming = ref.watch(chatStreamingProvider);
+    final isBusy = _isTyping || isStreaming;
+
     return Container(
       color: Theme.of(context).cardColor,
       padding: const EdgeInsets.symmetric(horizontal: AppDimensions.spacing2Xl, vertical: AppDimensions.spacingLg),
@@ -262,12 +265,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             Expanded(
               child: TextField(
                 controller: _messageController,
+                enabled: !isBusy,
                 decoration: InputDecoration(
-                  hintText: AppStrings.inputMessageHint,
+                  hintText: isBusy ? AppStrings.waitingResponse : AppStrings.inputMessageHint,
                   border: const OutlineInputBorder(),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: const BorderRadius.all(Radius.circular(AppDimensions.borderRadiusLg)),
-                    borderSide: const BorderSide(color: AppTheme.borderLight),
+                  enabledBorder: const OutlineInputBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(AppDimensions.borderRadiusLg)),
+                    borderSide: BorderSide(color: AppTheme.borderLight),
                   ),
                   focusedBorder: const OutlineInputBorder(
                     borderRadius: BorderRadius.all(Radius.circular(AppDimensions.borderRadiusLg)),
@@ -275,21 +279,30 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   ),
                 ),
                 maxLines: null,
-                onSubmitted: (_) => _sendMessage(),
+                onSubmitted: isBusy ? null : (_) => _sendMessage(),
               ),
             ),
             const SizedBox(width: AppDimensions.spacingMd),
             Container(
               decoration: BoxDecoration(
-                color: AppTheme.primary,
+                color: isBusy ? AppTheme.textSecondaryLight : AppTheme.primary,
                 borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
               ),
               child: IconButton(
-                icon: const Icon(
-                  Icons.send_rounded,
-                  color: Colors.white,
-                ),
-                onPressed: _sendMessage,
+                icon: isBusy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.send_rounded,
+                        color: Colors.white,
+                      ),
+                onPressed: isBusy ? null : _sendMessage,
               ),
             ),
           ],

@@ -102,15 +102,18 @@ class WebSocketService {
       final wsUrl = url.replaceFirst('http', 'ws');
       _channel = WebSocketChannel.connect(Uri.parse('$wsUrl/ws'));
 
-      _isConnected = true;
-      _reconnectAttempts = 0;
-      _connectionController.add(true);
+      // 等待连接就绪后再标记已连接，避免竞态
+      await _channel!.ready;
 
       _channel!.stream.listen(
         _handleMessage,
         onError: _handleError,
         onDone: _handleDone,
       );
+
+      _isConnected = true;
+      _reconnectAttempts = 0;
+      _connectionController.add(true);
 
       logger.i('WebSocket connected');
     } catch (e) {

@@ -97,6 +97,7 @@ class _MyAppState extends ConsumerState<MyApp> {
             'An unknown error occurred';
         logger.e('Server error: $errorMsg');
         streamingContent.state = '';
+        ref.read(globalErrorProvider.notifier).state = errorMsg;
         break;
 
       case WebSocketMessageType.toolCallStart:
