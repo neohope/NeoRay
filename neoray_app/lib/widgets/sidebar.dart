@@ -15,6 +15,8 @@ class Sidebar extends ConsumerWidget {
     required this.onOpenSettings,
   });
 
+  bool _isDark(BuildContext context) => Theme.of(context).brightness == Brightness.dark;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final sessionList = ref.watch(sessionListProvider);
@@ -22,7 +24,7 @@ class Sidebar extends ConsumerWidget {
 
     return Container(
       width: AppDimensions.sidebarWidth,
-      color: AppTheme.sidebarBackgroundLight,
+      color: _isDark(context) ? AppTheme.sidebarBackgroundDark : AppTheme.sidebarBackgroundLight,
       child: Column(
         children: [
           _buildHeader(context),
@@ -51,7 +53,7 @@ class Sidebar extends ConsumerWidget {
                       Text(
                         error.toString(),
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AppTheme.textSecondaryLight,
+                              color: _isDark(context) ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
                             ),
                         textAlign: TextAlign.center,
                       ),
@@ -109,7 +111,7 @@ class Sidebar extends ConsumerWidget {
             AppStrings.appName,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
-                  color: AppTheme.textPrimaryLight,
+                  color: _isDark(context) ? AppTheme.textPrimaryDark : AppTheme.textPrimaryLight,
                 ),
           ),
         ],
@@ -184,7 +186,7 @@ class Sidebar extends ConsumerWidget {
         return Padding(
           padding: const EdgeInsets.only(bottom: AppDimensions.spacingSm),
           child: Material(
-            color: isSelected ? AppTheme.selectedItemBackgroundLight : Colors.transparent,
+            color: isSelected ? (_isDark(context) ? AppTheme.selectedItemBackgroundDark : AppTheme.selectedItemBackgroundLight) : Colors.transparent,
             borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
             child: InkWell(
               onTap: () async {
@@ -228,7 +230,7 @@ class Sidebar extends ConsumerWidget {
                                 .bodyMedium
                                 ?.copyWith(
                                   fontWeight: FontWeight.w500,
-                                  color: AppTheme.textPrimaryLight,
+                                  color: _isDark(context) ? AppTheme.textPrimaryDark : AppTheme.textPrimaryLight,
                                 ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -238,7 +240,7 @@ class Sidebar extends ConsumerWidget {
                             _getPreview(session),
                             style:
                                 Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: AppTheme.textSecondaryLight,
+                                      color: _isDark(context) ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
                                     ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -278,17 +280,17 @@ class Sidebar extends ConsumerWidget {
             ),
             child: Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.settings_outlined,
                   size: AppDimensions.iconSizeSmall,
-                  color: AppTheme.textSecondaryLight,
+                  color: _isDark(context) ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
                 ),
                 const SizedBox(width: AppDimensions.spacingMd),
                 Text(
                   AppStrings.settingsLabel,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w500,
-                        color: AppTheme.textPrimaryLight,
+                        color: _isDark(context) ? AppTheme.textPrimaryDark : AppTheme.textPrimaryLight,
                       ),
                 ),
               ],

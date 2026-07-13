@@ -48,6 +48,11 @@ class AppStrings {
   // 设置
   static const String settingsLabel = '配置';
 
+  // 通用
+  static const String cancel = '取消';
+  static const String confirm = '确定';
+  static const String renameSession = '重命名会话';
+
   // 错误消息
   static const String sendFailed = '发送失败';
   static const String createSessionFailed = '创建会话失败';

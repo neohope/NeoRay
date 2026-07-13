@@ -251,7 +251,8 @@ class WebSocketService {
     _disposed = true;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
-    disconnect();
+    _channel?.sink.close();
+    _isConnected = false;
     _eventController.close();
     _connectionController.close();
   }

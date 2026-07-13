@@ -47,7 +47,7 @@ class MessageBubble extends StatelessWidget {
                   borderRadius: BorderRadius.circular(AppDimensions.borderRadiusLg),
                   border: isUser
                       ? null
-                      : Border.all(color: AppTheme.borderLight),
+                      : Border.all(color: Theme.of(context).dividerColor),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -144,10 +144,10 @@ class MessageBubble extends StatelessWidget {
             const SizedBox(height: AppDimensions.spacingSm),
             Text(
               message.reasoningContent!,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: AppDimensions.fontSizeSm,
                 height: AppDimensions.lineHeightMd,
-                color: AppTheme.textSecondaryLight,
+                color: Theme.of(context).textTheme.bodySmall?.color,
                 fontStyle: FontStyle.italic,
               ),
             ),
@@ -163,7 +163,7 @@ class MessageBubble extends StatelessWidget {
       style: TextStyle(
         fontSize: AppDimensions.fontSizeMd,
         height: AppDimensions.lineHeightLg,
-        color: isUser ? Colors.white : AppTheme.textPrimaryLight,
+        color: isUser ? Colors.white : Theme.of(context).textTheme.bodyLarge?.color,
       ),
     );
   }
@@ -176,7 +176,7 @@ class MessageBubble extends StatelessWidget {
         decoration: BoxDecoration(
           color: isUser
               ? AppTheme.whiteTransparent10
-              : AppTheme.backgroundLight,
+              : Theme.of(context).scaffoldBackgroundColor,
           borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
         ),
         child: Column(
@@ -189,7 +189,7 @@ class MessageBubble extends StatelessWidget {
                   Icon(
                     Icons.build_circle_outlined,
                     size: 16,
-                    color: isUser ? AppTheme.whiteTransparent70 : AppTheme.textSecondaryLight,
+                    color: isUser ? AppTheme.whiteTransparent70 : Theme.of(context).textTheme.bodySmall?.color,
                   ),
                   const SizedBox(width: AppDimensions.spacingSm),
                   Expanded(
@@ -197,7 +197,7 @@ class MessageBubble extends StatelessWidget {
                       '${toolCall.name}(${toolCall.arguments})',
                       style: TextStyle(
                         fontSize: AppDimensions.fontSizeXs,
-                        color: isUser ? AppTheme.whiteTransparent70 : AppTheme.textSecondaryLight,
+                        color: isUser ? AppTheme.whiteTransparent70 : Theme.of(context).textTheme.bodySmall?.color,
                       ),
                     ),
                   ),

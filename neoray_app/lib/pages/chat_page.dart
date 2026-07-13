@@ -115,6 +115,37 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     ref.read(activePageProvider.notifier).state = AppPage.config;
   }
 
+  void _showRenameDialog(BuildContext context, Session session) {
+    final controller = TextEditingController(text: session.title ?? '');
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(AppStrings.renameSession),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: AppStrings.defaultSessionTitle),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(AppStrings.cancel),
+          ),
+          TextButton(
+            onPressed: () {
+              final newTitle = controller.text.trim();
+              if (newTitle.isNotEmpty) {
+                ref.read(currentSessionProvider.notifier).renameTitle(newTitle);
+              }
+              Navigator.pop(dialogContext);
+            },
+            child: Text(AppStrings.confirm),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentSession = ref.watch(currentSessionProvider);
@@ -130,7 +161,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           ),
           Expanded(
             child: Container(
-              color: AppTheme.backgroundLight,
+              color: Theme.of(context).scaffoldBackgroundColor,
               child: Column(
                 children: [
                   _buildHeader(context),
@@ -172,7 +203,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           if (currentSession != null)
             IconButton(
               icon: const Icon(Icons.edit_outlined),
-              onPressed: () {},
+              onPressed: () => _showRenameDialog(context, currentSession),
             ),
         ],
       ),
@@ -196,9 +227,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             const SizedBox(height: AppDimensions.spacing2Xl),
             Text(
               AppStrings.startNewChat,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: AppTheme.textPrimaryLight,
-                  ),
+              style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: AppDimensions.spacingSm),
             Text(

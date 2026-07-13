@@ -14,6 +14,8 @@ class ConfigPage extends ConsumerStatefulWidget {
 
 class _ConfigPageState extends ConsumerState<ConfigPage> {
   bool _isDark(BuildContext context) => Theme.of(context).brightness == Brightness.dark;
+  final _channelKey = GlobalKey();
+  final _toolKey = GlobalKey();
   late TextEditingController _apiKeyController;
   late TextEditingController _apiUrlController;
   late TextEditingController _maxTokensController;
@@ -93,12 +95,26 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
                     context,
                     icon: Icons.forum_outlined,
                     label: AppStrings.navChannelConfig,
+                    onTap: () {
+                      Scrollable.ensureVisible(
+                        _channelKey.currentContext!,
+                        duration: const Duration(milliseconds: 300),
+                        alignment: 0.0,
+                      );
+                    },
                   ),
                   const SizedBox(height: AppDimensions.spacingSm),
                   _buildNavItem(
                     context,
                     icon: Icons.build_outlined,
                     label: AppStrings.navToolConfig,
+                    onTap: () {
+                      Scrollable.ensureVisible(
+                        _toolKey.currentContext!,
+                        duration: const Duration(milliseconds: 300),
+                        alignment: 0.0,
+                      );
+                    },
                   ),
                 ],
               ),
@@ -328,6 +344,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
 
   Widget _buildChannelSection(BuildContext context, ChannelConfig config) {
     return Card(
+      key: _channelKey,
       child: Padding(
         padding: const EdgeInsets.all(AppDimensions.cardPadding),
         child: Column(
@@ -388,6 +405,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
 
   Widget _buildToolSection(BuildContext context, ToolConfig config) {
     return Card(
+      key: _toolKey,
       child: Padding(
         padding: const EdgeInsets.all(AppDimensions.cardPadding),
         child: Column(
@@ -512,7 +530,10 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
           controller: controller,
           keyboardType: TextInputType.number,
           onChanged: (value) {
-            onChanged(int.tryParse(value) ?? 0);
+            final parsed = int.tryParse(value);
+            if (parsed != null && parsed > 0) {
+              onChanged(parsed);
+            }
           },
           decoration: InputDecoration(
             border: const OutlineInputBorder(),

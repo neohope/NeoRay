@@ -126,6 +126,16 @@ class _MyAppState extends ConsumerState<MyApp> {
   @override
   Widget build(BuildContext context) {
     final config = ref.watch(appConfigProvider);
+    final configNotifier = ref.read(appConfigProvider.notifier);
+
+    if (!configNotifier.loaded) {
+      return MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
 
     return MaterialApp(
       title: AppStrings.appName,

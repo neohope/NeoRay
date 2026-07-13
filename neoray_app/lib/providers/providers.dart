@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -46,6 +47,9 @@ final appConfigProvider = StateNotifierProvider<AppConfigNotifier, AppConfig>((r
 class AppConfigNotifier extends StateNotifier<AppConfig> {
   static const _configFileName = 'neoray_config.json';
 
+  bool _loaded = false;
+  bool get loaded => _loaded;
+
   AppConfigNotifier() : super(const AppConfig()) {
     _load();
   }
@@ -64,6 +68,8 @@ class AppConfigNotifier extends StateNotifier<AppConfig> {
       }
     } catch (e) {
       logger.e('加载配置失败', error: e);
+    } finally {
+      _loaded = true;
     }
   }
 
@@ -76,20 +82,37 @@ class AppConfigNotifier extends StateNotifier<AppConfig> {
     }
   }
 
+  Timer? _persistDebounce;
+
   void updateConfig(AppConfig config) {
     state = config;
+    _debouncePersist();
   }
 
   void updateLLMConfig(LLMConfig config) {
     state = state.copyWith(llm: config);
+    _debouncePersist();
   }
 
   void updateChannelConfig(ChannelConfig config) {
     state = state.copyWith(channel: config);
+    _debouncePersist();
   }
 
   void updateToolConfig(ToolConfig config) {
     state = state.copyWith(tools: config);
+    _debouncePersist();
+  }
+
+  void _debouncePersist() {
+    _persistDebounce?.cancel();
+    _persistDebounce = Timer(const Duration(seconds: 2), persist);
+  }
+
+  @override
+  void dispose() {
+    _persistDebounce?.cancel();
+    super.dispose();
   }
 }
 
@@ -211,69 +234,81 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
       } catch (e) {
         final current = state;
         if (current == null) return;
+        final userMsgTime = userMessage.timestamp;
         state = current.copyWith(
-          messages: current.messages.where((m) => m != userMessage).toList(),
+          messages: current.messages.where((m) => m.timestamp != userMsgTime).toList(),
         );
         rethrow;
       }
     }
   }
 
+  // 流式拼接用 StringBuffer 缓冲，避免 O(n²) 字符串拼接
+  final StringBuffer _streamBuffer = StringBuffer();
+  final StringBuffer _reasoningBuffer = StringBuffer();
+
   void addStreamingChunk(String content) {
     final session = state;
     if (session == null) return;
 
-    final messages = List<Message>.from(session.messages);
+    _streamBuffer.write(content);
+
+    final messages = session.messages;
     if (messages.isNotEmpty && messages.last.role == 'assistant') {
-      final lastMessage = messages.last;
-      messages[messages.length - 1] = lastMessage.copyWith(
-        content: lastMessage.content + content,
+      // 只替换最后一条消息，避免拷贝整个列表
+      final updated = List<Message>.from(messages);
+      updated[updated.length - 1] = messages.last.copyWith(
+        content: _streamBuffer.toString(),
       );
+      state = session.copyWith(messages: updated);
     } else {
+      _streamBuffer.clear();
+      _streamBuffer.write(content);
       final channelId = _ref.read(channelIdProvider);
       final userId = _ref.read(userIdProvider);
-      messages.add(Message.assistant(content, null, channelId, userId, session.id));
+      state = session.copyWith(
+        messages: [...messages, Message.assistant(content, null, channelId, userId, session.id)],
+      );
     }
-    state = session.copyWith(messages: messages);
   }
 
   void addReasoningChunk(String content) {
     final session = state;
     if (session == null) return;
 
-    final messages = List<Message>.from(session.messages);
+    _reasoningBuffer.write(content);
+
+    final messages = session.messages;
     if (messages.isNotEmpty && messages.last.role == 'assistant') {
-      final lastMessage = messages.last;
-      messages[messages.length - 1] = lastMessage.copyWith(
-        reasoningContent: (lastMessage.reasoningContent ?? '') + content,
+      final updated = List<Message>.from(messages);
+      updated[updated.length - 1] = messages.last.copyWith(
+        reasoningContent: _reasoningBuffer.toString(),
       );
+      state = session.copyWith(messages: updated);
     } else {
+      _reasoningBuffer.clear();
+      _reasoningBuffer.write(content);
       final channelId = _ref.read(channelIdProvider);
       final userId = _ref.read(userIdProvider);
-      messages.add(Message.assistant(
-        '',
-        null,
-        channelId,
-        userId,
-        session.id,
-        content,
-        false,
-      ));
+      state = session.copyWith(
+        messages: [...messages, Message.assistant('', null, channelId, userId, session.id, content, false)],
+      );
     }
-    state = session.copyWith(messages: messages);
   }
 
   void completeReasoning() {
     final session = state;
     if (session == null) return;
 
-    final messages = List<Message>.from(session.messages);
+    _reasoningBuffer.clear();
+
+    final messages = session.messages;
     if (messages.isNotEmpty && messages.last.role == 'assistant') {
-      final lastMessage = messages.last;
-      messages[messages.length - 1] = lastMessage.copyWith(
+      final updated = List<Message>.from(messages);
+      updated[updated.length - 1] = messages.last.copyWith(
         isReasoningComplete: true,
       );
-      state = session.copyWith(messages: messages);
+      state = session.copyWith(messages: updated);
     }
   }
 
@@ -284,6 +319,12 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
 
   void clearSession() {
     state = null;
+  }
+
+  void renameTitle(String newTitle) {
+    final session = state;
+    if (session == null) return;
+    state = session.copyWith(title: newTitle);
   }
 }
 
