@@ -217,15 +217,15 @@ class __$$LLMConfigImplCopyWithImpl<$Res>
 @JsonSerializable()
 class _$LLMConfigImpl implements _LLMConfig {
   const _$LLMConfigImpl(
-      {this.provider = 'openai',
+      {this.provider = AppDefaults.defaultLLMProvider,
       this.apiKey = '',
-      this.apiUrl = 'https://api.openai.com/v1',
-      this.model = 'gpt-4',
-      this.maxTokens = 4096,
-      this.temperature = 0.7,
-      this.timeout = 120,
-      this.reasoningEffort = 'none',
-      this.promptCacheEnabled = false,
+      this.apiUrl = AppDefaults.defaultApiUrl,
+      this.model = AppDefaults.defaultLLMModel,
+      this.maxTokens = AppDefaults.defaultMaxTokens,
+      this.temperature = AppDefaults.defaultTemperature,
+      this.timeout = AppDefaults.defaultTimeoutSec,
+      this.reasoningEffort = AppDefaults.defaultReasoningEffort,
+      this.promptCacheEnabled = AppDefaults.defaultPromptCacheEnabled,
       final List<FallbackModelConfig> fallbackModels = const []})
       : _fallbackModels = fallbackModels;
 
@@ -710,8 +710,8 @@ class __$$ChannelConfigImplCopyWithImpl<$Res>
 @JsonSerializable()
 class _$ChannelConfigImpl implements _ChannelConfig {
   const _$ChannelConfigImpl(
-      {this.enabled = false,
-      this.provider = 'feishu',
+      {this.enabled = AppDefaults.defaultChannelEnabled,
+      this.provider = AppDefaults.defaultChannelProvider,
       this.appId = '',
       this.appSecret = ''});
 
@@ -898,9 +898,9 @@ class __$$ToolConfigImplCopyWithImpl<$Res>
 @JsonSerializable()
 class _$ToolConfigImpl implements _ToolConfig {
   const _$ToolConfigImpl(
-      {this.shellEnabled = true,
-      this.cronEnabled = true,
-      this.webEnabled = false});
+      {this.shellEnabled = AppDefaults.defaultShellEnabled,
+      this.cronEnabled = AppDefaults.defaultCronEnabled,
+      this.webEnabled = AppDefaults.defaultWebEnabled});
 
   factory _$ToolConfigImpl.fromJson(Map<String, dynamic> json) =>
       _$$ToolConfigImplFromJson(json);
@@ -980,6 +980,7 @@ AppConfig _$AppConfigFromJson(Map<String, dynamic> json) {
 /// @nodoc
 mixin _$AppConfig {
   String get serverUrl => throw _privateConstructorUsedError;
+  String get themeMode => throw _privateConstructorUsedError;
   LLMConfig get llm => throw _privateConstructorUsedError;
   ChannelConfig get channel => throw _privateConstructorUsedError;
   ToolConfig get tools => throw _privateConstructorUsedError;
@@ -997,6 +998,7 @@ abstract class $AppConfigCopyWith<$Res> {
   @useResult
   $Res call(
       {String serverUrl,
+      String themeMode,
       LLMConfig llm,
       ChannelConfig channel,
       ToolConfig tools});
@@ -1020,6 +1022,7 @@ class _$AppConfigCopyWithImpl<$Res, $Val extends AppConfig>
   @override
   $Res call({
     Object? serverUrl = null,
+    Object? themeMode = null,
     Object? llm = null,
     Object? channel = null,
     Object? tools = null,
@@ -1028,6 +1031,10 @@ class _$AppConfigCopyWithImpl<$Res, $Val extends AppConfig>
       serverUrl: null == serverUrl
           ? _value.serverUrl
           : serverUrl // ignore: cast_nullable_to_non_nullable
+              as String,
+      themeMode: null == themeMode
+          ? _value.themeMode
+          : themeMode // ignore: cast_nullable_to_non_nullable
               as String,
       llm: null == llm
           ? _value.llm
@@ -1079,6 +1086,7 @@ abstract class _$$AppConfigImplCopyWith<$Res>
   @useResult
   $Res call(
       {String serverUrl,
+      String themeMode,
       LLMConfig llm,
       ChannelConfig channel,
       ToolConfig tools});
@@ -1103,6 +1111,7 @@ class __$$AppConfigImplCopyWithImpl<$Res>
   @override
   $Res call({
     Object? serverUrl = null,
+    Object? themeMode = null,
     Object? llm = null,
     Object? channel = null,
     Object? tools = null,
@@ -1111,6 +1120,10 @@ class __$$AppConfigImplCopyWithImpl<$Res>
       serverUrl: null == serverUrl
           ? _value.serverUrl
           : serverUrl // ignore: cast_nullable_to_non_nullable
+              as String,
+      themeMode: null == themeMode
+          ? _value.themeMode
+          : themeMode // ignore: cast_nullable_to_non_nullable
               as String,
       llm: null == llm
           ? _value.llm
@@ -1132,7 +1145,8 @@ class __$$AppConfigImplCopyWithImpl<$Res>
 @JsonSerializable()
 class _$AppConfigImpl implements _AppConfig {
   const _$AppConfigImpl(
-      {this.serverUrl = 'http://localhost:8080',
+      {this.serverUrl = AppDefaults.defaultServerUrl,
+      this.themeMode = AppDefaults.defaultThemeMode,
       this.llm = const LLMConfig(),
       this.channel = const ChannelConfig(),
       this.tools = const ToolConfig()});
@@ -1145,6 +1159,9 @@ class _$AppConfigImpl implements _AppConfig {
   final String serverUrl;
   @override
   @JsonKey()
+  final String themeMode;
+  @override
+  @JsonKey()
   final LLMConfig llm;
   @override
   @JsonKey()
@@ -1155,7 +1172,7 @@ class _$AppConfigImpl implements _AppConfig {
 
   @override
   String toString() {
-    return 'AppConfig(serverUrl: $serverUrl, llm: $llm, channel: $channel, tools: $tools)';
+    return 'AppConfig(serverUrl: $serverUrl, themeMode: $themeMode, llm: $llm, channel: $channel, tools: $tools)';
   }
 
   @override
@@ -1165,6 +1182,8 @@ class _$AppConfigImpl implements _AppConfig {
             other is _$AppConfigImpl &&
             (identical(other.serverUrl, serverUrl) ||
                 other.serverUrl == serverUrl) &&
+            (identical(other.themeMode, themeMode) ||
+                other.themeMode == themeMode) &&
             (identical(other.llm, llm) || other.llm == llm) &&
             (identical(other.channel, channel) || other.channel == channel) &&
             (identical(other.tools, tools) || other.tools == tools));
@@ -1172,7 +1191,8 @@ class _$AppConfigImpl implements _AppConfig {
 
   @JsonKey(ignore: true)
   @override
-  int get hashCode => Object.hash(runtimeType, serverUrl, llm, channel, tools);
+  int get hashCode =>
+      Object.hash(runtimeType, serverUrl, themeMode, llm, channel, tools);
 
   @JsonKey(ignore: true)
   @override
@@ -1191,6 +1211,7 @@ class _$AppConfigImpl implements _AppConfig {
 abstract class _AppConfig implements AppConfig {
   const factory _AppConfig(
       {final String serverUrl,
+      final String themeMode,
       final LLMConfig llm,
       final ChannelConfig channel,
       final ToolConfig tools}) = _$AppConfigImpl;
@@ -1200,6 +1221,8 @@ abstract class _AppConfig implements AppConfig {
 
   @override
   String get serverUrl;
+  @override
+  String get themeMode;
   @override
   LLMConfig get llm;
   @override

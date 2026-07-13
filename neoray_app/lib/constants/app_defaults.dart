@@ -38,4 +38,7 @@ class AppDefaults {
   static const bool defaultShellEnabled = true;
   static const bool defaultCronEnabled = true;
   static const bool defaultWebEnabled = false;
+
+  // 主题配置: 'light' | 'dark' | 'system'
+  static const String defaultThemeMode = 'light';
 }

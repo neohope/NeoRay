@@ -124,14 +124,27 @@ class _MyAppState extends ConsumerState<MyApp> {
     }
   }
 
+  ThemeMode _resolveThemeMode(String mode) {
+    switch (mode) {
+      case 'dark':
+        return ThemeMode.dark;
+      case 'system':
+        return ThemeMode.system;
+      default:
+        return ThemeMode.light;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final config = ref.watch(appConfigProvider);
+
     return MaterialApp(
       title: AppStrings.appName,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.system,
+      themeMode: _resolveThemeMode(config.themeMode),
       home: const MainScreen(),
     );
   }

@@ -66,6 +66,7 @@ class ToolConfig with _$ToolConfig {
 class AppConfig with _$AppConfig {
   const factory AppConfig({
     @Default(AppDefaults.defaultServerUrl) String serverUrl,
+    @Default(AppDefaults.defaultThemeMode) String themeMode,
     @Default(LLMConfig()) LLMConfig llm,
     @Default(ChannelConfig()) ChannelConfig channel,
     @Default(ToolConfig()) ToolConfig tools,
