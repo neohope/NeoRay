@@ -349,12 +349,9 @@ func (s *Server) wrapMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// 速率限制中间件
+		// 速率限制中间件 — 使用 RemoteAddr 防止 X-Forwarded-For 伪造绕过
 		clientIP := r.RemoteAddr
-		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			clientIP = strings.Split(forwarded, ",")[0]
-		}
-		if !s.rateLimiter.allow(strings.TrimSpace(clientIP)) {
+		if !s.rateLimiter.allow(clientIP) {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Retry-After", "60")
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -490,7 +487,7 @@ func (c *Client) readPump() {
 		c.Server.removeClient(c.ID)
 	}()
 
-	c.Conn.SetReadLimit(4096)
+	c.Conn.SetReadLimit(64 * 1024) // 64 KB max message size
 	_ = c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	c.Conn.SetPongHandler(func(string) error {
 		_ = c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))

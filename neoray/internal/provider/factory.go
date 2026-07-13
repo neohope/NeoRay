@@ -2,6 +2,7 @@ package provider
 
 import (
 	"fmt"
+	"strings"
 
 	"neoray/internal/config"
 	"neoray/internal/logger"
@@ -204,47 +205,11 @@ func NewOpenAICompatProviderFromConfig(cfg *config.ProviderConfig) (Provider, er
 	return provider, nil
 }
 
-// 辅助函数
+// containsAny checks if s contains any of the substrings (case-insensitive).
 func containsAny(s string, substrs ...string) bool {
-	s = toLower(s)
+	s = strings.ToLower(s)
 	for _, substr := range substrs {
-		if contains(s, toLower(substr)) {
-			return true
-		}
-	}
-	return false
-}
-
-func toLower(s string) string {
-	// 简单的小写转换
-	result := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			result[i] = c + 32
-		} else {
-			result[i] = c
-		}
-	}
-	return string(result)
-}
-
-func contains(s, substr string) bool {
-	if len(substr) == 0 {
-		return true
-	}
-	if len(s) < len(substr) {
-		return false
-	}
-	for i := 0; i <= len(s)-len(substr); i++ {
-		match := true
-		for j := 0; j < len(substr); j++ {
-			if s[i+j] != substr[j] {
-				match = false
-				break
-			}
-		}
-		if match {
+		if strings.Contains(s, strings.ToLower(substr)) {
 			return true
 		}
 	}

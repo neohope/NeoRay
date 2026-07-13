@@ -221,6 +221,22 @@ func validate(cfg *Config) error {
 		if !hasAPIKey {
 			return fmt.Errorf("llm api key is required in production")
 		}
+
+		// Auth must be enabled in production
+		if !cfg.Security.Auth.Enabled {
+			return fmt.Errorf("security.auth.enabled must be true in production")
+		}
+
+		// Secret key must not be empty or a placeholder
+		secret := cfg.Security.Auth.SecretKey
+		if secret == "" || secret == "your-secret-key-here" || secret == "change-me" {
+			return fmt.Errorf("security.auth.secret_key must be set to a strong random value in production")
+		}
+
+		// RestrictToWorkspace should be enabled in production
+		if !cfg.Security.RestrictToWorkspace {
+			return fmt.Errorf("security.restrict_to_workspace must be true in production")
+		}
 	}
 	return nil
 }

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"neoray/internal/agent"
 	"neoray/internal/logger"
 	"neoray/internal/session"
 )
@@ -55,7 +54,8 @@ func (c *Client) handleChat(payload interface{}) {
 	if chatPayload.SessionID != "" {
 		sess, err = c.Server.sessionMgr.GetSessionWithValidation(chatPayload.SessionID, c.GetChannelID(), c.GetUserID())
 		if err != nil {
-			sess, err = c.Server.sessionMgr.CreateSession(c.GetChannelID(), c.GetUserID())
+			c.sendError("session_not_found", "Session not found or access denied")
+			return
 		}
 	} else {
 		sess, err = c.Server.sessionMgr.CreateSession(c.GetChannelID(), c.GetUserID())
@@ -136,7 +136,8 @@ func (c *Client) handleChatStream(payload interface{}) {
 	if chatPayload.SessionID != "" {
 		sess, err = c.Server.sessionMgr.GetSessionWithValidation(chatPayload.SessionID, c.GetChannelID(), c.GetUserID())
 		if err != nil {
-			sess, err = c.Server.sessionMgr.CreateSession(c.GetChannelID(), c.GetUserID())
+			c.sendError("session_not_found", "Session not found or access denied")
+			return
 		}
 	} else {
 		sess, err = c.Server.sessionMgr.CreateSession(c.GetChannelID(), c.GetUserID())
@@ -521,7 +522,6 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
-			w.Header().Set("Access-Control-Allow-Origin", "*")
 
 			streamChan, err := s.agent.ChatStream(ctx, sess, req.Message)
 			if err != nil {
@@ -563,9 +563,10 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 						_, _ = w.Write([]byte("data: " + string(eventData) + "\n\n"))
 						flusher.Flush()
 					case "error":
+						logger.Error("SSE stream error", logger.ErrorField(chunk.Error))
 						eventData, _ := json.Marshal(map[string]interface{}{
 							"type":  "error",
-							"error": chunk.Error.Error(),
+							"error": "An error occurred during streaming",
 						})
 						_, _ = w.Write([]byte("data: " + string(eventData) + "\n\n"))
 						flusher.Flush()
@@ -617,9 +618,3 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Server 类型需要更新字段类型
-// 更新 server.go 中的 agent 字段为 *agent.Agent
-func init() {
-	// 确保我们正确导入了新的 agent 包
-	var _ agent.Agent
-}

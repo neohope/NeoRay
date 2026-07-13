@@ -1441,7 +1441,7 @@ func (f *FeishuChannel) downloadAndSaveMedia(msgType string, contentJSON map[str
 
 	safeName := f.safeMediaFilename(fileName, fileKey)
 	filePath := filepath.Join(mediaDir, safeName)
-	if err := os.WriteFile(filePath, fileData, 0644); err != nil {
+	if err := os.WriteFile(filePath, fileData, 0600); err != nil {
 		return "", fmt.Sprintf("[%s: save failed]", msgType), err
 	}
 

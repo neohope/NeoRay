@@ -787,16 +787,4 @@ func formatBlock(displayPath string, lines []string, matchLine int, before int, 
 	return strings.Join(block, "\n")
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
+// min and max are built-in since Go 1.21
