@@ -612,7 +612,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
           children: [
             Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: AppDimensions.fontSizeSm,
                 fontWeight: FontWeight.w500,
                 color: _isDark(context) ? AppTheme.textPrimaryDark : AppTheme.textPrimaryLight,
