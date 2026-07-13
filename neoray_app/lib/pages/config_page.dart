@@ -13,6 +13,7 @@ class ConfigPage extends ConsumerStatefulWidget {
 }
 
 class _ConfigPageState extends ConsumerState<ConfigPage> {
+  bool _isDark(BuildContext context) => Theme.of(context).brightness == Brightness.dark;
   late TextEditingController _apiKeyController;
   late TextEditingController _apiUrlController;
   late TextEditingController _maxTokensController;
@@ -64,7 +65,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
 
     return Container(
       width: AppDimensions.sidebarWidth,
-      color: AppTheme.sidebarBackgroundLight,
+      color: _isDark(context) ? AppTheme.sidebarBackgroundDark : AppTheme.sidebarBackgroundLight,
       child: Column(
         children: [
           _buildSidebarHeader(context),
@@ -132,7 +133,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
             AppStrings.appName,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
-                  color: AppTheme.textPrimaryLight,
+                  color: _isDark(context) ? AppTheme.textPrimaryDark : AppTheme.textPrimaryLight,
                 ),
           ),
         ],
@@ -159,14 +160,16 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
             vertical: AppDimensions.spacingMd,
           ),
           decoration: BoxDecoration(
-            color: isSelected ? AppTheme.selectedItemBackgroundLight : Colors.transparent,
+            color: isSelected
+                ? (_isDark(context) ? AppTheme.selectedItemBackgroundDark : AppTheme.selectedItemBackgroundLight)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
           ),
           child: Row(
             children: [
               Icon(
                 icon,
-                color: isSelected ? AppTheme.primary : AppTheme.textSecondaryLight,
+                color: isSelected ? AppTheme.primary : (_isDark(context) ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight),
                 size: AppDimensions.iconSizeSmall,
               ),
               const SizedBox(width: AppDimensions.spacingMd),
@@ -174,7 +177,9 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
                 label,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w500,
-                      color: isSelected ? AppTheme.textPrimaryLight : AppTheme.textSecondaryLight,
+                      color: isSelected
+                          ? (_isDark(context) ? AppTheme.textPrimaryDark : AppTheme.textPrimaryLight)
+                          : (_isDark(context) ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight),
                     ),
               ),
             ],
@@ -186,7 +191,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
 
   Widget _buildContent(BuildContext context, AppConfig config) {
     return Container(
-      color: AppTheme.backgroundLight,
+      color: _isDark(context) ? AppTheme.backgroundDark : AppTheme.backgroundLight,
       child: Column(
         children: [
           _buildContentHeader(context),
@@ -454,10 +459,10 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: AppDimensions.fontSizeSm,
             fontWeight: FontWeight.w500,
-            color: AppTheme.textPrimaryLight,
+            color: _isDark(context) ? AppTheme.textPrimaryDark : AppTheme.textPrimaryLight,
           ),
         ),
         const SizedBox(height: AppDimensions.spacingSm),
@@ -467,8 +472,8 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
           obscureText: obscureText,
           decoration: InputDecoration(
             border: const OutlineInputBorder(),
-            enabledBorder: const OutlineInputBorder(
-              borderSide: BorderSide(color: AppTheme.borderLight),
+            enabledBorder: OutlineInputBorder(
+              borderSide: BorderSide(color: _isDark(context) ? AppTheme.borderDark : AppTheme.borderLight),
             ),
             focusedBorder: const OutlineInputBorder(
               borderSide: BorderSide(color: AppTheme.primary),
@@ -493,10 +498,10 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: AppDimensions.fontSizeSm,
             fontWeight: FontWeight.w500,
-            color: AppTheme.textPrimaryLight,
+            color: _isDark(context) ? AppTheme.textPrimaryDark : AppTheme.textPrimaryLight,
           ),
         ),
         const SizedBox(height: AppDimensions.spacingSm),
@@ -508,8 +513,8 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
           },
           decoration: InputDecoration(
             border: const OutlineInputBorder(),
-            enabledBorder: const OutlineInputBorder(
-              borderSide: BorderSide(color: AppTheme.borderLight),
+            enabledBorder: OutlineInputBorder(
+              borderSide: BorderSide(color: _isDark(context) ? AppTheme.borderDark : AppTheme.borderLight),
             ),
             focusedBorder: const OutlineInputBorder(
               borderSide: BorderSide(color: AppTheme.primary),
@@ -535,18 +540,18 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: AppDimensions.fontSizeSm,
             fontWeight: FontWeight.w500,
-            color: AppTheme.textPrimaryLight,
+            color: _isDark(context) ? AppTheme.textPrimaryDark : AppTheme.textPrimaryLight,
           ),
         ),
         const SizedBox(height: AppDimensions.spacingSm),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: AppDimensions.inputHorizontalPadding),
           decoration: BoxDecoration(
-            color: AppTheme.inputBackgroundLight,
-            border: Border.all(color: AppTheme.borderLight),
+            color: _isDark(context) ? AppTheme.inputBackgroundDark : AppTheme.inputBackgroundLight,
+            border: Border.all(color: _isDark(context) ? AppTheme.borderDark : AppTheme.borderLight),
             borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
           ),
           child: DropdownButtonHideUnderline(
@@ -577,10 +582,10 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: AppDimensions.fontSizeSm,
             fontWeight: FontWeight.w500,
-            color: AppTheme.textPrimaryLight,
+            color: _isDark(context) ? AppTheme.textPrimaryDark : AppTheme.textPrimaryLight,
           ),
         ),
         Switch(
@@ -607,7 +612,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
               style: const TextStyle(
                 fontSize: AppDimensions.fontSizeSm,
                 fontWeight: FontWeight.w500,
-                color: AppTheme.textPrimaryLight,
+                color: _isDark(context) ? AppTheme.textPrimaryDark : AppTheme.textPrimaryLight,
               ),
             ),
             Text(
