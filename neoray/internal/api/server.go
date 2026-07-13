@@ -590,7 +590,11 @@ func (c *Client) sendMessage(msgType string, payload interface{}) {
 		Type:    msgType,
 		Payload: payload,
 	}
-	data, _ := json.Marshal(msg)
+	data, err := json.Marshal(msg)
+	if err != nil {
+		logger.Error("Failed to marshal WebSocket message", logger.ErrorField(err))
+		return
+	}
 	select {
 	case c.Send <- data:
 	default:

@@ -15,14 +15,22 @@ import (
 func writeJSONError(w http.ResponseWriter, statusCode int, errMsg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	resp, _ := json.Marshal(map[string]string{"error": errMsg})
+	resp, err := json.Marshal(map[string]string{"error": errMsg})
+	if err != nil {
+		// Fallback: manually constructed JSON is always valid for a single string value
+		resp = []byte(`{"error":"` + strings.ReplaceAll(errMsg, `"`, `\"`) + `"}`)
+	}
 	_, _ = w.Write(resp)
 }
 
 // handleChat 处理聊天消息
 func (c *Client) handleChat(payload interface{}) {
 	var chatPayload ChatPayload
-	payloadBytes, _ := json.Marshal(payload)
+	payloadBytes, marshalErr := json.Marshal(payload)
+	if marshalErr != nil {
+		c.sendError("invalid_payload", "Invalid chat payload")
+		return
+	}
 	if err := json.Unmarshal(payloadBytes, &chatPayload); err != nil {
 		c.sendError("invalid_payload", "Invalid chat payload")
 		return
@@ -104,7 +112,11 @@ func (c *Client) handleChat(payload interface{}) {
 // handleChatStream 处理流式聊天消息
 func (c *Client) handleChatStream(payload interface{}) {
 	var chatPayload ChatPayload
-	payloadBytes, _ := json.Marshal(payload)
+	payloadBytes, marshalErr := json.Marshal(payload)
+	if marshalErr != nil {
+		c.sendError("invalid_payload", "Invalid chat payload")
+		return
+	}
 	if err := json.Unmarshal(payloadBytes, &chatPayload); err != nil {
 		c.sendError("invalid_payload", "Invalid chat payload")
 		return
@@ -208,7 +220,11 @@ func (c *Client) handleChatStream(payload interface{}) {
 // handleCreateSession 处理创建会话
 func (c *Client) handleCreateSession(payload interface{}) {
 	var createPayload CreateSessionPayload
-	payloadBytes, _ := json.Marshal(payload)
+	payloadBytes, marshalErr := json.Marshal(payload)
+	if marshalErr != nil {
+		c.sendError("invalid_payload", "Invalid create session payload")
+		return
+	}
 	if err := json.Unmarshal(payloadBytes, &createPayload); err != nil {
 		c.sendError("invalid_payload", "Invalid create session payload")
 		return
@@ -256,7 +272,11 @@ func (c *Client) handleCreateSession(payload interface{}) {
 // handleJoinSession 处理加入会话
 func (c *Client) handleJoinSession(payload interface{}) {
 	var joinPayload JoinSessionPayload
-	payloadBytes, _ := json.Marshal(payload)
+	payloadBytes, marshalErr := json.Marshal(payload)
+	if marshalErr != nil {
+		c.sendError("invalid_payload", "Invalid join session payload")
+		return
+	}
 	if err := json.Unmarshal(payloadBytes, &joinPayload); err != nil {
 		c.sendError("invalid_payload", "Invalid join session payload")
 		return
@@ -297,8 +317,10 @@ func (c *Client) handleJoinSession(payload interface{}) {
 func (c *Client) handleListSessions(payload interface{}) {
 	// 尝试解析负载获取 channel_id 和 user_id
 	var listPayload ListSessionsPayload
-	payloadBytes, _ := json.Marshal(payload)
-	_ = json.Unmarshal(payloadBytes, &listPayload)
+	payloadBytes, marshalErr := json.Marshal(payload)
+	if marshalErr == nil {
+		_ = json.Unmarshal(payloadBytes, &listPayload)
+	}
 
 	channelID := listPayload.ChannelID
 	userID := listPayload.UserID
