@@ -155,6 +155,21 @@ class MainScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final activePage = ref.watch(activePageProvider);
 
+    // 消费全局错误，显示给用户
+    ref.listen<String?>(globalErrorProvider, (prev, error) {
+      if (error != null && error.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(error),
+            backgroundColor: AppTheme.danger,
+            duration: const Duration(seconds: AppTimings.snackBarDurationLongSec),
+          ),
+        );
+        // 清除错误，避免重复显示
+        ref.read(globalErrorProvider.notifier).state = null;
+      }
+    });
+
     return Scaffold(
       body: IndexedStack(
         index: activePage.index,

@@ -251,7 +251,8 @@ class WebSocketService {
     _disposed = true;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
-    _channel?.sink.close();
+    // sink.close() 返回 Future，dispose 是同步方法，忽略返回值
+    unawaited(_channel?.sink.close());
     _isConnected = false;
     _eventController.close();
     _connectionController.close();

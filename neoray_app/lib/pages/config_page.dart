@@ -457,16 +457,20 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
-        ElevatedButton(
-          onPressed: () async {
-            await ref.read(appConfigProvider.notifier).persist();
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text(AppStrings.configSaved)),
-              );
-            }
-          },
-          child: const Text(AppStrings.saveConfig),
+        Semantics(
+          label: AppStrings.saveConfig,
+          button: true,
+          child: ElevatedButton(
+            onPressed: () async {
+              await ref.read(appConfigProvider.notifier).persist();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text(AppStrings.configSaved)),
+                );
+              }
+            },
+            child: const Text(AppStrings.saveConfig),
+          ),
         ),
       ],
     );
@@ -490,21 +494,25 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
           ),
         ),
         const SizedBox(height: AppDimensions.spacingSm),
-        TextField(
-          controller: controller,
-          onChanged: onChanged,
-          obscureText: obscureText,
-          decoration: InputDecoration(
-            border: const OutlineInputBorder(),
-            enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: _isDark(context) ? AppTheme.borderDark : AppTheme.borderLight),
-            ),
-            focusedBorder: const OutlineInputBorder(
-              borderSide: BorderSide(color: AppTheme.primary),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: AppDimensions.inputHorizontalPadding,
-              vertical: AppDimensions.inputVerticalPadding,
+        Semantics(
+          label: label,
+          textField: true,
+          child: TextField(
+            controller: controller,
+            onChanged: onChanged,
+            obscureText: obscureText,
+            decoration: InputDecoration(
+              border: const OutlineInputBorder(),
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: _isDark(context) ? AppTheme.borderDark : AppTheme.borderLight),
+              ),
+              focusedBorder: const OutlineInputBorder(
+                borderSide: BorderSide(color: AppTheme.primary),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: AppDimensions.inputHorizontalPadding,
+                vertical: AppDimensions.inputVerticalPadding,
+              ),
             ),
           ),
         ),
@@ -529,26 +537,30 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
           ),
         ),
         const SizedBox(height: AppDimensions.spacingSm),
-        TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          onChanged: (value) {
-            final parsed = int.tryParse(value);
-            if (parsed != null && parsed > 0) {
-              onChanged(parsed);
-            }
-          },
-          decoration: InputDecoration(
-            border: const OutlineInputBorder(),
-            enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: _isDark(context) ? AppTheme.borderDark : AppTheme.borderLight),
-            ),
-            focusedBorder: const OutlineInputBorder(
-              borderSide: BorderSide(color: AppTheme.primary),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: AppDimensions.inputHorizontalPadding,
-              vertical: AppDimensions.inputVerticalPadding,
+        Semantics(
+          label: label,
+          textField: true,
+          child: TextField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            onChanged: (value) {
+              final parsed = int.tryParse(value);
+              if (parsed != null && parsed > 0) {
+                onChanged(parsed);
+              }
+            },
+            decoration: InputDecoration(
+              border: const OutlineInputBorder(),
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: _isDark(context) ? AppTheme.borderDark : AppTheme.borderLight),
+              ),
+              focusedBorder: const OutlineInputBorder(
+                borderSide: BorderSide(color: AppTheme.primary),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: AppDimensions.inputHorizontalPadding,
+                vertical: AppDimensions.inputVerticalPadding,
+              ),
             ),
           ),
         ),

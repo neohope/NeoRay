@@ -19,7 +19,9 @@ class MessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    return Padding(
+    return Semantics(
+      label: isUser ? '用户消息: ${message.content}' : '助手回复: ${message.content}',
+      child: Padding(
       padding: const EdgeInsets.symmetric(vertical: AppDimensions.spacingMd),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -77,6 +79,7 @@ class MessageBubble extends StatelessWidget {
           if (isUser) const SizedBox(width: AppDimensions.spacingMd),
         ],
       ),
+    ),
     );
   }
 

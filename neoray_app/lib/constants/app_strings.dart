@@ -71,5 +71,5 @@ class AppStrings {
   // 默认值 - 由各 provider 在运行时通过 uuid 生成
   static const String defaultChannelId = 'default';
   static const String defaultUserId = 'default';
-  // 注意: 生产环境应替换为真实用户/频道标识
+  // 注意: 生产环境应通过认证系统替换为真实用户/频道标识
 }

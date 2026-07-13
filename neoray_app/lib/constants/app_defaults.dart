@@ -5,7 +5,7 @@ class AppDefaults {
 
   // LLM 配置
   static const String defaultLLMProvider = 'openai';
-  static const String defaultLLMModel = 'gpt-4';
+  static const String defaultLLMModel = 'gpt-4o';
   static const String defaultApiUrl = 'https://api.openai.com/v1';
   static const int defaultMaxTokens = 4096;
   static const double defaultTemperature = 0.7;

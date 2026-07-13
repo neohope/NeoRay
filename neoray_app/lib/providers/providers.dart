@@ -256,12 +256,9 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
 
     final messages = session.messages;
     if (messages.isNotEmpty && messages.last.role == 'assistant') {
-      // 只替换最后一条消息，避免拷贝整个列表
-      final updated = List<Message>.from(messages);
-      updated[updated.length - 1] = messages.last.copyWith(
-        content: _streamBuffer.toString(),
-      );
-      state = session.copyWith(messages: updated);
+      // 原地替换最后一条，仅拷贝 1 个元素而非整个列表
+      final last = messages.last.copyWith(content: _streamBuffer.toString());
+      state = session.copyWith(messages: [...messages.sublist(0, messages.length - 1), last]);
     } else {
       _streamBuffer.clear();
       _streamBuffer.write(content);
@@ -281,11 +278,8 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
 
     final messages = session.messages;
     if (messages.isNotEmpty && messages.last.role == 'assistant') {
-      final updated = List<Message>.from(messages);
-      updated[updated.length - 1] = messages.last.copyWith(
-        reasoningContent: _reasoningBuffer.toString(),
-      );
-      state = session.copyWith(messages: updated);
+      final last = messages.last.copyWith(reasoningContent: _reasoningBuffer.toString());
+      state = session.copyWith(messages: [...messages.sublist(0, messages.length - 1), last]);
     } else {
       _reasoningBuffer.clear();
       _reasoningBuffer.write(content);
@@ -305,11 +299,8 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
 
     final messages = session.messages;
     if (messages.isNotEmpty && messages.last.role == 'assistant') {
-      final updated = List<Message>.from(messages);
-      updated[updated.length - 1] = messages.last.copyWith(
-        isReasoningComplete: true,
-      );
-      state = session.copyWith(messages: updated);
+      final last = messages.last.copyWith(isReasoningComplete: true);
+      state = session.copyWith(messages: [...messages.sublist(0, messages.length - 1), last]);
     }
   }
 
