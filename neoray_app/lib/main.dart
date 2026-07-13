@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'providers/providers.dart';
 import 'pages/chat_page.dart';
 import 'pages/config_page.dart';
@@ -12,10 +11,6 @@ import 'utils/logger.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  await Hive.initFlutter();
-  await Hive.openBox<String>('app_config');
-
   runApp(const ProviderScope(child: MyApp()));
 }
 

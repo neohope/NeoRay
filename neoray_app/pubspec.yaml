@@ -19,9 +19,8 @@ dependencies:
   http: ^1.1.0
   web_socket_channel: ^2.4.0
 
-  # Local Storage
-  hive: ^2.2.3
-  hive_flutter: ^1.1.0
+  # File Storage
+  path_provider: ^2.1.0
 
   # Utils
   json_annotation: ^4.8.1
@@ -40,7 +39,6 @@ dev_dependencies:
   json_serializable: ^6.7.1
   freezed: ^2.4.1
   riverpod_generator: ^2.2.3
-  hive_generator: ^2.0.1
 
   # MSIX Packaging (Windows)
   msix: ^3.14.0

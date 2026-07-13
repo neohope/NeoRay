@@ -1,6 +1,7 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive/hive.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/session.dart';
 import '../models/message.dart';
 import '../models/app_config.dart';
@@ -43,18 +44,22 @@ final appConfigProvider = StateNotifierProvider<AppConfigNotifier, AppConfig>((r
 });
 
 class AppConfigNotifier extends StateNotifier<AppConfig> {
-  static const _boxName = 'app_config';
-  static const _key = 'config_json';
+  static const _configFileName = 'neoray_config.json';
 
   AppConfigNotifier() : super(const AppConfig()) {
     _load();
   }
 
-  void _load() {
+  Future<File> _getConfigFile() async {
+    final dir = await getApplicationDocumentsDirectory();
+    return File('${dir.path}/$_configFileName');
+  }
+
+  Future<void> _load() async {
     try {
-      final box = Hive.box<String>(_boxName);
-      final json = box.get(_key);
-      if (json != null) {
+      final file = await _getConfigFile();
+      if (await file.exists()) {
+        final json = await file.readAsString();
         state = AppConfig.fromJson(jsonDecode(json) as Map<String, dynamic>);
       }
     } catch (e) {
@@ -64,8 +69,8 @@ class AppConfigNotifier extends StateNotifier<AppConfig> {
 
   Future<void> persist() async {
     try {
-      final box = Hive.box<String>(_boxName);
-      await box.put(_key, jsonEncode(state.toJson()));
+      final file = await _getConfigFile();
+      await file.writeAsString(jsonEncode(state.toJson()));
     } catch (e) {
       logger.e('保存配置失败', error: e);
     }
