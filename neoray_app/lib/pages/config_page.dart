@@ -230,7 +230,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
     );
   }
 
-  Widget _buildLLMSection(BuildContext context, WidgetRef ref, LLMConfig config) {
+  Widget _buildLLMSection(BuildContext context, LLMConfig config) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(AppDimensions.cardPadding),
@@ -259,7 +259,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
             const SizedBox(height: AppDimensions.spacingLg),
             _buildTextField(
               label: AppStrings.configApiKey,
-              value: config.apiKey,
+              controller: _apiKeyController,
               obscureText: true,
               onChanged: (value) =>
                   ref.read(appConfigProvider.notifier).updateLLMConfig(
@@ -269,7 +269,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
             const SizedBox(height: AppDimensions.spacingLg),
             _buildTextField(
               label: AppStrings.configApiUrl,
-              value: config.apiUrl,
+              controller: _apiUrlController,
               onChanged: (value) =>
                   ref.read(appConfigProvider.notifier).updateLLMConfig(
                         config.copyWith(apiUrl: value),
@@ -291,7 +291,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
             const SizedBox(height: AppDimensions.spacingLg),
             _buildNumberField(
               label: AppStrings.configMaxTokens,
-              value: config.maxTokens,
+              controller: _maxTokensController,
               onChanged: (value) =>
                   ref.read(appConfigProvider.notifier).updateLLMConfig(
                         config.copyWith(maxTokens: value),
@@ -309,7 +309,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
             const SizedBox(height: AppDimensions.spacingLg),
             _buildNumberField(
               label: AppStrings.configTimeout,
-              value: config.timeout,
+              controller: _timeoutController,
               onChanged: (value) =>
                   ref.read(appConfigProvider.notifier).updateLLMConfig(
                         config.copyWith(timeout: value),
@@ -321,7 +321,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
     );
   }
 
-  Widget _buildChannelSection(BuildContext context, WidgetRef ref, ChannelConfig config) {
+  Widget _buildChannelSection(BuildContext context, ChannelConfig config) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(AppDimensions.cardPadding),
@@ -359,7 +359,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
             const SizedBox(height: AppDimensions.spacingLg),
             _buildTextField(
               label: AppStrings.configAppId,
-              value: config.appId,
+              controller: _appIdController,
               onChanged: (value) =>
                   ref.read(appConfigProvider.notifier).updateChannelConfig(
                         config.copyWith(appId: value),
@@ -368,7 +368,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
             const SizedBox(height: AppDimensions.spacingLg),
             _buildTextField(
               label: AppStrings.configAppSecret,
-              value: config.appSecret,
+              controller: _appSecretController,
               obscureText: true,
               onChanged: (value) =>
                   ref.read(appConfigProvider.notifier).updateChannelConfig(
@@ -381,7 +381,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
     );
   }
 
-  Widget _buildToolSection(BuildContext context, WidgetRef ref, ToolConfig config) {
+  Widget _buildToolSection(BuildContext context, ToolConfig config) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(AppDimensions.cardPadding),
@@ -427,7 +427,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
     );
   }
 
-  Widget _buildSaveButton(BuildContext context, WidgetRef ref) {
+  Widget _buildSaveButton(BuildContext context) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
@@ -445,7 +445,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
 
   Widget _buildTextField({
     required String label,
-    required String value,
+    required TextEditingController controller,
     bool obscureText = false,
     required ValueChanged<String> onChanged,
   }) {
@@ -462,7 +462,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
         ),
         const SizedBox(height: AppDimensions.spacingSm),
         TextField(
-          controller: TextEditingController(text: value),
+          controller: controller,
           onChanged: onChanged,
           obscureText: obscureText,
           decoration: InputDecoration(
@@ -485,7 +485,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
 
   Widget _buildNumberField({
     required String label,
-    required int value,
+    required TextEditingController controller,
     required ValueChanged<int> onChanged,
   }) {
     return Column(
@@ -501,7 +501,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
         ),
         const SizedBox(height: AppDimensions.spacingSm),
         TextField(
-          controller: TextEditingController(text: value.toString()),
+          controller: controller,
           keyboardType: TextInputType.number,
           onChanged: (value) {
             onChanged(int.tryParse(value) ?? 0);

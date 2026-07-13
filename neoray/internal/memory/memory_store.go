@@ -345,8 +345,8 @@ func (ms *MemoryStore) nextCursor() int {
 		return last.Cursor + 1
 	}
 
-	// 扫描所有记录找最大 cursor
-	entries := ms.readAllEntries()
+	// 扫描最后一批记录找最大 cursor（避免全量读取）
+	entries := ms.tailEntries(1000)
 	maxCursor := 0
 	for _, entry := range entries {
 		if entry.Cursor > maxCursor {
@@ -379,32 +379,6 @@ func (ms *MemoryStore) nextCursorFromTail() int {
 		}
 	}
 	return maxCursor + 1
-}
-
-func (ms *MemoryStore) readAllEntries() []HistoryEntry {
-	var entries []HistoryEntry
-
-	f, err := os.Open(ms.historyFile)
-	if err != nil {
-		return entries
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-
-		var entry HistoryEntry
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			continue
-		}
-		entries = append(entries, entry)
-	}
-
-	return entries
 }
 
 // tailEntries reads only the last maxEntries lines from the history file,
