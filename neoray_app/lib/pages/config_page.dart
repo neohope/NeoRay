@@ -437,10 +437,13 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         ElevatedButton(
-          onPressed: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text(AppStrings.configSaved)),
-            );
+          onPressed: () async {
+            await ref.read(appConfigProvider.notifier).persist();
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text(AppStrings.configSaved)),
+              );
+            }
           },
           child: const Text(AppStrings.saveConfig),
         ),

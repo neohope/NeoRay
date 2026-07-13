@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive/hive.dart';
 import '../models/session.dart';
 import '../models/message.dart';
 import '../models/app_config.dart';
@@ -41,7 +43,33 @@ final appConfigProvider = StateNotifierProvider<AppConfigNotifier, AppConfig>((r
 });
 
 class AppConfigNotifier extends StateNotifier<AppConfig> {
-  AppConfigNotifier() : super(const AppConfig());
+  static const _boxName = 'app_config';
+  static const _key = 'config_json';
+
+  AppConfigNotifier() : super(const AppConfig()) {
+    _load();
+  }
+
+  void _load() {
+    try {
+      final box = Hive.box<String>(_boxName);
+      final json = box.get(_key);
+      if (json != null) {
+        state = AppConfig.fromJson(jsonDecode(json) as Map<String, dynamic>);
+      }
+    } catch (e) {
+      logger.e('加载配置失败', error: e);
+    }
+  }
+
+  Future<void> persist() async {
+    try {
+      final box = Hive.box<String>(_boxName);
+      await box.put(_key, jsonEncode(state.toJson()));
+    } catch (e) {
+      logger.e('保存配置失败', error: e);
+    }
+  }
 
   void updateConfig(AppConfig config) {
     state = config;
