@@ -30,7 +30,9 @@ final globalErrorProvider = StateProvider<String?>((ref) => null);
 
 // WebSocket Service Provider
 final webSocketServiceProvider = Provider<WebSocketService>((ref) {
-  return WebSocketService();
+  final service = WebSocketService();
+  ref.onDispose(() => service.dispose());
+  return service;
 });
 
 // App Config Provider

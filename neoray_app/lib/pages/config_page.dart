@@ -5,26 +5,61 @@ import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 import '../constants/constants.dart';
 
-class ConfigPage extends ConsumerWidget {
+class ConfigPage extends ConsumerStatefulWidget {
   const ConfigPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ConfigPage> createState() => _ConfigPageState();
+}
+
+class _ConfigPageState extends ConsumerState<ConfigPage> {
+  late TextEditingController _apiKeyController;
+  late TextEditingController _apiUrlController;
+  late TextEditingController _maxTokensController;
+  late TextEditingController _timeoutController;
+  late TextEditingController _appIdController;
+  late TextEditingController _appSecretController;
+
+  @override
+  void initState() {
+    super.initState();
+    final config = ref.read(appConfigProvider);
+    _apiKeyController = TextEditingController(text: config.llm.apiKey);
+    _apiUrlController = TextEditingController(text: config.llm.apiUrl);
+    _maxTokensController = TextEditingController(text: config.llm.maxTokens.toString());
+    _timeoutController = TextEditingController(text: config.llm.timeout.toString());
+    _appIdController = TextEditingController(text: config.channel.appId);
+    _appSecretController = TextEditingController(text: config.channel.appSecret);
+  }
+
+  @override
+  void dispose() {
+    _apiKeyController.dispose();
+    _apiUrlController.dispose();
+    _maxTokensController.dispose();
+    _timeoutController.dispose();
+    _appIdController.dispose();
+    _appSecretController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final config = ref.watch(appConfigProvider);
 
     return Scaffold(
       body: Row(
         children: [
-          _buildSidebar(context, ref),
+          _buildSidebar(context),
           Expanded(
-            child: _buildContent(context, ref, config),
+            child: _buildContent(context, config),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSidebar(BuildContext context, WidgetRef ref) {
+  Widget _buildSidebar(BuildContext context) {
     final currentPage = ref.watch(activePageProvider);
 
     return Container(
@@ -149,7 +184,7 @@ class ConfigPage extends ConsumerWidget {
     );
   }
 
-  Widget _buildContent(BuildContext context, WidgetRef ref, AppConfig config) {
+  Widget _buildContent(BuildContext context, AppConfig config) {
     return Container(
       color: AppTheme.backgroundLight,
       child: Column(
@@ -161,13 +196,13 @@ class ConfigPage extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildLLMSection(context, ref, config.llm),
+                  _buildLLMSection(context, config.llm),
                   const SizedBox(height: AppDimensions.spacing2Xl),
-                  _buildChannelSection(context, ref, config.channel),
+                  _buildChannelSection(context, config.channel),
                   const SizedBox(height: AppDimensions.spacing2Xl),
-                  _buildToolSection(context, ref, config.tools),
+                  _buildToolSection(context, config.tools),
                   const SizedBox(height: AppDimensions.spacing2Xl),
-                  _buildSaveButton(context, ref),
+                  _buildSaveButton(context),
                 ],
               ),
             ),

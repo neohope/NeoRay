@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
@@ -179,14 +180,6 @@ class ApiException implements Exception {
 
   @override
   String toString() => 'ApiException($statusCode): $message';
-}
-
-class TimeoutException implements Exception {
-  final String message;
-  TimeoutException(this.message);
-
-  @override
-  String toString() => message;
 }
 
 class NetworkException implements Exception {

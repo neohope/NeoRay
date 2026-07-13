@@ -265,7 +265,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatRe
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 
-	logger.Debug("Anthropic API raw response", logger.String("body", string(respBody)))
+	logger.Debug("Anthropic API response received", logger.Int("body_bytes", len(respBody)))
 
 	// 解析响应
 	var apiResp anthropicResponse

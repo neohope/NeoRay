@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers/providers.dart';
@@ -34,6 +35,8 @@ class MyApp extends ConsumerStatefulWidget {
 }
 
 class _MyAppState extends ConsumerState<MyApp> {
+  StreamSubscription<WebSocketEvent>? _eventSubscription;
+
   @override
   void initState() {
     super.initState();
@@ -48,9 +51,15 @@ class _MyAppState extends ConsumerState<MyApp> {
     webSocket.connect(config.serverUrl);
 
     // 监听事件
-    webSocket.eventStream.listen((event) {
+    _eventSubscription = webSocket.eventStream.listen((event) {
       _handleWebSocketEvent(event, ref);
     });
+  }
+
+  @override
+  void dispose() {
+    _eventSubscription?.cancel();
+    super.dispose();
   }
 
   void _handleWebSocketEvent(WebSocketEvent event, WidgetRef ref) {

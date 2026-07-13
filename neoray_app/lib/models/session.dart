@@ -1,8 +1,11 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:uuid/uuid.dart';
 import 'message.dart';
 
 part 'session.freezed.dart';
 part 'session.g.dart';
+
+const _uuid = Uuid();
 
 @freezed
 class Session with _$Session {
@@ -19,7 +22,7 @@ class Session with _$Session {
   factory Session.create({String? channelId, String? userId, String? title}) {
     final now = DateTime.now();
     return Session(
-      id: now.microsecondsSinceEpoch.toString(),
+      id: _uuid.v4(),
       channelId: channelId,
       userId: userId,
       title: title ?? '新聊天',
