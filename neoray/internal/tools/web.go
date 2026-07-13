@@ -210,7 +210,7 @@ func (t *WebSearchTool) searchBrave(query string, n int) string {
 	}
 
 	var data map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, defaultMaxChars)).Decode(&data); err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
 
@@ -260,7 +260,7 @@ func (t *WebSearchTool) searchTavily(query string, n int) string {
 	}
 
 	var data map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, defaultMaxChars)).Decode(&data); err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
 
@@ -303,7 +303,7 @@ func (t *WebSearchTool) searchSearxng(query string, n int) string {
 	}
 
 	var data map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, defaultMaxChars)).Decode(&data); err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
 
@@ -401,7 +401,7 @@ func (t *WebSearchTool) searchKagi(query string, n int) string {
 	}
 
 	var data map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, defaultMaxChars)).Decode(&data); err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
 
@@ -566,7 +566,7 @@ func (t *WebFetchTool) fetchJina(urlStr string, maxChars int) *WebFetchResult {
 	defer resp.Body.Close()
 
 	var data map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, defaultMaxChars)).Decode(&data); err != nil {
 		return nil
 	}
 

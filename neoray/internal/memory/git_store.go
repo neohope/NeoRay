@@ -79,11 +79,11 @@ func (gs *GitStore) Init() bool {
 	}
 
 	// 初始提交
-	if err := gs.runGitCommand("add", ".gitignore"); err != nil {
+	if err := gs.runGitCommand("add", "--", ".gitignore"); err != nil {
 		return false
 	}
 	for _, f := range gs.trackedFiles {
-		_ = gs.runGitCommand("add", f)
+		_ = gs.runGitCommand("add", "--", f)
 	}
 
 	if err := gs.runGitCommand("commit", "-m", "init: neoray memory store"); err != nil {
@@ -107,7 +107,7 @@ func (gs *GitStore) AutoCommit(message string) string {
 
 	// 添加追踪文件
 	for _, f := range gs.trackedFiles {
-		_ = gs.runGitCommand("add", f)
+		_ = gs.runGitCommand("add", "--", f)
 	}
 
 	// 提交

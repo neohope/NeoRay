@@ -747,7 +747,10 @@ func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput
 			}
 		}
 
-		maxIterations := 10
+		maxIterations := a.cfg.Agent.MaxIterations
+		if maxIterations <= 0 {
+			maxIterations = 10
+		}
 
 		for iteration := 0; iteration < maxIterations; iteration++ {
 			select {
