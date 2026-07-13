@@ -74,7 +74,13 @@ class WebSocketService {
       StreamController.broadcast();
 
   bool _isConnected = false;
+  bool _disposed = false;
+  String? _url;
   String? _sessionId;
+  Timer? _reconnectTimer;
+  int _reconnectAttempts = 0;
+  static const int _maxReconnectAttempts = 10;
+  static const Duration _baseReconnectDelay = Duration(seconds: 1);
 
   Stream<WebSocketEvent> get eventStream => _eventController.stream;
   Stream<bool> get connectionStream => _connectionController.stream;
@@ -84,11 +90,20 @@ class WebSocketService {
   WebSocketService();
 
   Future<void> connect(String url) async {
+    _url = url;
+    _reconnectAttempts = 0;
+    await _doConnect(url);
+  }
+
+  Future<void> _doConnect(String url) async {
+    if (_disposed) return;
+
     try {
       final wsUrl = url.replaceFirst('http', 'ws');
       _channel = WebSocketChannel.connect(Uri.parse('$wsUrl/ws'));
 
       _isConnected = true;
+      _reconnectAttempts = 0;
       _connectionController.add(true);
 
       _channel!.stream.listen(
@@ -102,7 +117,28 @@ class WebSocketService {
       logger.e('WebSocket connection failed: $e');
       _isConnected = false;
       _connectionController.add(false);
+      _scheduleReconnect();
     }
+  }
+
+  void _scheduleReconnect() {
+    if (_disposed || _url == null) return;
+    if (_reconnectAttempts >= _maxReconnectAttempts) {
+      logger.w('Max reconnect attempts reached ($_maxReconnectAttempts)');
+      return;
+    }
+
+    _reconnectTimer?.cancel();
+    // Exponential backoff: 1s, 2s, 4s, 8s, ... capped at 30s
+    final delay = _baseReconnectDelay * (1 << _reconnectAttempts).clamp(1, 30);
+    _reconnectAttempts++;
+
+    logger.i('Reconnecting in ${delay.inSeconds}s (attempt $_reconnectAttempts/$_maxReconnectAttempts)');
+    _reconnectTimer = Timer(delay, () {
+      if (!_disposed && !_isConnected) {
+        _doConnect(_url!);
+      }
+    });
   }
 
   void _handleMessage(dynamic message) {
@@ -119,12 +155,16 @@ class WebSocketService {
     logger.e('WebSocket error: $error');
     _isConnected = false;
     _connectionController.add(false);
+    _scheduleReconnect();
   }
 
   void _handleDone() {
     logger.w('WebSocket connection closed');
     _isConnected = false;
     _connectionController.add(false);
+    if (!_disposed) {
+      _scheduleReconnect();
+    }
   }
 
   void sendChat({
@@ -197,12 +237,17 @@ class WebSocketService {
   }
 
   Future<void> disconnect() async {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     await _channel?.sink.close();
     _isConnected = false;
     _connectionController.add(false);
   }
 
   void dispose() {
+    _disposed = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     disconnect();
     _eventController.close();
     _connectionController.close();
