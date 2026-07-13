@@ -48,14 +48,17 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
 
   @override
   Widget build(BuildContext context) {
-    final config = ref.watch(appConfigProvider);
+    // 使用 select 精确订阅，避免无关字段变化触发全局 rebuild
+    final llm = ref.watch(appConfigProvider.select((c) => c.llm));
+    final channel = ref.watch(appConfigProvider.select((c) => c.channel));
+    final tools = ref.watch(appConfigProvider.select((c) => c.tools));
 
     return Scaffold(
       body: Row(
         children: [
           _buildSidebar(context),
           Expanded(
-            child: _buildContent(context, config),
+            child: _buildContent(context, llm, channel, tools),
           ),
         ],
       ),
@@ -205,7 +208,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
     );
   }
 
-  Widget _buildContent(BuildContext context, AppConfig config) {
+  Widget _buildContent(BuildContext context, LLMConfig llm, ChannelConfig channel, ToolConfig tools) {
     return Container(
       color: _isDark(context) ? AppTheme.backgroundDark : AppTheme.backgroundLight,
       child: Column(
@@ -217,11 +220,11 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildLLMSection(context, config.llm),
+                  _buildLLMSection(context, llm),
                   const SizedBox(height: AppDimensions.spacing2Xl),
-                  _buildChannelSection(context, config.channel),
+                  _buildChannelSection(context, channel),
                   const SizedBox(height: AppDimensions.spacing2Xl),
-                  _buildToolSection(context, config.tools),
+                  _buildToolSection(context, tools),
                   const SizedBox(height: AppDimensions.spacing2Xl),
                   _buildSaveButton(context),
                 ],

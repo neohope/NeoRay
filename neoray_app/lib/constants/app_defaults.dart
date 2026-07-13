@@ -15,10 +15,10 @@ class AppDefaults {
 
   // 可用模型列表
   static const List<String> availableModels = [
-    'gpt-4',
-    'gpt-3.5-turbo',
-    'claude-3-opus',
-    'claude-3-sonnet',
+    'gpt-4o',
+    'gpt-4o-mini',
+    'claude-sonnet-4-20250514',
+    'claude-haiku-4-5-20251001',
   ];
 
   // 可用提供商列表

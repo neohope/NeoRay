@@ -12,6 +12,7 @@ class AppStrings {
   static const String sendFirstMessage = '向 NeoRay 发送第一条消息';
   static const String inputMessageHint = '输入消息...';
   static const String waitingResponse = '等待响应中...';
+  static const String sendButtonLabel = '发送消息';
   static const String configSaved = '配置已保存';
   static const String saveConfig = '保存配置';
 
@@ -67,7 +68,8 @@ class AppStrings {
   static const String loading = '加载中...';
   static const String loadFailed = '加载失败';
 
-  // 默认值
+  // 默认值 - 由各 provider 在运行时通过 uuid 生成
   static const String defaultChannelId = 'default';
   static const String defaultUserId = 'default';
+  // 注意: 生产环境应替换为真实用户/频道标识
 }

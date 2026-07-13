@@ -12,7 +12,4 @@ class AppTimings {
 
   // API 超时
   static const int apiTimeoutSec = 120;
-
-  // WebSocket 重连延迟（未来可能用到）
-  static const int websocketReconnectDelayMs = 3000;
 }

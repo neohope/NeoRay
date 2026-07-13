@@ -152,6 +152,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final isStreaming = ref.watch(chatStreamingProvider);
     final streamingContent = ref.watch(currentStreamingContentProvider);
 
+    // 流式回复时自动滚动到底部
+    ref.listen<String>(currentStreamingContentProvider, (prev, next) {
+      if (next.isNotEmpty && (prev == null || prev != next)) {
+        _scrollToBottom();
+      }
+    });
+
     return Scaffold(
       body: Row(
         children: [
@@ -317,21 +324,25 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 color: isBusy ? AppTheme.textSecondaryLight : AppTheme.primary,
                 borderRadius: BorderRadius.circular(AppDimensions.borderRadiusSm),
               ),
-              child: IconButton(
-                icon: isBusy
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
+              child: Semantics(
+                label: isBusy ? AppStrings.waitingResponse : AppStrings.sendButtonLabel,
+                button: true,
+                child: IconButton(
+                  icon: isBusy
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.send_rounded,
                           color: Colors.white,
                         ),
-                      )
-                    : const Icon(
-                        Icons.send_rounded,
-                        color: Colors.white,
-                      ),
-                onPressed: isBusy ? null : _sendMessage,
+                  onPressed: isBusy ? null : _sendMessage,
+                ),
               ),
             ),
           ],

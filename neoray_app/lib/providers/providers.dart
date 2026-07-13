@@ -231,7 +231,8 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
         final current = state;
         if (current == null) return;
         state = current.copyWith(messages: [...current.messages, response]);
-      } catch (e) {
+      } catch (e, stackTrace) {
+        logger.e('发送消息失败', error: e, stackTrace: stackTrace);
         final current = state;
         if (current == null) return;
         final userMsgTime = userMessage.timestamp;

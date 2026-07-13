@@ -43,140 +43,136 @@ class AppTheme {
   static Color get whiteTransparent10 => Colors.white.withValues(alpha: 0.1);
   static Color get whiteTransparent70 => Colors.white.withValues(alpha: 0.7);
 
-  static ThemeData get lightTheme {
-    return ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: primary,
-        brightness: Brightness.light,
-        primary: primary,
-        onPrimary: Colors.white,
-        secondary: secondary,
-        onSecondary: Colors.white,
-        error: danger,
-        onError: Colors.white,
-        surface: surfaceLight,
-        onSurface: textPrimaryLight,
+  static final ThemeData lightTheme = ThemeData(
+    useMaterial3: true,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: primary,
+      brightness: Brightness.light,
+      primary: primary,
+      onPrimary: Colors.white,
+      secondary: secondary,
+      onSecondary: Colors.white,
+      error: danger,
+      onError: Colors.white,
+      surface: surfaceLight,
+      onSurface: textPrimaryLight,
+    ),
+    scaffoldBackgroundColor: backgroundLight,
+    cardColor: surfaceLight,
+    textTheme: const TextTheme(
+      headlineSmall: TextStyle(
+        fontSize: 20,
+        fontWeight: FontWeight.bold,
+        color: textPrimaryLight,
       ),
-      scaffoldBackgroundColor: backgroundLight,
-      cardColor: surfaceLight,
-      textTheme: const TextTheme(
-        headlineSmall: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          color: textPrimaryLight,
-        ),
-        titleMedium: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          color: textPrimaryLight,
-        ),
-        bodyLarge: TextStyle(
-          fontSize: 15,
-          color: textPrimaryLight,
-          height: 1.6,
-        ),
-        bodyMedium: TextStyle(
-          fontSize: 14,
-          color: textSecondaryLight,
-        ),
+      titleMedium: TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+        color: textPrimaryLight,
       ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: inputBackgroundLight,
-        border: OutlineInputBorder(
+      bodyLarge: TextStyle(
+        fontSize: 15,
+        color: textPrimaryLight,
+        height: 1.6,
+      ),
+      bodyMedium: TextStyle(
+        fontSize: 14,
+        color: textSecondaryLight,
+      ),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: inputBackgroundLight,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: borderLight),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: borderLight),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: primary),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: borderLight),
         ),
-        enabledBorder: OutlineInputBorder(
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: borderLight),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: primary),
-        ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
         ),
       ),
-      textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-        ),
-      ),
-      sliderTheme: const SliderThemeData(),
-      switchTheme: const SwitchThemeData(),
-    );
-  }
+    ),
+    sliderTheme: const SliderThemeData(),
+    switchTheme: const SwitchThemeData(),
+  );
 
-  static ThemeData get darkTheme {
-    return ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: primary,
-        brightness: Brightness.dark,
-        primary: primaryLight,
-        onPrimary: Colors.white,
-        secondary: secondary,
-        onSecondary: Colors.white,
-        error: danger,
-        onError: Colors.white,
-        surface: surfaceDark,
-        onSurface: textPrimaryDark,
+  static final ThemeData darkTheme = ThemeData(
+    useMaterial3: true,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: primary,
+      brightness: Brightness.dark,
+      primary: primaryLight,
+      onPrimary: Colors.white,
+      secondary: secondary,
+      onSecondary: Colors.white,
+      error: danger,
+      onError: Colors.white,
+      surface: surfaceDark,
+      onSurface: textPrimaryDark,
+    ),
+    scaffoldBackgroundColor: backgroundDark,
+    cardColor: surfaceDark,
+    textTheme: const TextTheme(
+      headlineSmall: TextStyle(
+        fontSize: 20,
+        fontWeight: FontWeight.bold,
+        color: textPrimaryDark,
       ),
-      scaffoldBackgroundColor: backgroundDark,
-      cardColor: surfaceDark,
-      textTheme: const TextTheme(
-        headlineSmall: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          color: textPrimaryDark,
-        ),
-        titleMedium: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          color: textPrimaryDark,
-        ),
-        bodyLarge: TextStyle(
-          fontSize: 15,
-          color: textPrimaryDark,
-          height: 1.6,
-        ),
-        bodyMedium: TextStyle(
-          fontSize: 14,
-          color: textSecondaryDark,
-        ),
+      titleMedium: TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+        color: textPrimaryDark,
       ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: inputBackgroundDark,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: borderDark),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: borderDark),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: primaryLight),
-        ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      bodyLarge: TextStyle(
+        fontSize: 15,
+        color: textPrimaryDark,
+        height: 1.6,
       ),
-      sliderTheme: const SliderThemeData(),
-      switchTheme: const SwitchThemeData(),
-    );
-  }
+      bodyMedium: TextStyle(
+        fontSize: 14,
+        color: textSecondaryDark,
+      ),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: inputBackgroundDark,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: borderDark),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: borderDark),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: primaryLight),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    ),
+    sliderTheme: const SliderThemeData(),
+    switchTheme: const SwitchThemeData(),
+  );
 }

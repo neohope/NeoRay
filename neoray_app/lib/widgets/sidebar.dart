@@ -122,17 +122,21 @@ class Sidebar extends ConsumerWidget {
   Widget _buildNewChatButton(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppDimensions.spacingLg),
-      child: ElevatedButton.icon(
-        onPressed: onNewChat,
-        icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text(AppStrings.defaultSessionTitle, style: TextStyle(color: Colors.white)),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppTheme.primary,
-          minimumSize: const Size(double.infinity, AppDimensions.buttonMinHeight),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppDimensions.borderRadiusMd),
+      child: Semantics(
+        label: AppStrings.defaultSessionTitle,
+        button: true,
+        child: ElevatedButton.icon(
+          onPressed: onNewChat,
+          icon: const Icon(Icons.add, color: Colors.white),
+          label: const Text(AppStrings.defaultSessionTitle, style: TextStyle(color: Colors.white)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.primary,
+            minimumSize: const Size(double.infinity, AppDimensions.buttonMinHeight),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppDimensions.borderRadiusMd),
+            ),
+            elevation: 0,
           ),
-          elevation: 0,
         ),
       ),
     );
