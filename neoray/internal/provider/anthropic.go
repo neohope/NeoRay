@@ -349,10 +349,10 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req *ChatRequest) (<
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			errBody, _ := io.ReadAll(resp.Body)
+			errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024)) // 64 KB max
 			_ = p.parseErrorResponse(errBody)
 			resultChan <- StreamChatResponse{
-				Error: fmt.Errorf("api error: %s, body: %s", resp.Status, string(errBody)),
+				Error: fmt.Errorf("api error: %s", resp.Status),
 			}
 			return
 		}

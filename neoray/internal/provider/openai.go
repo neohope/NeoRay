@@ -425,7 +425,7 @@ func (p *GenericProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		errBody, _ := io.ReadAll(resp.Body)
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024)) // 64 KB max
 		resp.Body.Close()
 		errResp := p.parseErrorResponse(errBody, resp.StatusCode)
 		resultChan := make(chan StreamChatResponse, 1)

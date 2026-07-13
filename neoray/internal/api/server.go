@@ -40,6 +40,7 @@ type rateLimiter struct {
 	mu       sync.Mutex
 	visitors map[string]*visitor
 	rate     int           // requests per window
+	burst    int           // max burst size (bucket capacity)
 	window   time.Duration // time window
 	stopCh   chan struct{} // signals the cleanup goroutine to exit
 }
@@ -49,10 +50,14 @@ type visitor struct {
 	lastSeen  time.Time
 }
 
-func newRateLimiter(rate int, window time.Duration) *rateLimiter {
+func newRateLimiter(rate int, burst int, window time.Duration) *rateLimiter {
+	if burst <= 0 {
+		burst = rate
+	}
 	rl := &rateLimiter{
 		visitors: make(map[string]*visitor),
 		rate:     rate,
+		burst:    burst,
 		window:   window,
 		stopCh:   make(chan struct{}),
 	}
@@ -88,7 +93,7 @@ func (rl *rateLimiter) allow(ip string) bool {
 
 	v, exists := rl.visitors[ip]
 	if !exists {
-		rl.visitors[ip] = &visitor{tokens: rl.rate - 1, lastSeen: time.Now()}
+		rl.visitors[ip] = &visitor{tokens: rl.burst - 1, lastSeen: time.Now()}
 		return true
 	}
 
@@ -96,8 +101,8 @@ func (rl *rateLimiter) allow(ip string) bool {
 	elapsed := time.Since(v.lastSeen)
 	v.lastSeen = time.Now()
 	v.tokens += int(elapsed.Seconds() * float64(rl.rate) / rl.window.Seconds())
-	if v.tokens > rl.rate {
-		v.tokens = rl.rate
+	if v.tokens > rl.burst {
+		v.tokens = rl.burst
 	}
 
 	if v.tokens <= 0 {
@@ -194,7 +199,7 @@ func NewServer(cfg *config.Config, aiAgent *agent.Agent, sessionMgr *session.Man
 			},
 		},
 		clients:     make(map[string]*Client),
-		rateLimiter: newRateLimiter(cfg.Security.RateLimit.RequestsPerMinute, time.Minute),
+		rateLimiter: newRateLimiter(cfg.Security.RateLimit.RequestsPerMinute, cfg.Security.RateLimit.Burst, time.Minute),
 	}
 
 	// 如果有消息总线，订阅出站消息
