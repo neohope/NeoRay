@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	crypto_rand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -609,7 +611,9 @@ type ListSessionsPayload struct {
 	UserID    string `json:"user_id"`
 }
 
-// generateClientID 生成客户端 ID
+// generateClientID 生成不可预测的客户端 ID
 func generateClientID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	b := make([]byte, 16)
+	_, _ = crypto_rand.Read(b)
+	return hex.EncodeToString(b)
 }

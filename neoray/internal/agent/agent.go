@@ -391,7 +391,10 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 
 	var totalToolCalls int
 	var iterations int
-	maxIterations := 10
+	maxIterations := a.cfg.Agent.MaxIterations
+	if maxIterations <= 0 {
+		maxIterations = 10
+	}
 
 	for iterations = 0; iterations < maxIterations; iterations++ {
 		select {

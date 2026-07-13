@@ -1,9 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
 	"fmt"
-	"strings"
 
 	"neoray/internal/config"
 	"neoray/internal/memory"
@@ -121,14 +119,6 @@ func (b *ContextBuilder) toProviderMessage(msg session.Message) provider.Message
 				Name:      tc.Name,
 				Arguments: tc.Arguments,
 			})
-		}
-	}
-
-	// 转换工具结果（如果是 tool 消息且格式是 JSON 数组）
-	if msg.Role == "tool" && strings.TrimSpace(msg.Content) != "" {
-		var toolResults []map[string]any
-		if err := json.Unmarshal([]byte(msg.Content), &toolResults); err == nil {
-			// 对于 tool 消息，保持原样，让 provider 处理格式转换
 		}
 	}
 

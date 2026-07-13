@@ -141,10 +141,8 @@ type AgentLoop struct {
 	transitions map[TurnState]map[StateEvent]TurnState
 
 	// 并发控制
-	running         bool
-	activeTasks     map[string][]func()
-	backgroundTasks []func()
-	sessionLocks    map[string]*sync.Mutex
+	running       bool
+	sessionLocks  map[string]*sync.Mutex
 	pendingQueues   map[string]chan *bus.InboundMessage
 	concurrencyGate chan struct{}
 
@@ -212,13 +210,12 @@ func NewAgentLoop(
 	opts ...AgentLoopOption,
 ) *AgentLoop {
 	al := &AgentLoop{
-		cfg:             cfg,
-		providerMgr:     providerMgr,
-		sessionMgr:      sessionMgr,
-		toolRegistry:    toolRegistry,
-		activeTasks:     make(map[string][]func()),
-		sessionLocks:    make(map[string]*sync.Mutex),
-		pendingQueues:   make(map[string]chan *bus.InboundMessage),
+		cfg:           cfg,
+		providerMgr:   providerMgr,
+		sessionMgr:    sessionMgr,
+		toolRegistry:  toolRegistry,
+		sessionLocks:  make(map[string]*sync.Mutex),
+		pendingQueues: make(map[string]chan *bus.InboundMessage),
 	}
 
 	// 创建指令管理器

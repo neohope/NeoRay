@@ -388,7 +388,8 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		})
 
 	case http.MethodPost:
-		// 创建会话
+		// 创建会话 — 限制请求体大小
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB
 		var req struct {
 			ChannelID string `json:"channel_id"`
 			UserID    string `json:"user_id"`
@@ -478,7 +479,8 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(sess)
 
 	case http.MethodPost:
-		// 发送聊天消息
+		// 发送聊天消息 — 限制请求体大小防止 DoS
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB
 		var req struct {
 			ChannelID string `json:"channel_id"`
 			UserID    string `json:"user_id"`

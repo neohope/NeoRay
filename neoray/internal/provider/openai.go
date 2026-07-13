@@ -326,24 +326,232 @@ func (p *GenericProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 		return nil, fmt.Errorf("%s api key not configured", p.name)
 	}
 
-	resultChan := make(chan StreamChatResponse)
+	// 转换消息格式 (same logic as Chat)
+	apiMsgs := make([]openaiMessage, 0, len(req.Messages))
+	for _, msg := range req.Messages {
+		if msg.Role == "tool" {
+			var toolResponses []map[string]interface{}
+			if json.Unmarshal([]byte(msg.Content), &toolResponses) == nil {
+				for _, tr := range toolResponses {
+					if toolUseID, _ := tr["tool_use_id"].(string); toolUseID != "" {
+						content, _ := tr["content"].(string)
+						apiMsgs = append(apiMsgs, openaiMessage{
+							Role:       "tool",
+							Content:    content,
+							ToolCallID: toolUseID,
+						})
+					}
+				}
+			} else {
+				apiMsgs = append(apiMsgs, openaiMessage{
+					Role:    msg.Role,
+					Content: msg.Content,
+				})
+			}
+		} else {
+			var oaiToolCalls []openaiToolCallItem
+			for _, tc := range msg.ToolCalls {
+				oaiToolCalls = append(oaiToolCalls, openaiToolCallItem{
+					ID:   tc.ID,
+					Type: "function",
+					Function: openaiToolCallFunction{
+						Name:      tc.Name,
+						Arguments: tc.Arguments,
+					},
+				})
+			}
+			apiMsgs = append(apiMsgs, openaiMessage{
+				Role:      msg.Role,
+				Content:   msg.Content,
+				ToolCalls: oaiToolCalls,
+			})
+		}
+	}
 
-	// 先尝试用非流式实现
+	// 构建工具
+	var apiTools []openaiTool
+	for _, tool := range req.Tools {
+		schema, ok := tool.InputSchema.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		apiTools = append(apiTools, openaiTool{
+			Type: "function",
+			Function: openaiFunction{
+				Name:        tool.Name,
+				Description: tool.Description,
+				Parameters:  schema,
+			},
+		})
+	}
+
+	apiReq := &openaiRequest{
+		Model:       p.cfg.Model,
+		Messages:    apiMsgs,
+		Tools:       apiTools,
+		MaxTokens:   req.MaxTokens,
+		Temperature: req.Temperature,
+		Stream:      true,
+	}
+
+	if apiReq.MaxTokens == 0 {
+		apiReq.MaxTokens = p.generation.MaxTokens
+		if apiReq.MaxTokens == 0 {
+			apiReq.MaxTokens = p.cfg.MaxTokens
+		}
+	}
+	if apiReq.Temperature == 0 {
+		apiReq.Temperature = p.generation.Temperature
+		if apiReq.Temperature == 0 {
+			apiReq.Temperature = p.cfg.Temperature
+		}
+	}
+
+	body, err := json.Marshal(apiReq)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.cfg.APIURL+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
+
+	resp, err := p.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		errResp := p.parseErrorResponse(errBody, resp.StatusCode)
+		resultChan := make(chan StreamChatResponse, 1)
+		resultChan <- StreamChatResponse{
+			Content:      errResp.Content,
+			FinishReason: "error",
+			Error:        fmt.Errorf("api error: %s", resp.Status),
+		}
+		close(resultChan)
+		return resultChan, nil
+	}
+
+	resultChan := make(chan StreamChatResponse)
 	go func() {
 		defer close(resultChan)
-		resp, err := p.Chat(ctx, req)
-		if err != nil {
-			resultChan <- StreamChatResponse{Error: err}
-			return
-		}
-		resultChan <- StreamChatResponse{
-			Content:      resp.Content,
-			ToolCalls:    resp.ToolCalls,
-			FinishReason: resp.FinishReason,
-		}
+		defer resp.Body.Close()
+
+		p.streamSSE(ctx, resp.Body, resultChan)
 	}()
 
 	return resultChan, nil
+}
+
+// streamSSE parses Server-Sent Events from the response body and sends chunks.
+func (p *GenericProvider) streamSSE(ctx context.Context, body io.Reader, ch chan<- StreamChatResponse) {
+	buf := make([]byte, 0, 4096)
+	tmp := make([]byte, 1024)
+	currentData := ""
+
+	for {
+		select {
+		case <-ctx.Done():
+			ch <- StreamChatResponse{Error: ctx.Err()}
+			return
+		default:
+		}
+
+		n, err := body.Read(tmp)
+		if n > 0 {
+			buf = append(buf, tmp[:n]...)
+		}
+
+		// Process complete lines
+		for {
+			idx := bytes.IndexByte(buf, '\n')
+			if idx < 0 {
+				break
+			}
+			line := buf[:idx]
+			buf = buf[idx+1:]
+
+			// Trim \r
+			if len(line) > 0 && line[len(line)-1] == '\r' {
+				line = line[:len(line)-1]
+			}
+
+			lineStr := string(line)
+
+			if len(lineStr) > 6 && lineStr[:6] == "data: " {
+				data := lineStr[6:]
+				if data == "[DONE]" {
+					ch <- StreamChatResponse{FinishReason: "stop"}
+					return
+				}
+				currentData = data
+			} else if lineStr == "" && currentData != "" {
+				// Empty line signals end of event — process currentData
+				p.processStreamChunk(currentData, ch)
+				currentData = ""
+			}
+		}
+
+		if err != nil {
+			if err != io.EOF {
+				ch <- StreamChatResponse{Error: err}
+			}
+			// Process any remaining data
+			if currentData != "" {
+				p.processStreamChunk(currentData, ch)
+			}
+			return
+		}
+	}
+}
+
+// processStreamChunk parses a single SSE data chunk and sends it to the channel.
+func (p *GenericProvider) processStreamChunk(data string, ch chan<- StreamChatResponse) {
+	var chunk struct {
+		Choices []struct {
+			Delta struct {
+				Content   string `json:"content"`
+				ToolCalls []struct {
+					Index    int `json:"index"`
+					ID       string `json:"id,omitempty"`
+					Type     string `json:"type,omitempty"`
+					Function struct {
+						Name      string `json:"name,omitempty"`
+						Arguments string `json:"arguments,omitempty"`
+					} `json:"function,omitempty"`
+				} `json:"tool_calls,omitempty"`
+			} `json:"delta"`
+			FinishReason *string `json:"finish_reason"`
+		} `json:"choices"`
+	}
+
+	if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+		logger.Debug("Failed to parse stream chunk", logger.String("data", data), logger.ErrorField(err))
+		return
+	}
+
+	for _, choice := range chunk.Choices {
+		resp := StreamChatResponse{
+			Content: choice.Delta.Content,
+		}
+		if choice.FinishReason != nil {
+			resp.FinishReason = *choice.FinishReason
+		}
+		for _, tc := range choice.Delta.ToolCalls {
+			resp.ToolCalls = append(resp.ToolCalls, ToolCall{
+				ID:        tc.ID,
+				Name:      tc.Function.Name,
+				Arguments: tc.Function.Arguments,
+			})
+		}
+		ch <- resp
+	}
 }
 
 // handleError 处理错误

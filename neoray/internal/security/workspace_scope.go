@@ -526,7 +526,15 @@ func getProviderLabel(provider string) string {
 	if label, ok := providerLabels[provider]; ok {
 		return label
 	}
-	return strings.Title(strings.ReplaceAll(provider, "_", " "))
+	// strings.Title is deprecated; implement simple title-casing.
+	s := strings.ReplaceAll(provider, "_", " ")
+	parts := strings.Fields(s)
+	for i, w := range parts {
+		if len(w) > 0 {
+			parts[i] = strings.ToUpper(w[:1]) + strings.ToLower(w[1:])
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func normalizeAccessMode(value string) WorkspaceAccessMode {
