@@ -1029,15 +1029,22 @@ func (a *Agent) handleFallbackStream(
 				break
 			}
 
-			// 流式输出续轮内容
-			for _, c := range contResp.Content {
+			// 流式输出续轮内容 — 按块发送，避免逐字符 5ms 延迟
+			const chunkSize = 64
+			runes := []rune(contResp.Content)
+			for i := 0; i < len(runes); i += chunkSize {
 				select {
 				case <-ctx.Done(): return true, ctx.Err()
-				case <-time.After(5 * time.Millisecond):
-					if !sendChunk(ctx, resultChan, StreamChunk{Type: "text", Content: string(c)}) {
-						return true, ctx.Err()
-					}
-					if err := a.hook.OnStreamDelta(ctx, string(c)); err != nil { logger.Warn("Hook OnStreamDelta failed", logger.ErrorField(err)) }
+				default:
+				}
+				end := i + chunkSize
+				if end > len(runes) { end = len(runes) }
+				chunk := string(runes[i:end])
+				if !sendChunk(ctx, resultChan, StreamChunk{Type: "text", Content: chunk}) {
+					return true, ctx.Err()
+				}
+				if err := a.hook.OnStreamDelta(ctx, chunk); err != nil {
+					logger.Warn("Hook OnStreamDelta failed", logger.ErrorField(err))
 				}
 			}
 

@@ -698,7 +698,7 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 		resp, err := al.callLLMWithRetry(ctx, p, req)
 		if err != nil {
 			logger.Error("LLM call failed after retries", logger.ErrorField(err), logger.Int("iteration", iterations+1))
-			errMsg := fmt.Sprintf("I'm having trouble connecting to the AI service right now. Error: %v", err)
+			errMsg := "I'm having trouble connecting to the AI service right now. Please try again later."
 			turnCtx.FinalContent = errMsg
 			return StateEventOK, nil
 		}

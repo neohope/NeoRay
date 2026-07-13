@@ -262,8 +262,8 @@ func (p *GenericProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 		return errResp, fmt.Errorf("api error: %s", resp.Status)
 	}
 
-	// 读取响应体
-	respBody, _ := io.ReadAll(resp.Body)
+	// 读取响应体（限制 10 MB，防止恶意响应耗尽内存）
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	logger.Debug("API response received", logger.Int("body_bytes", len(respBody)))
 
 	var apiResp openaiResponse

@@ -25,8 +25,9 @@ import (
 )
 
 const (
-	feishuDomain = "https://open.feishu.cn"
-	larkDomain   = "https://open.larksuite.com"
+	feishuDomain      = "https://open.feishu.cn"
+	larkDomain        = "https://open.larksuite.com"
+	maxFeishuBodySize = 10 * 1024 * 1024 // 10 MB max response body
 )
 
 var (
@@ -247,7 +248,7 @@ func (f *FeishuChannel) fetchBotOpenID() error {
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
 
 	var result struct {
 		Code int    `json:"code"`
@@ -359,7 +360,7 @@ func (f *FeishuChannel) sendTextMessage(ctx context.Context, receiveID, message 
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
 	var result struct {
 		Code int    `json:"code"`
 		Msg  string `json:"msg"`
@@ -653,7 +654,7 @@ func (f *FeishuChannel) addReaction(messageID, emojiType string) (string, error)
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
 
 	var result struct {
 		Code int    `json:"code"`
@@ -701,7 +702,7 @@ func (f *FeishuChannel) removeReaction(messageID, reactionID string) error {
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
 
 	var result struct {
 		Code int    `json:"code"`
@@ -1155,7 +1156,7 @@ func (f *FeishuChannel) getMessageContent(messageID string) string {
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
 
 	var result struct {
 		Code int    `json:"code"`
@@ -1479,7 +1480,7 @@ func (f *FeishuChannel) downloadImage(messageID, imageKey string) ([]byte, strin
 		return nil, "", fmt.Errorf("download failed: %d", resp.StatusCode)
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
 	if err != nil {
 		return nil, "", err
 	}
@@ -1527,7 +1528,7 @@ func (f *FeishuChannel) downloadFile(messageID, fileKey, resourceType string) ([
 		return nil, "", fmt.Errorf("download failed: %d", resp.StatusCode)
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
 	if err != nil {
 		return nil, "", err
 	}
@@ -1581,7 +1582,7 @@ func (f *FeishuChannel) uploadImage(ctx context.Context, filePath string) (strin
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
 
 	var result struct {
 		Code int    `json:"code"`
@@ -1653,7 +1654,7 @@ func (f *FeishuChannel) uploadFile(ctx context.Context, filePath string) (string
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
 
 	var result struct {
 		Code int    `json:"code"`
@@ -1711,7 +1712,7 @@ func (f *FeishuChannel) createMessage(ctx context.Context, receiveIDType, receiv
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
 	var result struct {
 		Code int    `json:"code"`
 		Msg  string `json:"msg"`
@@ -1776,7 +1777,7 @@ func (f *FeishuChannel) replyMessage(ctx context.Context, messageID, msgType, co
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
 	var result struct {
 		Code int    `json:"code"`
 		Msg  string `json:"msg"`
@@ -1839,7 +1840,7 @@ func (f *FeishuChannel) createStreamingCard(ctx context.Context, receiveIDType, 
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
 
 	var result struct {
 		Code int    `json:"code"`
@@ -1915,7 +1916,7 @@ func (f *FeishuChannel) streamUpdateText(ctx context.Context, cardID, content st
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
 
 	var result struct {
 		Code int    `json:"code"`
@@ -1972,7 +1973,7 @@ func (f *FeishuChannel) closeStreamingMode(ctx context.Context, cardID string, s
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
 
 	var result struct {
 		Code int    `json:"code"`

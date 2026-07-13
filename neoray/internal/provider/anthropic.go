@@ -253,14 +253,14 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatRe
 
 	// 检查响应状态
 	if resp.StatusCode != http.StatusOK {
-		errBody, _ := io.ReadAll(resp.Body)
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024)) // 64 KB max
 		errResp := p.parseErrorResponse(errBody)
 		errResp.ErrorStatusCode = resp.StatusCode
 		return errResp, fmt.Errorf("api error: %s", resp.Status)
 	}
 
-	// 读取响应
-	respBody, err := io.ReadAll(resp.Body)
+	// 读取响应（限制 10 MB，防止恶意响应耗尽内存）
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}

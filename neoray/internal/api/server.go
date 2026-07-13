@@ -194,7 +194,7 @@ func NewServer(cfg *config.Config, aiAgent *agent.Agent, sessionMgr *session.Man
 			},
 		},
 		clients:     make(map[string]*Client),
-		rateLimiter: newRateLimiter(60, time.Minute), // 60 requests per minute per IP
+		rateLimiter: newRateLimiter(cfg.Security.RateLimit.RequestsPerMinute, time.Minute),
 	}
 
 	// 如果有消息总线，订阅出站消息

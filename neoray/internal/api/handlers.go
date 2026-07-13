@@ -596,7 +596,11 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case http.MethodDelete:
-		// 删除会话
+		// 删除会话 — 先验证权限
+		if _, err := s.sessionMgr.GetSessionWithValidation(sessionID, channelID, userID); err != nil {
+			http.Error(w, `{"error":"Session not found or access denied"}`, http.StatusNotFound)
+			return
+		}
 		if err := s.sessionMgr.DeleteSession(sessionID); err != nil {
 			http.Error(w, `{"error":"Failed to delete session"}`, http.StatusInternalServerError)
 			return
