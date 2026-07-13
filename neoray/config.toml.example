@@ -138,8 +138,10 @@ streaming = true
 
 [security]
 [security.auth]
-enabled = false
-secret_key = "your-secret-key-here"
+enabled = true
+# IMPORTANT: Generate a strong random secret before deploying!
+# Example: openssl rand -hex 32
+secret_key = ""
 jwt_expiry = 86400
 
 [security.rate_limit]
@@ -176,7 +178,8 @@ path = "~/.neoray/data/neoray.db"
 host = "localhost"
 port = 5432
 user = "neoray"
-password = "neoray"
+# IMPORTANT: Change this before deploying!
+password = ""
 dbname = "neoray"
 sslmode = "disable"
 

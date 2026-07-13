@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 // SandboxBackend 定义了沙盒后端接口
@@ -171,13 +172,16 @@ func (r *SandboxRegistry) AvailableBackends() []string {
 	return backends
 }
 
-// globalSandboxRegistry 全局沙盒注册表（懒加载）
-var globalSandboxRegistry *SandboxRegistry
+// globalSandboxRegistry 全局沙盒注册表（懒加载，线程安全）
+var (
+	globalSandboxRegistry *SandboxRegistry
+	sandboxOnce           sync.Once
+)
 
 // GetSandboxRegistry 获取全局沙盒注册表
 func GetSandboxRegistry(mediaDir string) *SandboxRegistry {
-	if globalSandboxRegistry == nil {
+	sandboxOnce.Do(func() {
 		globalSandboxRegistry = NewSandboxRegistry(mediaDir)
-	}
+	})
 	return globalSandboxRegistry
 }

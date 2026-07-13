@@ -138,7 +138,7 @@ temp_dir = "tmp/uploads"
 
 # 工作区限制配置
 # 当设置为 true 时，所有工具访问将被限制在工作区目录内
-restrict_to_workspace = false
+restrict_to_workspace = true
 
 # WebUI 本地服务访问配置
 # 当设置为 true 时，允许 WebUI Full Access 模式访问本地服务

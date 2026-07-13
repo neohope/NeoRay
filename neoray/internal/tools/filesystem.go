@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"neoray/internal/config"
 	"neoray/internal/logger"
@@ -200,14 +201,25 @@ func (t *FileSystemTool) listDir(path string) (json.RawMessage, error) {
 }
 
 func (t *FileSystemTool) deleteFile(path string) (json.RawMessage, error) {
-	if err := os.Remove(path); err != nil {
-		return nil, fmt.Errorf("delete file: %w", err)
+	// Soft-delete: move to .trash directory instead of permanent removal
+	trashDir := filepath.Join(t.workspace, ".trash")
+	if err := os.MkdirAll(trashDir, 0755); err != nil {
+		return nil, fmt.Errorf("create trash dir: %w", err)
+	}
+
+	// Generate unique name in trash to avoid collisions
+	baseName := filepath.Base(path)
+	destPath := filepath.Join(trashDir, fmt.Sprintf("%d_%s", time.Now().UnixNano(), baseName))
+
+	if err := os.Rename(path, destPath); err != nil {
+		return nil, fmt.Errorf("move to trash: %w", err)
 	}
 
 	result := map[string]any{
-		"success": true,
-		"path":    path,
-		"message": "File deleted successfully",
+		"success":    true,
+		"path":       path,
+		"trash_path": destPath,
+		"message":    "File moved to .trash directory. Permanent deletion requires explicit confirmation.",
 	}
 	return json.Marshal(result)
 }

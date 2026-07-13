@@ -257,9 +257,9 @@ func (p *GenericProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		errBody, _ := io.ReadAll(resp.Body)
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024)) // 64 KB max for error bodies
 		errResp := p.parseErrorResponse(errBody, resp.StatusCode)
-		return errResp, fmt.Errorf("api error: %s, body: %s", resp.Status, string(errBody))
+		return errResp, fmt.Errorf("api error: %s", resp.Status)
 	}
 
 	// 读取响应体

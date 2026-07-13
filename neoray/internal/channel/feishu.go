@@ -499,6 +499,8 @@ func (f *FeishuChannel) sendMessageWithFormat(ctx context.Context, msg bus.Outbo
 func (f *FeishuChannel) sendStreamDelta(ctx context.Context, chatID string, delta string, metadata map[string]interface{}) error {
 	streamKey := f.streamKey(chatID, metadata)
 
+	// Hold the lock for the entire buffer mutation + read-snapshot to prevent
+	// interleaved writes from other goroutines between unlock/lock gaps.
 	f.mu.Lock()
 	buf := f.streamBufs[streamKey]
 	if buf == nil {
@@ -509,16 +511,17 @@ func (f *FeishuChannel) sendStreamDelta(ctx context.Context, chatID string, delt
 	text := buf.text
 	cardID := buf.cardID
 	lastEdit := buf.lastEdit
-	f.mu.Unlock()
 
 	if strings.TrimSpace(text) == "" {
+		f.mu.Unlock()
 		return nil
 	}
 
 	now := float64(time.Now().UnixNano()) / 1e9
 	if cardID == "" {
-		receiveIDType := f.receiveIDType(chatID)
+		f.mu.Unlock()
 
+		receiveIDType := f.receiveIDType(chatID)
 		replyMsgID := ""
 		if metadata != nil {
 			if msgID, ok := metadata["message_id"].(string); ok {
@@ -534,27 +537,18 @@ func (f *FeishuChannel) sendStreamDelta(ctx context.Context, chatID string, delt
 		f.mu.Lock()
 		buf.cardID = newCardID
 		buf.sequence = 1
-		f.streamBufs[streamKey] = buf
+		buf.lastEdit = now
 		f.mu.Unlock()
 
 		_ = f.streamUpdateText(ctx, newCardID, text, 1)
-
-		f.mu.Lock()
-		buf.lastEdit = now
-		f.streamBufs[streamKey] = buf
-		f.mu.Unlock()
 	} else if now-lastEdit >= 0.5 {
-		f.mu.Lock()
 		buf.sequence++
 		newSeq := buf.sequence
-		f.streamBufs[streamKey] = buf
+		buf.lastEdit = now
 		f.mu.Unlock()
 
 		_ = f.streamUpdateText(ctx, cardID, text, newSeq)
-
-		f.mu.Lock()
-		buf.lastEdit = now
-		f.streamBufs[streamKey] = buf
+	} else {
 		f.mu.Unlock()
 	}
 

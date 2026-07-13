@@ -31,6 +31,9 @@ type Manager struct {
 	msgBus     *bus.MessageBus
 	channels   map[string]Channel
 	mu         sync.RWMutex
+
+	// Track subscriptions for cleanup
+	outChans map[string]chan *bus.OutboundMessage
 }
 
 // NewManager 创建频道管理器
@@ -41,6 +44,7 @@ func NewManager(cfg *config.Config, aiAgent *agent.Agent, sessionMgr *session.Ma
 		sessionMgr: sessionMgr,
 		msgBus:     msgBus,
 		channels:   make(map[string]Channel),
+		outChans:   make(map[string]chan *bus.OutboundMessage),
 	}
 }
 
@@ -86,19 +90,21 @@ func (m *Manager) subscribeToBus() {
 
 		// 创建订阅通道
 		outChan := make(chan *bus.OutboundMessage, 50)
+		subID := "channel_" + chName
 
 		// 订阅总线
-		if err := m.msgBus.SubscribeOutbound("channel_"+chName, outChan); err != nil {
+		if err := m.msgBus.SubscribeOutbound(subID, outChan); err != nil {
 			logger.Warn("Failed to subscribe channel to bus",
 				logger.String("channel", chName),
 				logger.ErrorField(err))
 			continue
 		}
 
+		m.outChans[chName] = outChan
+
 		// 启动协程处理出站消息
 		go func() {
 			for msg := range outChan {
-				// 只处理目标是本频道的消息，或者没有指定频道的消息（广播）
 				if msg.ChannelID == "" || msg.ChannelID == chName {
 					ctx := context.Background()
 					if err := channel.Send(ctx, *msg); err != nil {
@@ -114,10 +120,10 @@ func (m *Manager) subscribeToBus() {
 	}
 }
 
-// StopAll 停止所有频道
+// StopAll 停止所有频道并清理订阅
 func (m *Manager) StopAll() {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	for name, ch := range m.channels {
 		logger.Info("Stopping channel", logger.String("name", name))
@@ -128,6 +134,14 @@ func (m *Manager) StopAll() {
 			)
 		}
 	}
+
+	// Unsubscribe and close all bus channels to stop goroutines
+	for chName, outChan := range m.outChans {
+		subID := "channel_" + chName
+		m.msgBus.UnsubscribeOutbound(subID)
+		close(outChan)
+	}
+	m.outChans = make(map[string]chan *bus.OutboundMessage)
 }
 
 // GetChannel 获取频道

@@ -41,6 +41,7 @@ type rateLimiter struct {
 	visitors map[string]*visitor
 	rate     int           // requests per window
 	window   time.Duration // time window
+	stopCh   chan struct{} // signals the cleanup goroutine to exit
 }
 
 type visitor struct {
@@ -53,22 +54,32 @@ func newRateLimiter(rate int, window time.Duration) *rateLimiter {
 		visitors: make(map[string]*visitor),
 		rate:     rate,
 		window:   window,
+		stopCh:   make(chan struct{}),
 	}
-	// Cleanup stale entries periodically
 	go func() {
 		ticker := time.NewTicker(window * 2)
 		defer ticker.Stop()
-		for range ticker.C {
-			rl.mu.Lock()
-			for ip, v := range rl.visitors {
-				if time.Since(v.lastSeen) > window*2 {
-					delete(rl.visitors, ip)
+		for {
+			select {
+			case <-rl.stopCh:
+				return
+			case <-ticker.C:
+				rl.mu.Lock()
+				for ip, v := range rl.visitors {
+					if time.Since(v.lastSeen) > window*2 {
+						delete(rl.visitors, ip)
+					}
 				}
+				rl.mu.Unlock()
 			}
-			rl.mu.Unlock()
 		}
 	}()
 	return rl
+}
+
+// stop terminates the background cleanup goroutine.
+func (rl *rateLimiter) stop() {
+	close(rl.stopCh)
 }
 
 func (rl *rateLimiter) allow(ip string) bool {
@@ -163,7 +174,23 @@ func NewServer(cfg *config.Config, aiAgent *agent.Agent, sessionMgr *session.Man
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 			CheckOrigin: func(r *http.Request) bool {
-				return true // 允许所有来源，生产环境应限制
+				origin := r.Header.Get("Origin")
+				if origin == "" {
+					return true // Same-origin or non-browser client
+				}
+				allowedOrigins := cfg.Server.CORS.AllowedOrigins
+				if len(allowedOrigins) == 0 {
+					return strings.HasPrefix(origin, "http://localhost") ||
+						strings.HasPrefix(origin, "https://localhost") ||
+						strings.HasPrefix(origin, "http://127.0.0.1") ||
+						strings.HasPrefix(origin, "https://127.0.0.1")
+				}
+				for _, allowed := range allowedOrigins {
+					if origin == allowed {
+						return true
+					}
+				}
+				return false
 			},
 		},
 		clients:     make(map[string]*Client),
@@ -290,6 +317,11 @@ func (s *Server) publishToBus(msg *bus.InboundMessage) error {
 func (s *Server) Stop(ctx context.Context) error {
 	logger.Info("API server stopping")
 
+	// Stop rate limiter cleanup goroutine
+	if s.rateLimiter != nil {
+		s.rateLimiter.stop()
+	}
+
 	// 关闭所有客户端连接
 	s.clientsMu.Lock()
 	for _, client := range s.clients {
@@ -358,17 +390,32 @@ func (s *Server) wrapMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// corsMiddleware CORS 中间件
+// corsMiddleware CORS 中间件 — 只反射受信 origin，不反射任意请求 origin。
 func (s *Server) corsMiddleware(w http.ResponseWriter, r *http.Request) {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
-		origin = "*"
+		// Same-origin request — no CORS header needed
+		return
+	}
+
+	allowedOrigins := s.cfg.Server.CORS.AllowedOrigins
+	allowed := false
+	for _, o := range allowedOrigins {
+		if origin == o {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return
 	}
 
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	if s.cfg.Server.CORS.AllowCredentials {
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+	}
 	w.Header().Set("Access-Control-Max-Age", "86400")
 }
 

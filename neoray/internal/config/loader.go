@@ -190,13 +190,14 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("channels.feishu.streaming", true)
 
 	// Security
-	v.SetDefault("security.auth.enabled", false)
+	v.SetDefault("security.auth.enabled", true)
 	v.SetDefault("security.rate_limit.enabled", true)
 	v.SetDefault("security.rate_limit.requests_per_minute", 60)
 	v.SetDefault("security.rate_limit.burst", 100)
 	v.SetDefault("security.upload.enabled", true)
 	v.SetDefault("security.upload.max_size", 10485760)
 	v.SetDefault("security.upload.temp_dir", "tmp/uploads")
+	v.SetDefault("security.restrict_to_workspace", true)
 
 	// Skills
 	v.SetDefault("skills.enabled", true)

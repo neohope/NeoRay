@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"sync"
 	"time"
 
 	"neoray/internal/config"
@@ -16,11 +17,13 @@ import (
 
 // ShellTool Shell 执行工具
 type ShellTool struct {
-	cfg                *config.Config
-	workspace          string
-	timeout            time.Duration
-	sessionManager     *ExecSessionManager
-	sessionKey         string
+	cfg       *config.Config
+	workspace string
+	timeout   time.Duration
+
+	mu             sync.RWMutex
+	sessionManager *ExecSessionManager
+	sessionKey     string
 }
 
 // NewShellTool 创建 Shell 工具
@@ -52,11 +55,15 @@ func NewShellToolWithSessionManager(cfg *config.Config, mgr *ExecSessionManager)
 
 // SetSessionManager sets the session manager
 func (t *ShellTool) SetSessionManager(mgr *ExecSessionManager) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.sessionManager = mgr
 }
 
 // SetSessionKey sets the owner session key
 func (t *ShellTool) SetSessionKey(key string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.sessionKey = key
 }
 
@@ -94,7 +101,12 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 	}
 
 	// Check if we're in session mode
-	if params.YieldTimeMs > 0 && t.sessionManager != nil {
+	t.mu.RLock()
+	sessMgr := t.sessionManager
+	sessKey := t.sessionKey
+	t.mu.RUnlock()
+
+	if params.YieldTimeMs > 0 && sessMgr != nil {
 		execTimeout := t.timeout
 		if params.Timeout > 0 {
 			execTimeout = time.Duration(params.Timeout) * time.Second
@@ -108,7 +120,7 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 			logger.String("workspace", t.workspace),
 		)
 
-		sessionID, poll, err := t.sessionManager.Start(
+		sessionID, poll, err := sessMgr.Start(
 			ctx,
 			t.cfg,
 			params.Command,
@@ -116,7 +128,7 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 			execTimeout,
 			yieldMs,
 			maxOutput,
-			t.sessionKey,
+			sessKey,
 		)
 		if err != nil {
 			res, _ := json.Marshal(map[string]any{

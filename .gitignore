@@ -35,7 +35,23 @@ neoray_app/build/web/
 # Local agent state
 .claude/
 
-# 其他
+# 敏感文件
+*.env
+*.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# 数据库
 *.db
+*.sqlite
+*.sqlite3
+
+# 日志
 *.log
+
+# 其他
 .DS_Store

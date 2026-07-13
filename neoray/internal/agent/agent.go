@@ -38,10 +38,12 @@ type Agent struct {
 	spawnTool          *subagent.SpawnTool
 	runtimeState       *tools.RuntimeState
 	goalManager        *session.GoalManager
-	currentSession     *session.Session
 	fileStateStore     *tools.FileStateStore
 	execSessionManager *tools.ExecSessionManager
 	messageTool        *tools.MessageTool
+
+	mu             sync.RWMutex
+	currentSession *session.Session
 }
 
 // AgentOption Agent 配置选项
@@ -208,6 +210,8 @@ func NewAgent(
 
 	// 注册 long_task 和 complete_goal 工具
 	getSessionFunc := func() *session.Session {
+		a.mu.RLock()
+		defer a.mu.RUnlock()
 		return a.currentSession
 	}
 	longTaskTool := tools.NewLongTaskTool(a.goalManager, getSessionFunc)
@@ -260,7 +264,9 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 	startTime := time.Now()
 
 	// 设置当前会话
+	a.mu.Lock()
 	a.currentSession = sess
+	a.mu.Unlock()
 
 	// 为当前会话设置 FileStates
 	if a.fileStateStore != nil {
@@ -419,7 +425,7 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 		if err != nil {
 			logger.Error("LLM call failed after retries", logger.ErrorField(err), logger.Int("iteration", iterations+1))
 			if trace != nil { trace.AddError(err, fmt.Sprintf("LLM 调用失败 (迭代 %d)", iterations+1)) }
-			errMsg := fmt.Sprintf("I'm having trouble connecting to the AI service right now. Error: %v", err)
+			errMsg := "I'm having trouble connecting to the AI service right now. Please try again later."
 			assistantMsg := session.NewAssistantMessage("", "", "", errMsg)
 			sess.AddMessage(assistantMsg)
 			if saveErr := a.sessionMgr.SaveSession(sess); saveErr != nil {
@@ -634,7 +640,9 @@ func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput
 	resultChan := make(chan StreamChunk, 100)
 
 	// 设置当前会话
+	a.mu.Lock()
 	a.currentSession = sess
+	a.mu.Unlock()
 
 	// 为当前会话设置 FileStates
 	if a.fileStateStore != nil {
