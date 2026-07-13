@@ -77,7 +77,7 @@ type FeishuConfig struct {
 type FeishuChannel struct {
 	cfg                 *FeishuConfig
 	appConfig           *config.Config
-	agent               *agent.Agent
+	agent               agent.AgentInterface
 	sessionMgr          *session.Manager
 	tenantToken         string
 	tokenExpiry         time.Time
@@ -135,7 +135,7 @@ type streamBuf struct {
 	lastEdit float64
 }
 
-func NewFeishuChannel(cfg *FeishuConfig, appConfig *config.Config, aiAgent *agent.Agent, sessionMgr *session.Manager) *FeishuChannel {
+func NewFeishuChannel(cfg *FeishuConfig, appConfig *config.Config, aiAgent agent.AgentInterface, sessionMgr *session.Manager) *FeishuChannel {
 	return &FeishuChannel{
 		cfg:                 cfg,
 		appConfig:           appConfig,

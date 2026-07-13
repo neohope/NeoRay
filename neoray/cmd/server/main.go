@@ -331,19 +331,19 @@ func main() {
 	fmt.Println("Agent hooks configured")
 
 	fmt.Println("Creating agent...")
-	agentOpts := []agent.AgentOption{
-		agent.WithTokenManager(tokenManager),
-		agent.WithTraceManager(traceManager),
-		agent.WithMessageBus(msgBus),
-		agent.WithHook(hook),
+	agentOpts := []agent.AgentLoopOption{
+		agent.WithTokenManagerForLoop(tokenManager),
+		agent.WithTraceManagerForLoop(traceManager),
+		agent.WithMessageBusForLoop(msgBus),
+		agent.WithHookForLoop(hook),
 	}
 
 	if memoryManager != nil {
-		agentOpts = append(agentOpts, agent.WithMemoryManager(memoryManager))
+		agentOpts = append(agentOpts, agent.WithMemoryManagerForLoop(memoryManager))
 		logger.Info("Memory manager integrated into agent")
 	}
 
-	aiAgent := agent.NewAgent(
+	aiAgent := agent.NewAgentLoop(
 		cfg,
 		providerMgr,
 		sessionMgr,

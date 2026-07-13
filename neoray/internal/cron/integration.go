@@ -13,7 +13,7 @@ import (
 
 // CronIntegration integrates cron with Agent and MessageBus
 type CronIntegration struct {
-	agent          *agent.Agent
+	agent          agent.AgentInterface
 	sessionMgr     *session.Manager
 	msgBus         *bus.MessageBus
 	memoryManager *memory.MemoryManager
@@ -21,7 +21,7 @@ type CronIntegration struct {
 
 // NewCronIntegration creates the integration
 func NewCronIntegration(
-	a *agent.Agent,
+	a agent.AgentInterface,
 	sm *session.Manager,
 	mb *bus.MessageBus,
 ) *CronIntegration {

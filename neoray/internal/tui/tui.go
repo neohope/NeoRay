@@ -15,12 +15,12 @@ import (
 
 // TUI 文本用户界面
 type TUI struct {
-	agent   *agent.Agent
+	agent   agent.AgentInterface
 	sessMgr *session.Manager
 }
 
 // NewTUI 创建 TUI
-func NewTUI(aiAgent *agent.Agent, sessMgr *session.Manager) *TUI {
+func NewTUI(aiAgent agent.AgentInterface, sessMgr *session.Manager) *TUI {
 	return &TUI{
 		agent:   aiAgent,
 		sessMgr: sessMgr,
@@ -41,7 +41,7 @@ func (t *TUI) Run() error {
 
 // Model Bubble Tea Model
 type model struct {
-	agent     *agent.Agent
+	agent     agent.AgentInterface
 	session   *session.Session
 	textarea  textarea.Model
 	viewport  viewport.Model
@@ -88,7 +88,7 @@ var (
 			Bold(true)
 )
 
-func initialModel(aiAgent *agent.Agent, sess *session.Session) model {
+func initialModel(aiAgent agent.AgentInterface, sess *session.Session) model {
 	ta := textarea.New()
 	ta.Placeholder = "Type your message... (Ctrl+C to exit)"
 	ta.Focus()

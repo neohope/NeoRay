@@ -24,7 +24,7 @@ import (
 // Server API 服务器
 type Server struct {
 	cfg         *config.Config
-	agent       *agent.Agent
+	agent       agent.AgentInterface
 	sessionMgr  *session.Manager
 	channelMgr  *channel.Manager
 	msgBus      *bus.MessageBus
@@ -168,7 +168,7 @@ func (c *Client) GetSessionID() string {
 }
 
 // NewServer 创建 API 服务器
-func NewServer(cfg *config.Config, aiAgent *agent.Agent, sessionMgr *session.Manager, channelMgr *channel.Manager, msgBus *bus.MessageBus) *Server {
+func NewServer(cfg *config.Config, aiAgent agent.AgentInterface, sessionMgr *session.Manager, channelMgr *channel.Manager, msgBus *bus.MessageBus) *Server {
 	s := &Server{
 		cfg:        cfg,
 		agent:      aiAgent,

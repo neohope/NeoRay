@@ -137,6 +137,13 @@ type AgentLoop struct {
 	subagentManager *subagent.Manager
 	spawnTool       *subagent.SpawnTool
 
+	// 工具集成（从 Agent 迁移）
+	runtimeState       *tools.RuntimeState
+	goalManager        *session.GoalManager
+	fileStateStore     *tools.FileStateStore
+	execSessionManager *tools.ExecSessionManager
+	messageTool        *tools.MessageTool
+
 	// 状态转换表
 	transitions map[TurnState]map[StateEvent]TurnState
 
@@ -146,7 +153,8 @@ type AgentLoop struct {
 	pendingQueues   map[string]chan *bus.InboundMessage
 	concurrencyGate chan struct{}
 
-	mu sync.RWMutex
+	mu             sync.RWMutex
+	currentSession *session.Session
 }
 
 // AgentLoopOption 代理循环配置选项
@@ -249,6 +257,31 @@ func NewAgentLoop(
 	}
 	if al.continuationMgr == nil {
 		al.continuationMgr = NewContinuationManager() // 默认启用续轮
+	}
+
+	// 初始化运行时状态和工具（从 Agent 迁移）
+	al.runtimeState = tools.NewRuntimeState()
+	al.goalManager = session.NewGoalManager(al.sessionMgr, al.msgBus)
+	al.fileStateStore = tools.NewFileStateStore()
+	al.execSessionManager = tools.NewExecSessionManager()
+
+	// 注册额外工具
+	if al.toolRegistry != nil {
+		al.toolRegistry.Register(tools.NewWriteStdinToolWithSessionManager(al.cfg, al.execSessionManager))
+		al.toolRegistry.Register(tools.NewListExecSessionsToolWithSessionManager(al.cfg, al.execSessionManager))
+		al.messageTool = tools.NewMessageToolWithBus(al.cfg, al.msgBus)
+		al.toolRegistry.Register(al.messageTool)
+		al.toolRegistry.Register(tools.NewReflectionTool(al.runtimeState, true))
+		al.toolRegistry.Register(tools.NewLongTaskTool(al.goalManager, func() *session.Session {
+			al.mu.RLock()
+			defer al.mu.RUnlock()
+			return al.currentSession
+		}))
+		al.toolRegistry.Register(tools.NewCompleteGoalTool(al.goalManager, func() *session.Session {
+			al.mu.RLock()
+			defer al.mu.RUnlock()
+			return al.currentSession
+		}))
 	}
 
 	// 初始化子代理管理器
@@ -514,6 +547,13 @@ func (al *AgentLoop) processMessage(
 		logger.String("turn_id", turnCtx.TurnID),
 		logger.Int("states", len(turnCtx.Trace)))
 
+	// finishChat: Hook + 内存记录（确保 bus 路径也能记录）
+	if turnCtx.Session != nil && turnCtx.FinalContent != "" {
+		al.finishChat(ctx, turnCtx.Session, turnCtx.Msg.Content, &ChatResult{
+			Message: &session.Message{Role: "assistant", Content: turnCtx.FinalContent},
+		})
+	}
+
 	return turnCtx.Outbound, nil
 }
 
@@ -546,7 +586,14 @@ func (al *AgentLoop) stateRestore(ctx context.Context, turnCtx *TurnContext) (St
 func (al *AgentLoop) stateCompact(ctx context.Context, turnCtx *TurnContext) (StateEvent, error) {
 	logger.Debug("State: Compact", logger.String("session_key", turnCtx.SessionKey))
 
-	// TODO: 自动压缩逻辑
+	// 如果消息数量超过阈值，触发后台压缩
+	if al.memoryManager != nil && al.memoryManager.Store() != nil && len(turnCtx.Session.Messages) > 100 {
+		go func() {
+			if err := al.memoryManager.Store().CompactHistory(); err != nil {
+				logger.Warn("Background compaction failed", logger.ErrorField(err))
+			}
+		}()
+	}
 
 	return StateEventOK, nil
 }
@@ -630,9 +677,57 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateEvent, error) {
 	logger.Debug("State: Run", logger.String("session_key", turnCtx.SessionKey))
 
+	// Hook: BeforeIter
+	if err := al.hook.BeforeIter(ctx, turnCtx.Session); err != nil {
+		logger.Warn("Hook BeforeIter failed", logger.ErrorField(err))
+	}
+
 	if turnCtx.VisibleRunStartedAt == nil {
 		now := time.Now()
 		turnCtx.VisibleRunStartedAt = &now
+	}
+
+	// Per-session 工具接线（从 Agent.Chat 迁移）
+	al.mu.Lock()
+	al.currentSession = turnCtx.Session
+	al.mu.Unlock()
+
+	if al.fileStateStore != nil {
+		fileStates := al.fileStateStore.ForSession(turnCtx.Session.ID)
+		if tool, ok := al.toolRegistry.Get("filesystem"); ok {
+			if fsTool, ok := tool.(*tools.FileSystemTool); ok {
+				fsTool.SetFileStates(fileStates)
+			}
+		}
+		if tool, ok := al.toolRegistry.Get("apply_patch"); ok {
+			if patchTool, ok := tool.(*tools.ApplyPatchTool); ok {
+				patchTool.SetFileStates(fileStates)
+			}
+		}
+	}
+	if al.execSessionManager != nil {
+		if tool, ok := al.toolRegistry.Get("shell"); ok {
+			if shellTool, ok := tool.(*tools.ShellTool); ok {
+				shellTool.SetSessionManager(al.execSessionManager)
+				shellTool.SetSessionKey(turnCtx.Session.ID)
+			}
+		}
+		if tool, ok := al.toolRegistry.Get("write_stdin"); ok {
+			if writeTool, ok := tool.(*tools.WriteStdinTool); ok {
+				writeTool.SetSessionKey(turnCtx.Session.ID)
+			}
+		}
+		if tool, ok := al.toolRegistry.Get("list_exec_sessions"); ok {
+			if listTool, ok := tool.(*tools.ListExecSessionsTool); ok {
+				listTool.SetSessionKey(turnCtx.Session.ID)
+			}
+		}
+	}
+
+	// 创建 Trace
+	var trace *TraceSession
+	if al.traceManager.IsEnabled() {
+		trace = al.traceManager.GetOrCreateSession(turnCtx.Session.ID)
 	}
 
 	p, err := al.providerMgr.GetProvider(al.cfg.LLM.DefaultProvider)
@@ -643,6 +738,9 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 	if p == nil {
 		errMsg := "⚠️ No LLM provider configured! Please edit your config.toml and add an API key for Anthropic or OpenAI."
 		logger.Error("No LLM provider available", logger.String("default_provider", al.cfg.LLM.DefaultProvider))
+		if trace != nil {
+			trace.AddError(fmt.Errorf("no provider"), "Provider resolution")
+		}
 		turnCtx.FinalContent = errMsg
 		return StateEventOK, nil
 	}
@@ -695,9 +793,19 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 			logger.String("provider", p.Name()),
 			logger.Int("iteration", iterations+1))
 
+		llmStart := time.Now()
 		resp, err := al.callLLMWithRetry(ctx, p, req)
+		llmDuration := time.Since(llmStart)
+
+		if trace != nil && resp != nil && resp.Usage != nil {
+			trace.AddLLMCall(iterations+1, resp.Usage.InputTokens, resp.Usage.OutputTokens, llmDuration)
+		}
+
 		if err != nil {
 			logger.Error("LLM call failed after retries", logger.ErrorField(err), logger.Int("iteration", iterations+1))
+			if trace != nil {
+				trace.AddError(err, fmt.Sprintf("LLM call iteration %d", iterations+1))
+			}
 			errMsg := "I'm having trouble connecting to the AI service right now. Please try again later."
 			turnCtx.FinalContent = errMsg
 			return StateEventOK, nil
@@ -761,13 +869,16 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 
 		// 有工具调用，继续执行
 		totalToolCalls += len(resp.ToolCalls)
-		toolResponses := al.executeToolCalls(ctx, resp.ToolCalls, nil)
+		toolResponses := al.executeToolCalls(ctx, resp.ToolCalls, trace)
 		toolRespJSON, _ := json.Marshal(toolResponses)
 		toolMsg := session.NewToolMessage("", "", "", string(toolRespJSON))
 		turnCtx.Session.AddMessage(toolMsg)
 	}
 
 	logger.Warn("Max tool iterations reached")
+	if trace != nil {
+		trace.AddInfo("达到最大迭代次数", map[string]interface{}{"max_iterations": maxIterations})
+	}
 
 	// 生成最大迭代次数的提示消息
 	loader := templates.GetTemplateLoader()
@@ -917,6 +1028,494 @@ func (al *AgentLoop) getSessionLock(sessionKey string) *sync.Mutex {
 	return lock
 }
 
+// Chat 发送聊天消息（同步入口，替代 Agent.Chat）
+func (al *AgentLoop) Chat(ctx context.Context, sess *session.Session, userInput string) (*ChatResult, error) {
+	startTime := time.Now()
+
+	// Hook: BeforeIter
+	if err := al.hook.BeforeIter(ctx, sess); err != nil {
+		logger.Warn("Hook BeforeIter failed", logger.ErrorField(err))
+	}
+
+	// 跟踪活跃会话
+	if al.memoryManager != nil {
+		al.memoryManager.TrackSession(sess.ID)
+	}
+
+	// 构建 bus 消息
+	msg := &bus.InboundMessage{
+		ID:        fmt.Sprintf("chat:%d", time.Now().UnixNano()),
+		ChannelID: "cli",
+		ChatID:    "direct",
+		UserID:    "direct",
+		Content:   userInput,
+		Metadata:  make(map[string]interface{}),
+	}
+
+	sessionKey := sess.ID
+	lock := al.getSessionLock(sessionKey)
+	lock.Lock()
+	defer lock.Unlock()
+
+	// 创建 Trace
+	trace := al.traceManager.GetOrCreateSession(sess.ID)
+	if trace != nil {
+		trace.AddInfo(fmt.Sprintf("开始聊天: %s", sess.ID), nil)
+	}
+
+	// 通过状态机处理
+	outbound, err := al.processMessage(ctx, msg, sessionKey)
+	if err != nil {
+		return &ChatResult{
+			Error:      err,
+			TokenUsage: al.tokenManager.GetSessionUsage(sess.ID),
+			Iterations: 1,
+			Duration:   time.Since(startTime),
+			Trace:      trace,
+		}, nil
+	}
+
+	// 提取最终内容
+	finalContent := ""
+	if outbound != nil {
+		finalContent = outbound.Content
+	}
+
+	// 查找最后的 assistant 消息
+	var lastMsg *session.Message
+	for i := len(sess.Messages) - 1; i >= 0; i-- {
+		if sess.Messages[i].Role == "assistant" {
+			lastMsg = &sess.Messages[i]
+			break
+		}
+	}
+	if lastMsg == nil && finalContent != "" {
+		msg := session.NewAssistantMessage("", "", "", finalContent)
+		lastMsg = &msg
+	}
+
+	result := &ChatResult{
+		Message:    lastMsg,
+		TokenUsage: al.tokenManager.GetSessionUsage(sess.ID),
+		Trace:      trace,
+		Duration:   time.Since(startTime),
+	}
+
+	// finishChat: Hook + 内存记录
+	al.finishChat(ctx, sess, userInput, result)
+	return result, nil
+}
+
+// finishChat 完成聊天，调用 AfterIter Hook + 内存记录
+func (al *AgentLoop) finishChat(ctx context.Context, sess *session.Session, userInput string, result *ChatResult) {
+	if err := al.hook.AfterIter(ctx, sess, result); err != nil {
+		logger.Warn("Hook AfterIter failed", logger.ErrorField(err))
+	}
+
+	// 记录对话到记忆系统
+	if al.memoryManager != nil && result != nil && result.Message != nil {
+		if userInput != "" && result.Message.Content != "" {
+			if _, err := al.memoryManager.AppendHistory(userInput, result.Message.Content); err != nil {
+				logger.Warn("Failed to append to history", logger.ErrorField(err))
+			}
+		}
+	}
+}
+
+// ChatStream 发送聊天消息（流式入口，替代 Agent.ChatStream）
+func (al *AgentLoop) ChatStream(ctx context.Context, sess *session.Session, userInput string) (<-chan StreamChunk, error) {
+	resultChan := make(chan StreamChunk, 100)
+
+	// 设置当前会话
+	al.mu.Lock()
+	al.currentSession = sess
+	al.mu.Unlock()
+
+	// Per-session 工具接线
+	if al.fileStateStore != nil {
+		fileStates := al.fileStateStore.ForSession(sess.ID)
+		if tool, ok := al.toolRegistry.Get("filesystem"); ok {
+			if fsTool, ok := tool.(*tools.FileSystemTool); ok {
+				fsTool.SetFileStates(fileStates)
+			}
+		}
+		if tool, ok := al.toolRegistry.Get("apply_patch"); ok {
+			if patchTool, ok := tool.(*tools.ApplyPatchTool); ok {
+				patchTool.SetFileStates(fileStates)
+			}
+		}
+	}
+	if al.execSessionManager != nil {
+		if tool, ok := al.toolRegistry.Get("shell"); ok {
+			if shellTool, ok := tool.(*tools.ShellTool); ok {
+				shellTool.SetSessionManager(al.execSessionManager)
+				shellTool.SetSessionKey(sess.ID)
+			}
+		}
+		if tool, ok := al.toolRegistry.Get("write_stdin"); ok {
+			if writeTool, ok := tool.(*tools.WriteStdinTool); ok {
+				writeTool.SetSessionKey(sess.ID)
+			}
+		}
+		if tool, ok := al.toolRegistry.Get("list_exec_sessions"); ok {
+			if listTool, ok := tool.(*tools.ListExecSessionsTool); ok {
+				listTool.SetSessionKey(sess.ID)
+			}
+		}
+	}
+
+	// 先检查是否是指令
+	if al.cmdManager != nil {
+		if resp, isCmd, err := al.cmdManager.Process(ctx, sess, userInput); isCmd {
+			go func() {
+				defer close(resultChan)
+				var assistantMsg session.Message
+				if err != nil {
+					assistantMsg = session.NewAssistantMessage("", "", "", fmt.Sprintf("❌ Command error: %v", err))
+				} else {
+					assistantMsg = session.NewAssistantMessage("", "", "", resp)
+				}
+				sess.AddMessage(assistantMsg)
+				if saveErr := al.sessionMgr.SaveSession(sess); saveErr != nil {
+					logger.Error("Failed to save session", logger.ErrorField(saveErr))
+				}
+				sendChunk(ctx, resultChan, StreamChunk{Type: "end", Content: resp, SessionMsg: &assistantMsg})
+			}()
+			return resultChan, nil
+		}
+	}
+
+	// 跟踪活跃会话
+	if al.memoryManager != nil {
+		al.memoryManager.TrackSession(sess.ID)
+	}
+
+	// 设置 spawn 工具上下文
+	if al.spawnTool != nil {
+		al.spawnTool.SetOriginContext("cli", "direct", sess.ID, "")
+	}
+
+	userMsg := session.NewUserMessage("", "", "", userInput)
+	sess.AddMessage(userMsg)
+
+	if err := al.hook.BeforeStream(ctx, sess); err != nil {
+		logger.Warn("Hook BeforeStream failed", logger.ErrorField(err))
+	}
+
+	go func() {
+		defer close(resultChan)
+
+		var trace *TraceSession
+		if al.traceManager.IsEnabled() {
+			trace = al.traceManager.GetOrCreateSession(sess.ID)
+		}
+
+		p, err := al.providerMgr.GetProvider(al.cfg.LLM.DefaultProvider)
+		if err != nil || p == nil {
+			p = al.providerMgr.DefaultProvider()
+		}
+
+		if p == nil {
+			sendChunk(ctx, resultChan, StreamChunk{Type: "error", Error: fmt.Errorf("no LLM provider configured")})
+			return
+		}
+
+		var providerTools []provider.Tool
+		if al.toolRegistry != nil {
+			for _, def := range al.toolRegistry.GetDefinitions() {
+				var schema map[string]interface{}
+				_ = json.Unmarshal(def.InputSchema, &schema)
+				providerTools = append(providerTools, provider.Tool{Name: def.Name, Description: def.Description, InputSchema: schema})
+			}
+		}
+
+		maxIterations := al.cfg.Agent.MaxIterations
+		if maxIterations <= 0 {
+			maxIterations = 10
+		}
+
+		for iteration := 0; iteration < maxIterations; iteration++ {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			msgs := al.contextBuilder.BuildMessages(sess)
+			req := &provider.ChatRequest{
+				Messages: msgs, Tools: providerTools,
+			}
+
+			if streamProvider, ok := p.(provider.StreamToolProvider); ok {
+				done, err := al.handleNativeStreamTool(ctx, streamProvider, req, sess, resultChan, trace, providerTools)
+				if err != nil {
+					sendChunk(ctx, resultChan, StreamChunk{Type: "error", Error: err})
+					return
+				}
+				if done {
+					if err := al.hook.AfterStream(ctx, sess); err != nil {
+						logger.Warn("Hook AfterStream failed", logger.ErrorField(err))
+					}
+					return
+				}
+			} else {
+				done, err := al.handleFallbackStream(ctx, p, req, sess, resultChan, trace, providerTools)
+				if err != nil {
+					sendChunk(ctx, resultChan, StreamChunk{Type: "error", Error: err})
+					return
+				}
+				if done {
+					if err := al.hook.AfterStream(ctx, sess); err != nil {
+						logger.Warn("Hook AfterStream failed", logger.ErrorField(err))
+					}
+					return
+				}
+			}
+		}
+
+		logger.Warn("Max tool iterations reached in stream")
+		loader := templates.GetTemplateLoader()
+		var maxIterMsg string
+		if msg, err := loader.RenderTemplate("agent/max_iterations_message.md", map[string]string{
+			"max_iterations": fmt.Sprintf("%d", maxIterations),
+		}); err == nil {
+			maxIterMsg = msg
+		} else {
+			maxIterMsg = fmt.Sprintf("I reached the maximum number of tool call iterations (%d) without completing the task. You can try breaking the task into smaller steps.", maxIterations)
+		}
+		assistantMsg := session.NewAssistantMessage("", "", "", maxIterMsg)
+		sess.AddMessage(assistantMsg)
+		sendChunk(ctx, resultChan, StreamChunk{Type: "text", Content: maxIterMsg})
+		sendChunk(ctx, resultChan, StreamChunk{Type: "end", Content: maxIterMsg, SessionMsg: &assistantMsg})
+		if err := al.hook.AfterStream(ctx, sess); err != nil {
+			logger.Warn("Hook AfterStream failed", logger.ErrorField(err))
+		}
+	}()
+
+	return resultChan, nil
+}
+
+// handleNativeStreamTool 处理原生流式工具调用
+func (al *AgentLoop) handleNativeStreamTool(
+	ctx context.Context,
+	p provider.StreamToolProvider,
+	req *provider.ChatRequest,
+	sess *session.Session,
+	resultChan chan<- StreamChunk,
+	trace *TraceSession,
+	providerTools []provider.Tool,
+) (bool, error) {
+	stream, err := p.ChatStreamWithTools(ctx, req)
+	if err != nil {
+		return false, err
+	}
+
+	var fullContent string
+	var currentToolCalls []provider.ToolCall
+	var toolCallInProgress bool
+	var finishReason string
+
+	for chunk := range stream {
+		select {
+		case <-ctx.Done():
+			return true, ctx.Err()
+		default:
+		}
+
+		if chunk.Error != nil {
+			return false, chunk.Error
+		}
+
+		if chunk.Content != "" {
+			fullContent += chunk.Content
+			if !sendChunk(ctx, resultChan, StreamChunk{Type: "text", Content: chunk.Content}) {
+				return true, ctx.Err()
+			}
+			if err := al.hook.OnStreamDelta(ctx, chunk.Content); err != nil {
+				logger.Warn("Hook OnStreamDelta failed", logger.ErrorField(err))
+			}
+		}
+
+		if len(chunk.ToolCalls) > 0 && !toolCallInProgress {
+			toolCallInProgress = true
+			currentToolCalls = append(currentToolCalls, chunk.ToolCalls...)
+			if !sendChunk(ctx, resultChan, StreamChunk{Type: "tool_start", ToolCalls: chunk.ToolCalls}) {
+				return true, ctx.Err()
+			}
+		}
+
+		if chunk.FinishReason != "" {
+			finishReason = chunk.FinishReason
+			break
+		}
+	}
+
+	if len(currentToolCalls) > 0 {
+		assistantMsg := session.NewAssistantMessage("", "", "", fullContent)
+		assistantMsg.ToolCalls = make([]session.ToolCall, 0, len(currentToolCalls))
+		for _, tc := range currentToolCalls {
+			assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, session.ToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments})
+		}
+		sess.AddMessage(assistantMsg)
+
+		toolResponses := al.executeToolCalls(ctx, currentToolCalls, trace)
+		if !sendChunk(ctx, resultChan, StreamChunk{Type: "tool_result", ToolResults: toolResponses}) {
+			return true, ctx.Err()
+		}
+
+		toolRespJSON, _ := json.Marshal(toolResponses)
+		toolMsg := session.NewToolMessage("", "", "", string(toolRespJSON))
+		sess.AddMessage(toolMsg)
+		return false, nil
+	}
+
+	if fullContent != "" {
+		assistantMsg := session.NewAssistantMessage("", "", "", fullContent)
+		sess.AddMessage(assistantMsg)
+
+		if al.continuationMgr.IsTruncated(finishReason) {
+			al.streamContinuation(ctx, p, sess, providerTools, resultChan)
+			assistantMsg = sess.Messages[len(sess.Messages)-1]
+		}
+
+		if err := al.sessionMgr.SaveSession(sess); err != nil {
+			logger.Warn("Failed to save session", logger.ErrorField(err))
+		}
+		sendChunk(ctx, resultChan, StreamChunk{Type: "end", Content: assistantMsg.Content, SessionMsg: &assistantMsg})
+	}
+	return true, nil
+}
+
+// handleFallbackStream 处理回退流式（非流式 provider 模拟流式）
+func (al *AgentLoop) handleFallbackStream(
+	ctx context.Context,
+	p provider.Provider,
+	req *provider.ChatRequest,
+	sess *session.Session,
+	resultChan chan<- StreamChunk,
+	trace *TraceSession,
+	providerTools []provider.Tool,
+) (bool, error) {
+	resp, err := al.callLLMWithRetry(ctx, p, req)
+	if err != nil {
+		return false, err
+	}
+
+	if resp.Content != "" {
+		const chunkSize = 64
+		runes := []rune(resp.Content)
+		for i := 0; i < len(runes); i += chunkSize {
+			select {
+			case <-ctx.Done():
+				return true, ctx.Err()
+			default:
+			}
+			end := i + chunkSize
+			if end > len(runes) {
+				end = len(runes)
+			}
+			chunk := string(runes[i:end])
+			if !sendChunk(ctx, resultChan, StreamChunk{Type: "text", Content: chunk}) {
+				return true, ctx.Err()
+			}
+			if err := al.hook.OnStreamDelta(ctx, chunk); err != nil {
+				logger.Warn("Hook OnStreamDelta failed", logger.ErrorField(err))
+			}
+		}
+	}
+
+	if len(resp.ToolCalls) > 0 && al.toolRegistry != nil {
+		if !sendChunk(ctx, resultChan, StreamChunk{Type: "tool_start", ToolCalls: resp.ToolCalls}) {
+			return true, ctx.Err()
+		}
+
+		assistantMsg := session.NewAssistantMessage("", "", "", resp.Content)
+		assistantMsg.ToolCalls = make([]session.ToolCall, 0, len(resp.ToolCalls))
+		for _, tc := range resp.ToolCalls {
+			assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, session.ToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments})
+		}
+		sess.AddMessage(assistantMsg)
+
+		toolResponses := al.executeToolCalls(ctx, resp.ToolCalls, trace)
+		if !sendChunk(ctx, resultChan, StreamChunk{Type: "tool_result", ToolResults: toolResponses}) {
+			return true, ctx.Err()
+		}
+
+		toolRespJSON, _ := json.Marshal(toolResponses)
+		toolMsg := session.NewToolMessage("", "", "", string(toolRespJSON))
+		sess.AddMessage(toolMsg)
+		return false, nil
+	}
+
+	if resp.Content != "" {
+		assistantMsg := session.NewAssistantMessage("", "", "", resp.Content)
+		sess.AddMessage(assistantMsg)
+
+		if al.continuationMgr.IsTruncated(resp.FinishReason) {
+			al.streamContinuation(ctx, p, sess, providerTools, resultChan)
+			assistantMsg = sess.Messages[len(sess.Messages)-1]
+		}
+
+		if err := al.sessionMgr.SaveSession(sess); err != nil {
+			logger.Warn("Failed to save session", logger.ErrorField(err))
+		}
+		sendChunk(ctx, resultChan, StreamChunk{Type: "end", Content: assistantMsg.Content, SessionMsg: &assistantMsg})
+	}
+	return true, nil
+}
+
+// streamContinuation 处理流式续轮
+func (al *AgentLoop) streamContinuation(
+	ctx context.Context,
+	p provider.Provider,
+	sess *session.Session,
+	providerTools []provider.Tool,
+	resultChan chan<- StreamChunk,
+) {
+	var continuationCount int
+	var stillTruncated bool
+	for continuationCount = 0; al.continuationMgr.ShouldContinue(continuationCount); continuationCount++ {
+		contResp, truncated, contErr := al.continuationMgr.ExecuteContinuation(
+			ctx, p, sess, providerTools, al.callLLMWithRetry)
+		if contErr != nil {
+			logger.Warn("Stream continuation failed, stopping", logger.ErrorField(contErr))
+			break
+		}
+
+		const chunkSize = 64
+		contentRunes := []rune(contResp.Content)
+		for i := 0; i < len(contentRunes); i += chunkSize {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			end := i + chunkSize
+			if end > len(contentRunes) {
+				end = len(contentRunes)
+			}
+			chunk := string(contentRunes[i:end])
+			if !sendChunk(ctx, resultChan, StreamChunk{Type: "text", Content: chunk}) {
+				return
+			}
+			if err := al.hook.OnStreamDelta(ctx, chunk); err != nil {
+				logger.Warn("Hook OnStreamDelta failed", logger.ErrorField(err))
+			}
+		}
+
+		al.continuationMgr.MergeContinuation(sess, contResp.Content)
+		stillTruncated = truncated
+
+		if !stillTruncated {
+			break
+		}
+	}
+	if stillTruncated {
+		logger.Warn("Still truncated after max continuations in stream",
+			logger.Int("continuations", continuationCount))
+	}
+}
+
 // refreshProviderSnapshot 刷新提供者快照
 func (al *AgentLoop) refreshProviderSnapshot(ctx context.Context) context.Context {
 	// TODO: 实现提供者快照刷新逻辑
@@ -979,12 +1578,14 @@ func (al *AgentLoop) executeToolCalls(
 			toolCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
 
+			toolStart := time.Now()
 			result, err := al.toolRegistry.Execute(toolCtx, tc.Name, json.RawMessage(tc.Arguments))
+			toolDuration := time.Since(toolStart)
 
 			if err != nil {
 				logger.Warn("Tool execution failed", logger.String("tool", tc.Name), logger.ErrorField(err))
 				if trace != nil {
-					trace.AddToolCall(tc.Name, tc.ID, true, 0)
+					trace.AddToolCall(tc.Name, tc.ID, true, toolDuration)
 				}
 				mu.Lock()
 				toolResponses[idx] = map[string]interface{}{
@@ -995,7 +1596,7 @@ func (al *AgentLoop) executeToolCalls(
 				mu.Unlock()
 			} else {
 				if trace != nil {
-					trace.AddToolCall(tc.Name, tc.ID, false, 0)
+					trace.AddToolCall(tc.Name, tc.ID, false, toolDuration)
 				}
 				mu.Lock()
 				toolResponses[idx] = map[string]interface{}{

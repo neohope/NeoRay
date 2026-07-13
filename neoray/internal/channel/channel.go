@@ -26,7 +26,7 @@ type Channel interface {
 // Manager 频道管理器
 type Manager struct {
 	cfg        *config.Config
-	agent      *agent.Agent
+	agent      agent.AgentInterface
 	sessionMgr *session.Manager
 	msgBus     *bus.MessageBus
 	channels   map[string]Channel
@@ -37,7 +37,7 @@ type Manager struct {
 }
 
 // NewManager 创建频道管理器
-func NewManager(cfg *config.Config, aiAgent *agent.Agent, sessionMgr *session.Manager, msgBus *bus.MessageBus) *Manager {
+func NewManager(cfg *config.Config, aiAgent agent.AgentInterface, sessionMgr *session.Manager, msgBus *bus.MessageBus) *Manager {
 	return &Manager{
 		cfg:        cfg,
 		agent:      aiAgent,
