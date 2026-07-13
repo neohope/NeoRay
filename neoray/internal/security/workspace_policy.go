@@ -2,6 +2,7 @@ package security
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -167,6 +168,30 @@ func ResolveAllowedPath(
 	return resolved, nil
 }
 
+// windowsReservedNames lists Windows reserved device names (case-insensitive).
+var windowsReservedNames = []string{
+	"CON", "PRN", "AUX", "NUL",
+	"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+	"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+}
+
+// IsWindowsReservedName checks if a filename is a Windows reserved device name.
+// Reserved names are matched case-insensitively, with or without an extension
+// (e.g. CON, CON.txt, NUL, COM1 all match).
+func IsWindowsReservedName(name string) bool {
+	// Strip extension for matching: "CON.txt" -> "CON"
+	base := strings.ToUpper(name)
+	if dotIdx := strings.Index(base, "."); dotIdx != -1 {
+		base = base[:dotIdx]
+	}
+	for _, reserved := range windowsReservedNames {
+		if base == reserved {
+			return true
+		}
+	}
+	return false
+}
+
 // IsDevicePath checks if the path looks like a device file path.
 func IsDevicePath(path string) bool {
 	cleanPath := filepath.Clean(path)
@@ -179,9 +204,16 @@ func IsDevicePath(path string) bool {
 		}
 	}
 
-	// Windows device paths
+	// Windows device paths (\\.\, \\?\)
 	if strings.HasPrefix(cleanPath, "\\\\.\\") || strings.HasPrefix(cleanPath, "\\\\?\\") {
 		return true
+	}
+
+	// Windows reserved device names — check every path component
+	for _, component := range strings.Split(cleanPath, string(filepath.Separator)) {
+		if component != "" && IsWindowsReservedName(component) {
+			return true
+		}
 	}
 
 	return false
@@ -211,7 +243,40 @@ func ContainsPathTraversal(command string) bool {
 		return true
 	}
 
+	// Check for URL-encoded path traversal variants
+	lower := strings.ToLower(command)
+	if strings.Contains(lower, "%2e%2e%2f") || strings.Contains(lower, "%2e%2e/") ||
+		strings.Contains(lower, "..%2f") || strings.Contains(lower, "%2e%2e%5c") ||
+		strings.Contains(lower, "%2e%2e\\") || strings.Contains(lower, "..%5c") {
+		return true
+	}
+
+	// Check for double URL-encoded variants
+	if strings.Contains(lower, "%252e%252e%252f") || strings.Contains(lower, "%252e%252e%255c") {
+		return true
+	}
+
+	// Try full URL decoding to catch other encoding tricks
+	decoded, err := url.QueryUnescape(command)
+	if err == nil && decoded != command {
+		if strings.Contains(decoded, "../") || strings.Contains(decoded, "..\\") {
+			return true
+		}
+		if filepath.IsAbs(decoded) {
+			return true
+		}
+	}
+
 	return false
+}
+
+// shellMetaChars lists shell metacharacters that can chain or subvert commands.
+const shellMetaChars = "|&;$`\\(){}!<>*?[]~\"\n"
+
+// containsShellMeta returns true if the command contains shell metacharacters
+// that could be used to bypass path safety checks.
+func containsShellMeta(command string) bool {
+	return strings.ContainsAny(command, shellMetaChars)
 }
 
 // FilterCommandForPathSafety filters a command for potentially unsafe path access.
@@ -224,6 +289,13 @@ func FilterCommandForPathSafety(command string, workspace string) (string, error
 	// Check for device paths in the entire command
 	if ContainsDevicePath(command) {
 		return "", fmt.Errorf("command contains restricted device paths")
+	}
+
+	// Reject commands with shell metacharacters — strings.Fields cannot reliably
+	// split arguments when ; | & ` $() etc. are present, which lets an attacker
+	// smuggle a path past the per-token checks (e.g. "echo safe; cat /etc/passwd").
+	if containsShellMeta(command) {
+		return "", fmt.Errorf("command contains shell metacharacters that could bypass path safety")
 	}
 
 	// Split into parts to check

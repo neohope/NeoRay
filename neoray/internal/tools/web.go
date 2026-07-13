@@ -606,7 +606,7 @@ func (t *WebFetchTool) fetchReadability(urlStr string, extractMode string, maxCh
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			// Validate each redirect URL
 			allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(t.allowLocalService)
-			valid, errMsg := security.ValidateURLTarget(req.URL.String(), allowLoopback)
+			valid, errMsg, _ := security.ValidateURLTarget(req.URL.String(), allowLoopback)
 			if !valid {
 				return fmt.Errorf("redirect blocked: %s", errMsg)
 			}
@@ -630,7 +630,7 @@ func (t *WebFetchTool) fetchReadability(urlStr string, extractMode string, maxCh
 	finalURL := resp.Request.URL.String()
 	if finalURL != urlStr {
 		allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(t.allowLocalService)
-		valid, errMsg := security.ValidateURLTarget(finalURL, allowLoopback)
+		valid, errMsg, _ := security.ValidateURLTarget(finalURL, allowLoopback)
 		if !valid {
 			return &WebFetchResult{
 				URL:      urlStr,
@@ -719,7 +719,8 @@ func normalizeText(s string) string {
 
 func (t *WebFetchTool) validateURLSafe(urlStr string) (bool, string) {
 	allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(t.allowLocalService)
-	return security.ValidateURLTarget(urlStr, allowLoopback)
+	valid, errMsg, _ := security.ValidateURLTarget(urlStr, allowLoopback)
+	return valid, errMsg
 }
 
 func toMarkdownFunc(htmlContent string) string {

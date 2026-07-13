@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"neoray/internal/logger"
 )
 
 var (
@@ -42,16 +44,23 @@ func initBlockedNetworks() {
 	}
 }
 
-// ConfigureSSRFWhitelist configures the whitelist of CIDR ranges that bypass SSRF protection
+// ConfigureSSRFWhitelist configures the whitelist of CIDR ranges that bypass SSRF protection.
+// Invalid CIDR entries are logged as warnings rather than silently discarded.
 func ConfigureSSRFWhitelist(cidrs []string) {
 	netMu.Lock()
 	defer netMu.Unlock()
 
 	var newAllowed []netip.Prefix
 	for _, cidr := range cidrs {
-		if p, err := netip.ParsePrefix(cidr); err == nil {
-			newAllowed = append(newAllowed, p)
+		p, err := netip.ParsePrefix(cidr)
+		if err != nil {
+			logger.Warn("Ignoring invalid CIDR in SSRF whitelist",
+				logger.String("cidr", cidr),
+				logger.String("error", err.Error()),
+			)
+			continue
 		}
+		newAllowed = append(newAllowed, p)
 	}
 	allowedNetworks = newAllowed
 }
@@ -132,41 +141,43 @@ func resolveHost(hostname string) ([]netip.Addr, error) {
 	return addrs, nil
 }
 
-// ValidateURLTarget validates a URL is safe to fetch, checking scheme, hostname, and resolved IPs
-func ValidateURLTarget(urlStr string, allowLoopback bool) (bool, string) {
+// ValidateURLTarget validates a URL is safe to fetch, checking scheme, hostname, and resolved IPs.
+// It returns the resolved addresses alongside the validation result so callers can connect
+// directly to a pre-resolved address, eliminating DNS rebinding TOCTOU windows.
+func ValidateURLTarget(urlStr string, allowLoopback bool) (bool, string, []netip.Addr) {
 	u, err := url.Parse(urlStr)
 	if err != nil {
-		return false, err.Error()
+		return false, err.Error(), nil
 	}
 
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return false, fmt.Sprintf("Only http/https allowed, got '%s'", u.Scheme)
+		return false, fmt.Sprintf("Only http/https allowed, got '%s'", u.Scheme), nil
 	}
 	if u.Host == "" {
-		return false, "Missing domain"
+		return false, "Missing domain", nil
 	}
 
 	hostname := u.Hostname()
 	if hostname == "" {
-		return false, "Missing hostname"
+		return false, "Missing hostname", nil
 	}
 
 	addrs, err := resolveHost(hostname)
 	if err != nil {
-		return false, fmt.Sprintf("Cannot resolve hostname: %s", hostname)
+		return false, fmt.Sprintf("Cannot resolve hostname: %s", hostname), nil
 	}
 
 	if allowLoopback && isAllowedLoopbackTarget(hostname, addrs) {
-		return true, ""
+		return true, "", addrs
 	}
 
 	for _, addr := range addrs {
 		if isPrivate(addr) {
-			return false, fmt.Sprintf("Blocked: %s resolves to private/internal address %s", hostname, addr)
+			return false, fmt.Sprintf("Blocked: %s resolves to private/internal address %s", hostname, addr), nil
 		}
 	}
 
-	return true, ""
+	return true, "", addrs
 }
 
 // ValidateResolvedURL validates an already-fetched URL (e.g., after redirect)
@@ -205,7 +216,7 @@ func ValidateResolvedURL(urlStr string) (bool, string) {
 func ContainsInternalURL(command string, allowLoopback bool) bool {
 	matches := urlRe.FindAllString(command, -1)
 	for _, urlStr := range matches {
-		ok, _ := ValidateURLTarget(urlStr, allowLoopback)
+		ok, _, _ := ValidateURLTarget(urlStr, allowLoopback)
 		if !ok {
 			return true
 		}
