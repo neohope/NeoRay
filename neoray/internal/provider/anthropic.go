@@ -210,7 +210,10 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatRe
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	logger.Debug("Anthropic API request", logger.String("body", string(body)))
+	logger.Debug("Anthropic API request",
+		logger.Int("body_bytes", len(body)),
+		logger.String("model", apiReq.Model),
+	)
 
 	// 发送请求
 	apiURL := p.cfg.APIURL

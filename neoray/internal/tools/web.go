@@ -427,6 +427,9 @@ func formatResults(query string, items []SearchResult, n int) string {
 	var lines []string
 	lines = append(lines, fmt.Sprintf("Results for: %s\n", query))
 
+	if n > len(items) {
+		n = len(items)
+	}
 	for i, item := range items[:n] {
 		idx := i + 1
 		title := normalizeText(stripTagsFunc(item.Title))

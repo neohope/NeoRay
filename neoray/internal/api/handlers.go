@@ -188,7 +188,7 @@ func (c *Client) handleChatStream(payload interface{}) {
 			})
 		case "error":
 			logger.Error("Stream chunk error", logger.ErrorField(chunk.Error))
-			c.sendError("stream_error", chunk.Error.Error())
+			c.sendError("stream_error", "An error occurred during streaming")
 			return
 		case "end":
 			// 完成

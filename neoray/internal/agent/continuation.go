@@ -141,32 +141,34 @@ func (cm *ContinuationManager) MergeContinuation(
 		return
 	}
 
-	// 合并内容
-	targetMsg := &sess.Messages[targetIndex]
+	// Copy the message to avoid mutating a shared pointer / map reference.
+	msg := sess.Messages[targetIndex]
 
 	// 智能合并 - 检查是否需要添加分隔符
-	if targetMsg.Content != "" && continuationContent != "" {
-		// 检查前一个字符是否是标点或空格
-		lastChar := targetMsg.Content[len(targetMsg.Content)-1]
+	if msg.Content != "" && continuationContent != "" {
+		lastChar := msg.Content[len(msg.Content)-1]
 		if !strings.ContainsAny(string(lastChar), " \n\t.,!?;:-") {
-			targetMsg.Content += " "
+			msg.Content += " "
 		}
 	}
-	targetMsg.Content += continuationContent
+	msg.Content += continuationContent
 
-	// 在元数据中记录这是续轮的结果
-	if targetMsg.Metadata == nil {
-		targetMsg.Metadata = make(map[string]any)
+	// 在元数据中记录这是续轮的结果 — 深拷贝 map 以免污染调用方持有的引用
+	meta := make(map[string]any, len(msg.Metadata)+2)
+	for k, v := range msg.Metadata {
+		meta[k] = v
 	}
-	targetMsg.Metadata["has_continuation"] = true
-	if count, ok := targetMsg.Metadata["continuation_count"].(int); ok {
-		targetMsg.Metadata["continuation_count"] = count + 1
+	meta["has_continuation"] = true
+	if count, ok := meta["continuation_count"].(int); ok {
+		meta["continuation_count"] = count + 1
 	} else {
-		targetMsg.Metadata["continuation_count"] = 1
+		meta["continuation_count"] = 1
 	}
+	msg.Metadata = meta
 
-	// 更新会话时间
-	sess.UpdatedAt = sess.Messages[targetIndex].Timestamp
+	// Write back
+	sess.Messages[targetIndex] = msg
+	sess.UpdatedAt = msg.Timestamp
 }
 
 // RemoveLastContinuationPrompt 移除最后添加的续轮提示消息

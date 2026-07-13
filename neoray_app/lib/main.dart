@@ -6,6 +6,7 @@ import 'pages/config_page.dart';
 import 'theme/app_theme.dart';
 import 'constants/constants.dart';
 import 'services/websocket_service.dart';
+import 'utils/logger.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -93,7 +94,23 @@ class _MyAppState extends ConsumerState<MyApp> {
         currentSession.completeReasoning();
         break;
 
-      default:
+      case WebSocketMessageType.error:
+        isStreaming.state = false;
+        final errorMsg = event.data['message'] as String? ??
+            event.data['error'] as String? ??
+            'An unknown error occurred';
+        logger.e('Server error: $errorMsg');
+        streamingContent.state = '';
+        break;
+
+      case WebSocketMessageType.toolCallStart:
+      case WebSocketMessageType.toolCallResult:
+      case WebSocketMessageType.sessionCreated:
+      case WebSocketMessageType.sessionJoined:
+      case WebSocketMessageType.sessionList:
+      case WebSocketMessageType.progress:
+      case WebSocketMessageType.unknown:
+        // Handled elsewhere or not actionable here
         break;
     }
   }

@@ -216,24 +216,36 @@ func (ms *MemoryStore) AppendHistory(content string, maxChars ...int) (int, erro
 	return cursor, nil
 }
 
-// ReadUnprocessedHistory 读取未处理的历史记录
+// ReadUnprocessedHistory 读取未处理的历史记录 — 流式过滤，避免全量加载。
 func (ms *MemoryStore) ReadUnprocessedHistory(sinceCursor int) []HistoryEntry {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
 
-	entries := ms.readAllEntries()
-	var result []HistoryEntry
+	f, err := os.Open(ms.historyFile)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
 
-	for _, entry := range entries {
+	var result []HistoryEntry
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var entry HistoryEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
 		if entry.Cursor > sinceCursor {
 			result = append(result, entry)
 		}
 	}
-
 	return result
 }
 
-// CompactHistory 压缩历史记录
+// CompactHistory 压缩历史记录 — 只读尾部，避免全量加载。
 func (ms *MemoryStore) CompactHistory() error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
@@ -242,14 +254,33 @@ func (ms *MemoryStore) CompactHistory() error {
 		return nil
 	}
 
-	entries := ms.readAllEntries()
-	if len(entries) <= ms.maxHistoryEntries {
+	// Check if compaction is needed by counting lines (cheap seek)
+	totalLines := ms.countHistoryLines()
+	if totalLines <= ms.maxHistoryEntries {
 		return nil
 	}
 
-	// 保留最新的条目
-	kept := entries[len(entries)-ms.maxHistoryEntries:]
+	// Only read the tail we want to keep
+	kept := ms.tailEntries(ms.maxHistoryEntries)
 	return ms.writeEntries(kept)
+}
+
+// countHistoryLines counts non-empty lines without loading content.
+func (ms *MemoryStore) countHistoryLines() int {
+	f, err := os.Open(ms.historyFile)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+
+	count := 0
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if strings.TrimSpace(scanner.Text()) != "" {
+			count++
+		}
+	}
+	return count
 }
 
 // GetLastDreamCursor 获取最后处理的 Dream cursor

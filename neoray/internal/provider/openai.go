@@ -262,9 +262,9 @@ func (p *GenericProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 		return errResp, fmt.Errorf("api error: %s, body: %s", resp.Status, string(errBody))
 	}
 
-	// 先读取原始响应用于调试
+	// 读取响应体
 	respBody, _ := io.ReadAll(resp.Body)
-	logger.Debug("API raw response", logger.String("body", string(respBody)))
+	logger.Debug("API response received", logger.Int("body_bytes", len(respBody)))
 
 	var apiResp openaiResponse
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
