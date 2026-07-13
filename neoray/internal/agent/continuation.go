@@ -121,6 +121,9 @@ func (cm *ContinuationManager) MergeContinuation(
 	sess *session.Session,
 	continuationContent string,
 ) {
+	sess.Lock()
+	defer sess.Unlock()
+
 	if len(sess.Messages) < 2 {
 		return
 	}
@@ -168,6 +171,9 @@ func (cm *ContinuationManager) MergeContinuation(
 
 // RemoveLastContinuationPrompt 移除最后添加的续轮提示消息
 func (cm *ContinuationManager) RemoveLastContinuationPrompt(sess *session.Session) {
+	sess.Lock()
+	defer sess.Unlock()
+
 	if len(sess.Messages) == 0 {
 		return
 	}

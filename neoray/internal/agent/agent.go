@@ -318,7 +318,9 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 				assistantMsg = session.NewAssistantMessage("", "", "", resp)
 			}
 			sess.AddMessage(assistantMsg)
-			_ = a.sessionMgr.SaveSession(sess)
+			if saveErr := a.sessionMgr.SaveSession(sess); saveErr != nil {
+				logger.Error("Failed to save session", logger.ErrorField(saveErr))
+			}
 
 			result := &ChatResult{
 				Message:  &assistantMsg,
@@ -363,7 +365,9 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 		if trace != nil { trace.AddError(errors.New(errMsg), "No LLM provider configured") }
 		assistantMsg := session.NewAssistantMessage("", "", "", errMsg)
 		sess.AddMessage(assistantMsg)
-		_ = a.sessionMgr.SaveSession(sess)
+		if saveErr := a.sessionMgr.SaveSession(sess); saveErr != nil {
+				logger.Error("Failed to save session", logger.ErrorField(saveErr))
+			}
 		result := &ChatResult{
 			Message: &assistantMsg,
 			TokenUsage: a.tokenManager.GetSessionUsage(sess.ID),
@@ -415,7 +419,9 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 			errMsg := fmt.Sprintf("I'm having trouble connecting to the AI service right now. Error: %v", err)
 			assistantMsg := session.NewAssistantMessage("", "", "", errMsg)
 			sess.AddMessage(assistantMsg)
-			_ = a.sessionMgr.SaveSession(sess)
+			if saveErr := a.sessionMgr.SaveSession(sess); saveErr != nil {
+				logger.Error("Failed to save session", logger.ErrorField(saveErr))
+			}
 			result := &ChatResult{
 				Message: &assistantMsg,
 				TokenUsage: a.tokenManager.GetSessionUsage(sess.ID),
@@ -517,7 +523,9 @@ func (a *Agent) Chat(ctx context.Context, sess *session.Session, userInput strin
 
 	if len(sess.Messages) > 0 {
 		lastMsg := sess.Messages[len(sess.Messages)-1]
-		_ = a.sessionMgr.SaveSession(sess)
+		if saveErr := a.sessionMgr.SaveSession(sess); saveErr != nil {
+				logger.Error("Failed to save session", logger.ErrorField(saveErr))
+			}
 		result := &ChatResult{
 			Message: &lastMsg,
 			TokenUsage: a.tokenManager.GetSessionUsage(sess.ID),
@@ -683,7 +691,9 @@ func (a *Agent) ChatStream(ctx context.Context, sess *session.Session, userInput
 					assistantMsg = session.NewAssistantMessage("", "", "", resp)
 				}
 				sess.AddMessage(assistantMsg)
-				_ = a.sessionMgr.SaveSession(sess)
+				if saveErr := a.sessionMgr.SaveSession(sess); saveErr != nil {
+				logger.Error("Failed to save session", logger.ErrorField(saveErr))
+			}
 				sendChunk(ctx, resultChan, StreamChunk{Type: "end", Content: resp, SessionMsg: &assistantMsg})
 			}()
 			return resultChan, nil
@@ -879,15 +889,24 @@ func (a *Agent) handleNativeStreamTool(
 					break
 				}
 
-				// 流式输出续轮内容
-				for _, c := range contResp.Content {
+				// 流式输出续轮内容 — 按行或固定块发送，避免逐字符 5ms 延迟
+				const streamChunkSize = 64 // 字符块大小
+				contentRunes := []rune(contResp.Content)
+				for i := 0; i < len(contentRunes); i += streamChunkSize {
 					select {
 					case <-ctx.Done(): return true, ctx.Err()
-					case <-time.After(5 * time.Millisecond):
-						if !sendChunk(ctx, resultChan, StreamChunk{Type: "text", Content: string(c)}) {
-							return true, ctx.Err()
-						}
-						if err := a.hook.OnStreamDelta(ctx, string(c)); err != nil { logger.Warn("Hook OnStreamDelta failed", logger.ErrorField(err)) }
+					default:
+					}
+					end := i + streamChunkSize
+					if end > len(contentRunes) {
+						end = len(contentRunes)
+					}
+					chunk := string(contentRunes[i:end])
+					if !sendChunk(ctx, resultChan, StreamChunk{Type: "text", Content: chunk}) {
+						return true, ctx.Err()
+					}
+					if err := a.hook.OnStreamDelta(ctx, chunk); err != nil {
+						logger.Warn("Hook OnStreamDelta failed", logger.ErrorField(err))
 					}
 				}
 

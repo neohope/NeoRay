@@ -187,7 +187,7 @@ func (ms *MemoryStore) AppendHistory(content string, maxChars ...int) (int, erro
 	// 清理 thinking 标签
 	content = stripThink(content)
 
-	cursor := ms.nextCursor()
+	cursor := ms.nextCursorFromTail()
 	ts := time.Now().Format("2006-01-02 15:04")
 
 	entry := HistoryEntry{
@@ -325,6 +325,31 @@ func (ms *MemoryStore) nextCursor() int {
 	return maxCursor + 1
 }
 
+// nextCursorFromTail reads only the last portion of the history file
+// to find the max cursor, avoiding loading the entire file into memory.
+func (ms *MemoryStore) nextCursorFromTail() int {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	// 先尝试读取缓存的 cursor
+	if data, err := os.ReadFile(ms.cursorFile); err == nil {
+		var cursor int
+		if _, err := fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &cursor); err == nil {
+			return cursor + 1
+		}
+	}
+
+	// 只读最后 1000 条记录找最大 cursor，而非整个文件
+	entries := ms.tailEntries(1000)
+	maxCursor := 0
+	for _, entry := range entries {
+		if entry.Cursor > maxCursor {
+			maxCursor = entry.Cursor
+		}
+	}
+	return maxCursor + 1
+}
+
 func (ms *MemoryStore) readAllEntries() []HistoryEntry {
 	var entries []HistoryEntry
 
@@ -349,6 +374,47 @@ func (ms *MemoryStore) readAllEntries() []HistoryEntry {
 	}
 
 	return entries
+}
+
+// tailEntries reads only the last maxEntries lines from the history file,
+// avoiding loading the entire file into memory when only a few entries are needed.
+func (ms *MemoryStore) tailEntries(maxEntries int) []HistoryEntry {
+	f, err := os.Open(ms.historyFile)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	// Ring buffer of size maxEntries
+	ring := make([]HistoryEntry, 0, maxEntries)
+	pos := 0
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var entry HistoryEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		if len(ring) < maxEntries {
+			ring = append(ring, entry)
+		} else {
+			ring[pos] = entry
+			pos = (pos + 1) % maxEntries
+		}
+	}
+
+	// Rotate so oldest is first
+	if len(ring) == maxEntries && pos > 0 {
+		rotated := make([]HistoryEntry, len(ring))
+		copy(rotated, ring[pos:])
+		copy(rotated[len(ring)-pos:], ring[:pos])
+		return rotated
+	}
+	return ring
 }
 
 func (ms *MemoryStore) readLastEntry() *HistoryEntry {
@@ -428,7 +494,10 @@ func (ms *MemoryStore) formatMessages(messages []interface{}) string {
 			if sb.Len() > 0 {
 				sb.WriteString("\n")
 			}
-			sb.WriteString(fmt.Sprintf("[%s] %s: %s", ts[:16], strings.ToUpper(role), content))
+			if len(ts) > 16 {
+				ts = ts[:16]
+			}
+			sb.WriteString(fmt.Sprintf("[%s] %s: %s", ts, strings.ToUpper(role), content))
 		}
 	}
 	return sb.String()

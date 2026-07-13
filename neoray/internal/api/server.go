@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +30,68 @@ type Server struct {
 	clients     map[string]*Client
 	clientsMu   sync.RWMutex
 	httpServer  *http.Server
+	rateLimiter *rateLimiter
+}
+
+// rateLimiter implements a simple per-IP token bucket rate limiter.
+type rateLimiter struct {
+	mu       sync.Mutex
+	visitors map[string]*visitor
+	rate     int           // requests per window
+	window   time.Duration // time window
+}
+
+type visitor struct {
+	tokens    int
+	lastSeen  time.Time
+}
+
+func newRateLimiter(rate int, window time.Duration) *rateLimiter {
+	rl := &rateLimiter{
+		visitors: make(map[string]*visitor),
+		rate:     rate,
+		window:   window,
+	}
+	// Cleanup stale entries periodically
+	go func() {
+		ticker := time.NewTicker(window * 2)
+		defer ticker.Stop()
+		for range ticker.C {
+			rl.mu.Lock()
+			for ip, v := range rl.visitors {
+				if time.Since(v.lastSeen) > window*2 {
+					delete(rl.visitors, ip)
+				}
+			}
+			rl.mu.Unlock()
+		}
+	}()
+	return rl
+}
+
+func (rl *rateLimiter) allow(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	v, exists := rl.visitors[ip]
+	if !exists {
+		rl.visitors[ip] = &visitor{tokens: rl.rate - 1, lastSeen: time.Now()}
+		return true
+	}
+
+	// Refill tokens based on elapsed time
+	elapsed := time.Since(v.lastSeen)
+	v.lastSeen = time.Now()
+	v.tokens += int(elapsed.Seconds() * float64(rl.rate) / rl.window.Seconds())
+	if v.tokens > rl.rate {
+		v.tokens = rl.rate
+	}
+
+	if v.tokens <= 0 {
+		return false
+	}
+	v.tokens--
+	return true
 }
 
 // Client WebSocket 客户端
@@ -36,10 +99,54 @@ type Client struct {
 	ID         string
 	Conn       *websocket.Conn
 	Send       chan []byte
+	Server     *Server
+
+	mu         sync.RWMutex
 	ChannelID  string
 	UserID     string
 	SessionID  string
-	Server     *Server
+}
+
+// SetChannelID safely sets the client's channel ID.
+func (c *Client) SetChannelID(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ChannelID = id
+}
+
+// GetChannelID safely gets the client's channel ID.
+func (c *Client) GetChannelID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ChannelID
+}
+
+// SetUserID safely sets the client's user ID.
+func (c *Client) SetUserID(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.UserID = id
+}
+
+// GetUserID safely gets the client's user ID.
+func (c *Client) GetUserID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.UserID
+}
+
+// SetSessionID safely sets the client's session ID.
+func (c *Client) SetSessionID(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.SessionID = id
+}
+
+// GetSessionID safely gets the client's session ID.
+func (c *Client) GetSessionID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.SessionID
 }
 
 // NewServer 创建 API 服务器
@@ -57,7 +164,8 @@ func NewServer(cfg *config.Config, aiAgent *agent.Agent, sessionMgr *session.Man
 				return true // 允许所有来源，生产环境应限制
 			},
 		},
-		clients: make(map[string]*Client),
+		clients:     make(map[string]*Client),
+		rateLimiter: newRateLimiter(60, time.Minute), // 60 requests per minute per IP
 	}
 
 	// 如果有消息总线，订阅出站消息
@@ -204,6 +312,19 @@ func (s *Server) wrapMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// 如果是预检请求，直接返回
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// 速率限制中间件
+		clientIP := r.RemoteAddr
+		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+			clientIP = strings.Split(forwarded, ",")[0]
+		}
+		if !s.rateLimiter.allow(strings.TrimSpace(clientIP)) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", "60")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":"Rate limit exceeded. Try again later."}`))
 			return
 		}
 

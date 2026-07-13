@@ -165,7 +165,7 @@ func (gs *GitStore) LineAges(filePath string) []LineAge {
 	}
 
 	// 使用 git blame
-	output, err := gs.runGitCommandOutput("blame", "--line-porcelain", filePath)
+	output, err := gs.runGitCommandOutput("blame", "--line-porcelain", "--", filePath)
 	if err != nil {
 		return nil
 	}
@@ -179,7 +179,7 @@ func (gs *GitStore) DiffCommits(sha1, sha2 string) string {
 		return ""
 	}
 
-	output, _ := gs.runGitCommandOutput("diff", sha1, sha2)
+	output, _ := gs.runGitCommandOutput("diff", "--", sha1, sha2)
 	return output
 }
 
@@ -351,7 +351,7 @@ func (gs *GitStore) getShortSHA() (string, error) {
 }
 
 func (gs *GitStore) resolveSHA(shortSHA string) string {
-	output, err := gs.runGitCommandOutput("rev-parse", shortSHA)
+	output, err := gs.runGitCommandOutput("rev-parse", "--", shortSHA)
 	if err != nil {
 		return ""
 	}
@@ -359,7 +359,7 @@ func (gs *GitStore) resolveSHA(shortSHA string) string {
 }
 
 func (gs *GitStore) getParentSHA(sha string) (string, error) {
-	output, err := gs.runGitCommandOutput("rev-parse", sha+"^")
+	output, err := gs.runGitCommandOutput("rev-parse", "--", sha+"^")
 	if err != nil {
 		return "", err
 	}
@@ -367,7 +367,7 @@ func (gs *GitStore) getParentSHA(sha string) (string, error) {
 }
 
 func (gs *GitStore) restoreFileFromCommit(commitSHA, filePath string) error {
-	content, err := gs.runGitCommandOutput("show", commitSHA+":"+filePath)
+	content, err := gs.runGitCommandOutput("show", "--", commitSHA+":"+filePath)
 	if err != nil {
 		return err
 	}

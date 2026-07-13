@@ -36,16 +36,16 @@ func (c *Client) handleChat(payload interface{}) {
 
 	// 设置客户端的频道和用户ID
 	if chatPayload.ChannelID != "" {
-		c.ChannelID = chatPayload.ChannelID
+		c.SetChannelID(chatPayload.ChannelID)
 	}
 	if chatPayload.UserID != "" {
-		c.UserID = chatPayload.UserID
+		c.SetUserID(chatPayload.UserID)
 	}
-	if c.ChannelID == "" {
-		c.ChannelID = "default"
+	if c.GetChannelID() == "" {
+		c.SetChannelID("default")
 	}
-	if c.UserID == "" {
-		c.UserID = "default"
+	if c.GetUserID() == "" {
+		c.SetUserID("default")
 	}
 
 	// 获取或创建会话
@@ -53,19 +53,19 @@ func (c *Client) handleChat(payload interface{}) {
 	var err error
 
 	if chatPayload.SessionID != "" {
-		sess, err = c.Server.sessionMgr.GetSessionWithValidation(chatPayload.SessionID, c.ChannelID, c.UserID)
+		sess, err = c.Server.sessionMgr.GetSessionWithValidation(chatPayload.SessionID, c.GetChannelID(), c.GetUserID())
 		if err != nil {
-			sess, err = c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
+			sess, err = c.Server.sessionMgr.CreateSession(c.GetChannelID(), c.GetUserID())
 		}
 	} else {
-		sess, err = c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
+		sess, err = c.Server.sessionMgr.CreateSession(c.GetChannelID(), c.GetUserID())
 	}
 	if err != nil {
 		c.sendError("session_error", "Failed to create or retrieve session")
 		return
 	}
 
-	c.SessionID = sess.ID
+	c.SetSessionID(sess.ID)
 
 	// 发送开始响应
 	c.sendMessage("chat_start", map[string]interface{}{
@@ -79,7 +79,7 @@ func (c *Client) handleChat(payload interface{}) {
 	result, err := c.Server.agent.Chat(ctx, sess, chatPayload.Message)
 	if err != nil {
 		logger.Error("Agent chat failed", logger.ErrorField(err))
-		c.sendError("agent_error", err.Error())
+		c.sendError("agent_error", "An internal error occurred while processing your request")
 		return
 	}
 
@@ -117,16 +117,16 @@ func (c *Client) handleChatStream(payload interface{}) {
 
 	// 设置客户端的频道和用户ID
 	if chatPayload.ChannelID != "" {
-		c.ChannelID = chatPayload.ChannelID
+		c.SetChannelID(chatPayload.ChannelID)
 	}
 	if chatPayload.UserID != "" {
-		c.UserID = chatPayload.UserID
+		c.SetUserID(chatPayload.UserID)
 	}
-	if c.ChannelID == "" {
-		c.ChannelID = "default"
+	if c.GetChannelID() == "" {
+		c.SetChannelID("default")
 	}
-	if c.UserID == "" {
-		c.UserID = "default"
+	if c.GetUserID() == "" {
+		c.SetUserID("default")
 	}
 
 	// 获取或创建会话
@@ -134,19 +134,19 @@ func (c *Client) handleChatStream(payload interface{}) {
 	var err error
 
 	if chatPayload.SessionID != "" {
-		sess, err = c.Server.sessionMgr.GetSessionWithValidation(chatPayload.SessionID, c.ChannelID, c.UserID)
+		sess, err = c.Server.sessionMgr.GetSessionWithValidation(chatPayload.SessionID, c.GetChannelID(), c.GetUserID())
 		if err != nil {
-			sess, err = c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
+			sess, err = c.Server.sessionMgr.CreateSession(c.GetChannelID(), c.GetUserID())
 		}
 	} else {
-		sess, err = c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
+		sess, err = c.Server.sessionMgr.CreateSession(c.GetChannelID(), c.GetUserID())
 	}
 	if err != nil {
 		c.sendError("session_error", "Failed to create or retrieve session")
 		return
 	}
 
-	c.SessionID = sess.ID
+	c.SetSessionID(sess.ID)
 
 	// 发送开始响应
 	c.sendMessage("chat_start", map[string]interface{}{
@@ -160,7 +160,7 @@ func (c *Client) handleChatStream(payload interface{}) {
 	streamChan, err := c.Server.agent.ChatStream(ctx, sess, chatPayload.Message)
 	if err != nil {
 		logger.Error("Agent chat stream failed", logger.ErrorField(err))
-		c.sendError("agent_error", err.Error())
+		c.sendError("agent_error", "An internal error occurred while processing your request")
 		return
 	}
 
@@ -215,16 +215,16 @@ func (c *Client) handleCreateSession(payload interface{}) {
 
 	// 设置客户端的频道和用户ID
 	if createPayload.ChannelID != "" {
-		c.ChannelID = createPayload.ChannelID
+		c.SetChannelID(createPayload.ChannelID)
 	}
 	if createPayload.UserID != "" {
-		c.UserID = createPayload.UserID
+		c.SetUserID(createPayload.UserID)
 	}
-	if c.ChannelID == "" {
-		c.ChannelID = "default"
+	if c.GetChannelID() == "" {
+		c.SetChannelID("default")
 	}
-	if c.UserID == "" {
-		c.UserID = "default"
+	if c.GetUserID() == "" {
+		c.SetUserID("default")
 	}
 
 	title := createPayload.Name
@@ -232,7 +232,7 @@ func (c *Client) handleCreateSession(payload interface{}) {
 		title = "New Session"
 	}
 
-	sess, err := c.Server.sessionMgr.CreateSession(c.ChannelID, c.UserID)
+	sess, err := c.Server.sessionMgr.CreateSession(c.GetChannelID(), c.GetUserID())
 	if err != nil {
 		c.sendError("session_error", "Failed to create session")
 		return
@@ -241,7 +241,7 @@ func (c *Client) handleCreateSession(payload interface{}) {
 		sess.Title = title
 		_ = c.Server.sessionMgr.SaveSession(sess)
 	}
-	c.SessionID = sess.ID
+	c.SetSessionID(sess.ID)
 
 	c.sendMessage("session_created", map[string]interface{}{
 		"session_id": sess.ID,
@@ -263,25 +263,25 @@ func (c *Client) handleJoinSession(payload interface{}) {
 
 	// 设置客户端的频道和用户ID
 	if joinPayload.ChannelID != "" {
-		c.ChannelID = joinPayload.ChannelID
+		c.SetChannelID(joinPayload.ChannelID)
 	}
 	if joinPayload.UserID != "" {
-		c.UserID = joinPayload.UserID
+		c.SetUserID(joinPayload.UserID)
 	}
-	if c.ChannelID == "" {
-		c.ChannelID = "default"
+	if c.GetChannelID() == "" {
+		c.SetChannelID("default")
 	}
-	if c.UserID == "" {
-		c.UserID = "default"
+	if c.GetUserID() == "" {
+		c.SetUserID("default")
 	}
 
-	sess, err := c.Server.sessionMgr.GetSessionWithValidation(joinPayload.SessionID, c.ChannelID, c.UserID)
+	sess, err := c.Server.sessionMgr.GetSessionWithValidation(joinPayload.SessionID, c.GetChannelID(), c.GetUserID())
 	if err != nil {
 		c.sendError("session_not_found", "Session not found or access denied")
 		return
 	}
 
-	c.SessionID = sess.ID
+	c.SetSessionID(sess.ID)
 
 	c.sendMessage("session_joined", map[string]interface{}{
 		"session_id": sess.ID,
@@ -302,10 +302,10 @@ func (c *Client) handleListSessions(payload interface{}) {
 	channelID := listPayload.ChannelID
 	userID := listPayload.UserID
 	if channelID == "" {
-		channelID = c.ChannelID
+		channelID = c.GetChannelID()
 	}
 	if userID == "" {
-		userID = c.UserID
+		userID = c.GetUserID()
 	}
 	if channelID == "" {
 		channelID = "default"
@@ -523,7 +523,8 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 
 			streamChan, err := s.agent.ChatStream(ctx, sess, req.Message)
 			if err != nil {
-				writeJSONError(w, http.StatusInternalServerError, err.Error())
+				logger.Error("REST chat stream failed", logger.ErrorField(err))
+				writeJSONError(w, http.StatusInternalServerError, "An internal error occurred")
 				return
 			}
 
@@ -573,7 +574,8 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			// 非流式响应
 			result, err := s.agent.Chat(ctx, sess, req.Message)
 			if err != nil {
-				writeJSONError(w, http.StatusInternalServerError, err.Error())
+				logger.Error("REST chat failed", logger.ErrorField(err))
+				writeJSONError(w, http.StatusInternalServerError, "An internal error occurred")
 				return
 			}
 

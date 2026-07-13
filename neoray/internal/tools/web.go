@@ -347,12 +347,15 @@ func (t *WebSearchTool) searchJina(query string, n int) string {
 	}
 
 	var data map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, defaultMaxChars)).Decode(&data); err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
 
 	results, _ := data["data"].([]any)
-	items := make([]SearchResult, 0, len(results))
+	if n > len(results) {
+		n = len(results)
+	}
+	items := make([]SearchResult, 0, n)
 	for _, r := range results[:n] {
 		item, _ := r.(map[string]any)
 		title, _ := item["title"].(string)
@@ -655,13 +658,13 @@ func (t *WebFetchTool) fetchReadability(urlStr string, extractMode string, maxCh
 
 	if strings.Contains(ctype, "application/json") {
 		var jsonData any
-		if json.NewDecoder(resp.Body).Decode(&jsonData) == nil {
+		if json.NewDecoder(io.LimitReader(resp.Body, defaultMaxChars)).Decode(&jsonData) == nil {
 			jsonBytes, _ := json.MarshalIndent(jsonData, "", "  ")
 			text = string(jsonBytes)
 			extractor = "json"
 		}
 	} else {
-		rawContent, err := io.ReadAll(resp.Body)
+		rawContent, err := io.ReadAll(io.LimitReader(resp.Body, defaultMaxChars))
 		if err != nil {
 			return &WebFetchResult{
 				URL:   urlStr,

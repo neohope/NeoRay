@@ -25,6 +25,10 @@ type FallbackProvider struct {
 	providerFactory FallbackProviderFactory
 	generation      GenerationSettings
 
+	// Lazily-created fallback providers, keyed by config index
+	fallbackProviders map[int]Provider
+	fallbackMu        sync.Mutex
+
 	// Circuit breaker state
 	mu               sync.RWMutex
 	primaryFailures  int
@@ -39,11 +43,12 @@ func NewFallbackProvider(
 	providerFactory FallbackProviderFactory,
 ) *FallbackProvider {
 	return &FallbackProvider{
-		name:            name,
-		primary:         primary,
-		fallbackConfigs: fallbackConfigs,
-		providerFactory: providerFactory,
-		generation:      primary.GetGenerationSettings(),
+		name:              name,
+		primary:           primary,
+		fallbackConfigs:   fallbackConfigs,
+		providerFactory:   providerFactory,
+		generation:        primary.GetGenerationSettings(),
+		fallbackProviders: make(map[int]Provider),
 	}
 }
 
@@ -57,10 +62,35 @@ func (p *FallbackProvider) GetGenerationSettings() GenerationSettings {
 	return p.generation
 }
 
-// SetGenerationSettings 设置生成设置
+// SetGenerationSettings 设置生成设置，传播给主 provider 和所有已创建的 fallback provider。
 func (p *FallbackProvider) SetGenerationSettings(settings GenerationSettings) {
 	p.generation = settings
 	p.primary.SetGenerationSettings(settings)
+
+	p.fallbackMu.Lock()
+	defer p.fallbackMu.Unlock()
+	for _, fp := range p.fallbackProviders {
+		fp.SetGenerationSettings(settings)
+	}
+}
+
+// getOrCreateFallback returns a cached fallback provider or creates one.
+func (p *FallbackProvider) getOrCreateFallback(index int, cfg FallbackConfig) (Provider, error) {
+	p.fallbackMu.Lock()
+	defer p.fallbackMu.Unlock()
+
+	if fp, ok := p.fallbackProviders[index]; ok {
+		return fp, nil
+	}
+
+	fp, err := p.providerFactory(cfg)
+	if err != nil {
+		return nil, err
+	}
+	// Apply current generation settings to the newly created provider
+	fp.SetGenerationSettings(p.generation)
+	p.fallbackProviders[index] = fp
+	return fp, nil
 }
 
 // GetDefaultModel 获取默认模型
@@ -189,7 +219,7 @@ func (p *FallbackProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-
 			)
 
 			// 创建 fallback 提供商
-			fallbackProvider, err := p.providerFactory(fallbackConfig)
+			fallbackProvider, err := p.getOrCreateFallback(i, fallbackConfig)
 			if err != nil {
 				logger.Warn("Failed to create fallback provider",
 					logger.String("error", err.Error()),
@@ -317,7 +347,7 @@ func (p *FallbackProvider) tryChatWithFallback(
 		)
 
 		// 创建 fallback 提供商
-		fallbackProvider, err := p.providerFactory(fallbackConfig)
+		fallbackProvider, err := p.getOrCreateFallback(i, fallbackConfig)
 		if err != nil {
 			logger.Warn("Failed to create fallback provider",
 				logger.String("error", err.Error()),

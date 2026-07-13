@@ -3,6 +3,7 @@ package session
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"sync"
 	"time"
 )
 
@@ -16,7 +17,21 @@ type Session struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	Messages  []Message `json:"messages"`
 	Metadata  map[string]any `json:"metadata,omitempty"`
+
+	mu sync.RWMutex `json:"-"`
 }
+
+// Lock acquires the session write lock.
+func (s *Session) Lock() { s.mu.Lock() }
+
+// Unlock releases the session write lock.
+func (s *Session) Unlock() { s.mu.Unlock() }
+
+// RLock acquires the session read lock.
+func (s *Session) RLock() { s.mu.RLock() }
+
+// RUnlock releases the session read lock.
+func (s *Session) RUnlock() { s.mu.RUnlock() }
 
 // Message 消息实体
 type Message struct {

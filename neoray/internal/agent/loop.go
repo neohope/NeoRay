@@ -395,7 +395,7 @@ func (al *AgentLoop) handleInboundMessage(ctx context.Context, msg *bus.InboundM
 		}
 	}
 
-	// 启动新任务处理
+	// 启动新任务处理 — 派生独立 context，避免捕获短生命周期的请求 context
 	go func() {
 		lock.Lock()
 		defer lock.Unlock()
@@ -424,7 +424,15 @@ func (al *AgentLoop) handleInboundMessage(ctx context.Context, msg *bus.InboundM
 			}
 		}()
 
-		_, err := al.processMessage(ctx, msg, sessionKey)
+		// Derive a background context so the goroutine survives the caller's scope.
+		// Preserve logger/provider values but drop the caller's cancellation.
+		goroutineCtx := context.WithoutCancel(ctx)
+		const goroutineTimeout = 10 * time.Minute
+		var cancel context.CancelFunc
+		goroutineCtx, cancel = context.WithTimeout(goroutineCtx, goroutineTimeout)
+		defer cancel()
+
+		_, err := al.processMessage(goroutineCtx, msg, sessionKey)
 		if err != nil {
 			logger.Error("Error processing message", logger.ErrorField(err))
 		}
@@ -584,7 +592,9 @@ func (al *AgentLoop) stateCommand(ctx context.Context, turnCtx *TurnContext) (St
 		assistantMsg := session.NewAssistantMessage("", "", "", turnCtx.Outbound.Content)
 		turnCtx.Session.AddMessage(assistantMsg)
 
-		_ = al.sessionMgr.SaveSession(turnCtx.Session)
+		if saveErr := al.sessionMgr.SaveSession(turnCtx.Session); saveErr != nil {
+			logger.Error("Failed to save session", logger.ErrorField(saveErr))
+		}
 	}
 
 	return StateEventShortcut, nil
