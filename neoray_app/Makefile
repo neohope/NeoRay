@@ -11,7 +11,7 @@ help:
 	@echo "  make macos        - 构建 macOS 版本"
 	@echo "  make linux        - 构建 Linux 版本"
 	@echo "  make web          - 构建 Web 版本"
-	@echo "  make generate     - 生成代码（Freezed/JSON/Hive）"
+	@echo "  make generate     - 生成代码（Freezed/JSON）"
 	@echo "  make clean        - 清理构建缓存"
 	@echo "  make run          - 运行开发版本"
 	@echo "  make run-web      - 运行 Web 开发版本"

@@ -67,7 +67,6 @@ flutter pub run build_runner watch --delete-conflicting-outputs
 - **Flutter** - 跨平台 UI 框架
 - **Riverpod** - 状态管理
 - **Freezed** - 数据类生成
-- **Hive** - 本地存储
 - **http** - HTTP 请求
 - **web_socket_channel** - WebSocket 通信
 

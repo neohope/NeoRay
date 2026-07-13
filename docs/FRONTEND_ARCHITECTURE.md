@@ -22,7 +22,7 @@
 | 窗口管理 | window_manager |
 | 文件选择 | file_picker |
 | 系统托盘 | system_tray (桌面端) |
-| 本地存储 | shared_preferences + sqflite (桌面) / Hive (Web) |
+| 本地存储 | shared_preferences + sqflite (桌面) |
 
 ---
 
@@ -387,8 +387,6 @@ dependencies:
   shared_preferences: ^2.2.0
   sqflite: ^2.3.0
   path_provider: ^2.1.0
-  hive: ^2.2.0
-  hive_flutter: ^1.1.0
 
   # 文件操作
   file_picker: ^6.1.0
