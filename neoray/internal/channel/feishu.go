@@ -1063,7 +1063,7 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 		if f.cfg.ReplyToMessage {
 			replyTo = messageID
 		}
-		_ = f.sendTextMessage(ctx, userID, "抱歉，处理失败："+err.Error(), replyTo, chatType == "group")
+		_ = f.sendTextMessage(ctx, userID, "抱歉，处理失败，请稍后重试。", replyTo, chatType == "group")
 		return
 	}
 
@@ -2403,7 +2403,7 @@ func (f *FeishuChannel) refreshToken() error {
 		Expire            int    `json:"expire"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64*1024)).Decode(&result); err != nil {
 		return err
 	}
 

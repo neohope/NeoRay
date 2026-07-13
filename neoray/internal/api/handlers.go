@@ -533,44 +533,44 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			flusher, ok := w.(http.Flusher)
 			if ok {
 				for chunk := range streamChan {
+					var eventData []byte
+					var marshalErr error
 					switch chunk.Type {
 					case "text":
-						eventData, _ := json.Marshal(map[string]interface{}{
+						eventData, marshalErr = json.Marshal(map[string]interface{}{
 							"type":    "text",
 							"content": chunk.Content,
 						})
-						_, _ = w.Write([]byte("data: " + string(eventData) + "\n\n"))
-						flusher.Flush()
 					case "tool_start":
-						eventData, _ := json.Marshal(map[string]interface{}{
+						eventData, marshalErr = json.Marshal(map[string]interface{}{
 							"type":       "tool_start",
 							"tool_calls": chunk.ToolCalls,
 						})
-						_, _ = w.Write([]byte("data: " + string(eventData) + "\n\n"))
-						flusher.Flush()
 					case "tool_result":
-						eventData, _ := json.Marshal(map[string]interface{}{
+						eventData, marshalErr = json.Marshal(map[string]interface{}{
 							"type":        "tool_result",
 							"tool_result": chunk.ToolResults,
 						})
-						_, _ = w.Write([]byte("data: " + string(eventData) + "\n\n"))
-						flusher.Flush()
 					case "end":
-						eventData, _ := json.Marshal(map[string]interface{}{
+						eventData, marshalErr = json.Marshal(map[string]interface{}{
 							"type":    "end",
 							"content": chunk.Content,
 						})
-						_, _ = w.Write([]byte("data: " + string(eventData) + "\n\n"))
-						flusher.Flush()
 					case "error":
 						logger.Error("SSE stream error", logger.ErrorField(chunk.Error))
-						eventData, _ := json.Marshal(map[string]interface{}{
+						eventData, marshalErr = json.Marshal(map[string]interface{}{
 							"type":  "error",
 							"error": "An error occurred during streaming",
 						})
-						_, _ = w.Write([]byte("data: " + string(eventData) + "\n\n"))
-						flusher.Flush()
+					default:
+						continue
 					}
+					if marshalErr != nil {
+						logger.Error("Failed to marshal SSE chunk", logger.ErrorField(marshalErr))
+						continue
+					}
+					_, _ = w.Write([]byte("data: " + string(eventData) + "\n\n"))
+					flusher.Flush()
 				}
 			}
 		} else {
