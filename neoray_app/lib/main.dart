@@ -69,6 +69,7 @@ class _MyAppState extends ConsumerState<MyApp> {
         break;
 
       case WebSocketMessageType.chatEnd:
+        currentSession.completeStreaming();
         isStreaming.state = false;
         streamingContent.state = '';
         break;

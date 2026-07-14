@@ -99,8 +99,9 @@ class WebSocketService {
     if (_disposed) return;
 
     try {
-      final wsUrl = url.replaceFirst('http', 'ws');
-      _channel = WebSocketChannel.connect(Uri.parse('$wsUrl/ws'));
+      final uri = Uri.parse(url);
+      final wsUri = uri.replace(scheme: uri.scheme == 'https' ? 'wss' : 'ws', path: '${uri.path}/ws');
+      _channel = WebSocketChannel.connect(wsUri);
 
       // 等待连接就绪后再标记已连接，避免竞态
       await _channel!.ready;

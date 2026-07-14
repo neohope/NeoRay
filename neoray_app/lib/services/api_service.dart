@@ -167,8 +167,9 @@ class ApiService {
   }
 
   WebSocketChannel connectWebSocket() {
-    final wsUrl = baseUrl.replaceFirst('http', 'ws');
-    return WebSocketChannel.connect(Uri.parse('$wsUrl/ws'));
+    final uri = Uri.parse(baseUrl);
+    final wsUri = uri.replace(scheme: uri.scheme == 'https' ? 'wss' : 'ws', path: '${uri.path}/ws');
+    return WebSocketChannel.connect(wsUri);
   }
 }
 

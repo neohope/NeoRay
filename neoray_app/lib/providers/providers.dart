@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
 import '../models/session.dart';
 import '../models/message.dart';
 import '../models/app_config.dart';
@@ -11,11 +12,13 @@ import '../services/websocket_service.dart';
 import '../constants/constants.dart';
 import '../utils/logger.dart';
 
-// Channel ID Provider
-final channelIdProvider = StateProvider<String>((ref) => AppStrings.defaultChannelId);
+const _uuid = Uuid();
 
-// User ID Provider
-final userIdProvider = StateProvider<String>((ref) => AppStrings.defaultUserId);
+// Channel ID Provider - 运行时生成唯一 ID，生产环境应替换为认证系统提供的标识
+final channelIdProvider = StateProvider<String>((ref) => _uuid.v4());
+
+// User ID Provider - 运行时生成唯一 ID，生产环境应替换为认证系统提供的标识
+final userIdProvider = StateProvider<String>((ref) => _uuid.v4());
 
 // API Service Provider - 首先获取配置中的服务器地址
 final apiServiceProvider = Provider<ApiService>((ref) {
@@ -244,49 +247,39 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
     }
   }
 
-  // 流式拼接用 StringBuffer 缓冲，避免 O(n²) 字符串拼接
+  // 流式拼接用 StringBuffer 缓冲，O(n²)→O(n) 字符串拼接
+  // 流式期间不更新 messages 列表（UI 从 currentStreamingContentProvider 渲染），
+  // 仅在流式结束时一次性追加最终消息，避免每 chunk 都 O(n) 拷贝列表
   final StringBuffer _streamBuffer = StringBuffer();
   final StringBuffer _reasoningBuffer = StringBuffer();
 
   void addStreamingChunk(String content) {
     final session = state;
     if (session == null) return;
-
+    // 仅缓冲内容，不更新 messages 列表 — O(1)
     _streamBuffer.write(content);
-
-    final messages = session.messages;
-    if (messages.isNotEmpty && messages.last.role == 'assistant') {
-      // 原地替换最后一条，仅拷贝 1 个元素而非整个列表
-      final last = messages.last.copyWith(content: _streamBuffer.toString());
-      state = session.copyWith(messages: [...messages.sublist(0, messages.length - 1), last]);
-    } else {
-      _streamBuffer.clear();
-      _streamBuffer.write(content);
-      final channelId = _ref.read(channelIdProvider);
-      final userId = _ref.read(userIdProvider);
-      state = session.copyWith(
-        messages: [...messages, Message.assistant(content, null, channelId, userId, session.id)],
-      );
-    }
   }
 
   void addReasoningChunk(String content) {
     final session = state;
     if (session == null) return;
-
+    // 仅缓冲内容，不更新 messages 列表 — O(1)
     _reasoningBuffer.write(content);
+  }
 
-    final messages = session.messages;
-    if (messages.isNotEmpty && messages.last.role == 'assistant') {
-      final last = messages.last.copyWith(reasoningContent: _reasoningBuffer.toString());
-      state = session.copyWith(messages: [...messages.sublist(0, messages.length - 1), last]);
-    } else {
-      _reasoningBuffer.clear();
-      _reasoningBuffer.write(content);
+  /// 流式结束时将最终消息追加到列表 — 仅调用一次，O(n) 但 n=1
+  void completeStreaming() {
+    final session = state;
+    if (session == null) return;
+
+    final content = _streamBuffer.toString();
+    _streamBuffer.clear();
+
+    if (content.isNotEmpty) {
       final channelId = _ref.read(channelIdProvider);
       final userId = _ref.read(userIdProvider);
       state = session.copyWith(
-        messages: [...messages, Message.assistant('', null, channelId, userId, session.id, content, false)],
+        messages: [...session.messages, Message.assistant(content, null, channelId, userId, session.id)],
       );
     }
   }
@@ -295,12 +288,15 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
     final session = state;
     if (session == null) return;
 
+    final reasoningContent = _reasoningBuffer.toString();
     _reasoningBuffer.clear();
 
-    final messages = session.messages;
-    if (messages.isNotEmpty && messages.last.role == 'assistant') {
-      final last = messages.last.copyWith(isReasoningComplete: true);
-      state = session.copyWith(messages: [...messages.sublist(0, messages.length - 1), last]);
+    if (reasoningContent.isNotEmpty) {
+      final channelId = _ref.read(channelIdProvider);
+      final userId = _ref.read(userIdProvider);
+      state = session.copyWith(
+        messages: [...session.messages, Message.assistant('', null, channelId, userId, session.id, reasoningContent, true)],
+      );
     }
   }
 
