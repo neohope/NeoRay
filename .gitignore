@@ -2,7 +2,8 @@
 .neoray/
 
 # 配置 (本地覆盖)
-neoray/neoray.toml
+**/neoray.toml
+**/neoray_app.toml
 
 # 参考内容
 reference/

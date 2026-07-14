@@ -9,7 +9,7 @@ class AppDefaults {
   static const String defaultApiUrl = 'https://api.openai.com/v1';
   static const int defaultMaxTokens = 4096;
   static const double defaultTemperature = 0.7;
-  static const int defaultTimeoutSec = 120;
+  static const double defaultTimeoutSec = 120.0;
   static const String defaultReasoningEffort = 'none';
   static const bool defaultPromptCacheEnabled = false;
 
