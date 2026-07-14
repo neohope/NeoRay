@@ -63,6 +63,7 @@ class AppStrings {
   static const String responseFormatError = '服务器响应格式错误';
 
   // 状态文本
+  static const String httpWarning = '⚠️ 当前使用 HTTP 明文连接，数据未加密传输。建议在生产环境使用 HTTPS。';
   static const String thinking = '思考过程';
   static const String retry = '重试';
   static const String loading = '加载中...';

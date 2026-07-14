@@ -171,12 +171,34 @@ class MainScreen extends ConsumerWidget {
       }
     });
 
+    // HTTP 明文连接警告
+    final serverUrl = ref.watch(appConfigProvider.select((c) => c.serverUrl));
+    final isHttp = serverUrl.startsWith('http://');
+
     return Scaffold(
-      body: IndexedStack(
-        index: activePage.index,
-        children: const [
-          ChatPage(),
-          ConfigPage(),
+      body: Column(
+        children: [
+          if (isHttp)
+            MaterialBanner(
+              content: Text(AppStrings.httpWarning),
+              backgroundColor: AppTheme.accent.withValues(alpha: 0.15),
+              leading: const Icon(Icons.warning_amber, color: AppTheme.accent),
+              actions: [
+                TextButton(
+                  onPressed: () => ref.read(activePageProvider.notifier).state = AppPage.config,
+                  child: Text(AppStrings.navLLMConfig),
+                ),
+              ],
+            ),
+          Expanded(
+            child: IndexedStack(
+              index: activePage.index,
+              children: const [
+                ChatPage(),
+                ConfigPage(),
+              ],
+            ),
+          ),
         ],
       ),
     );
