@@ -49,7 +49,7 @@ final appConfigProvider = StateNotifierProvider<AppConfigNotifier, AppConfig>((r
 });
 
 class AppConfigNotifier extends StateNotifier<AppConfig> {
-  static const _configFileName = 'client.toml';
+  static const _configFileName = 'neoray_app.toml';
 
   bool _loaded = false;
   bool get loaded => _loaded;
