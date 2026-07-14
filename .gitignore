@@ -2,8 +2,6 @@
 .neoray/
 
 # 配置 (本地覆盖)
-config/neoray.local.toml
-config/neoray.prod.toml
 neoray/neoray.toml
 
 # 参考内容

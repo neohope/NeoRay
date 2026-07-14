@@ -1,0 +1,8 @@
+# NeoRay 客户端配置
+# 复制此文件为 neoray_app.toml 并按需修改
+
+# 服务端地址（必填）
+serverUrl = "http://localhost:8080"
+
+# 主题模式: "light" | "dark" | "system"
+themeMode = "light"
