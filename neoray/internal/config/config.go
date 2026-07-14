@@ -359,11 +359,8 @@ func (c *Config) ResolvePath(path string) string {
 }
 
 // GetWorkspace 获取工作区目录 (全局函数，用于不需要 Config 实例的场景)
+// 默认为 ~/.neoray/workspace
 func GetWorkspace() string {
 	homeDir := GetHomeDir()
-	// 默认工作区是当前目录
-	if wd, err := os.Getwd(); err == nil {
-		return wd
-	}
 	return filepath.Join(homeDir, "workspace")
 }

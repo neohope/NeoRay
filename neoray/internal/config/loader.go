@@ -132,7 +132,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("llm.anthropic.timeout", "120s")
 
 	// Memory
-	v.SetDefault("memory.workspace", "")  // 空表示使用 HomeDir
+	v.SetDefault("memory.workspace", "")  // 空表示使用 ~/.neoray/workspace
 	v.SetDefault("memory.git_enabled", true)
 	v.SetDefault("memory.dream_interval", "1h")
 	v.SetDefault("memory.session_ttl_minutes", 1440)  // 24小时
