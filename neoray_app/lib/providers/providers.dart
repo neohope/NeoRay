@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:toml/toml.dart';
 import 'package:uuid/uuid.dart';
 import '../models/session.dart';
 import '../models/message.dart';
@@ -49,7 +49,7 @@ final appConfigProvider = StateNotifierProvider<AppConfigNotifier, AppConfig>((r
 });
 
 class AppConfigNotifier extends StateNotifier<AppConfig> {
-  static const _configFileName = 'neoray_config.json';
+  static const _configFileName = 'config.toml';
 
   bool _loaded = false;
   bool get loaded => _loaded;
@@ -67,8 +67,9 @@ class AppConfigNotifier extends StateNotifier<AppConfig> {
     try {
       final file = await _getConfigFile();
       if (await file.exists()) {
-        final json = await file.readAsString();
-        state = AppConfig.fromJson(jsonDecode(json) as Map<String, dynamic>);
+        final tomlStr = await file.readAsString();
+        final map = TomlDocument.parse(tomlStr).toMap();
+        state = AppConfig.fromJson(map);
       }
     } catch (e) {
       logger.e('加载配置失败', error: e);
@@ -80,7 +81,8 @@ class AppConfigNotifier extends StateNotifier<AppConfig> {
   Future<void> persist() async {
     try {
       final file = await _getConfigFile();
-      await file.writeAsString(jsonEncode(state.toJson()));
+      final tomlStr = TomlDocument.fromMap(state.toJson()).toString();
+      await file.writeAsString(tomlStr);
     } catch (e) {
       logger.e('保存配置失败', error: e);
     }
