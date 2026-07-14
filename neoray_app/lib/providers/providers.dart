@@ -49,7 +49,7 @@ final appConfigProvider = StateNotifierProvider<AppConfigNotifier, AppConfig>((r
 });
 
 class AppConfigNotifier extends StateNotifier<AppConfig> {
-  static const _configFileName = 'config.toml';
+  static const _configFileName = 'client.toml';
 
   bool _loaded = false;
   bool get loaded => _loaded;
