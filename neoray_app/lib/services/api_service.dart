@@ -18,10 +18,10 @@ class ApiService {
 
   ApiService({
     required this.baseUrl,
+    required this.channelId,
+    required this.userId,
     http.Client? httpClient,
     this.timeout = const Duration(seconds: AppTimings.apiTimeoutSec),
-    this.channelId = AppStrings.defaultChannelId,
-    this.userId = AppStrings.defaultUserId,
   }) : _httpClient = httpClient ?? http.Client();
 
   Uri _buildUri(String path, [Map<String, String>? queryParams]) {
