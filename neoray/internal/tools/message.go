@@ -301,13 +301,13 @@ func (t *MessageTool) resolveMedia(media []string) ([]string, error) {
 func (t *MessageTool) resolveWorkspacePath(p string) (string, error) {
 	workspace := t.workspace
 
-	// 如果未设置工作区，使用当前目录
+	// 如果未设置工作区，使用默认安全目录
 	if workspace == "" {
-		wd, err := os.Getwd()
+		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			return "", fmt.Errorf("unable to determine working directory")
+			return "", fmt.Errorf("unable to determine home directory")
 		}
-		workspace = wd
+		workspace = filepath.Join(homeDir, ".neoray", "workspace")
 	}
 
 	// 构建绝对路径

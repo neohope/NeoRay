@@ -48,9 +48,10 @@ func (tl *TemplateLoader) findTemplateDir() {
 		possibleDirs = append(possibleDirs, filepath.Join(exeDir, "templates"))
 	}
 
-	// 获取当前工作目录
-	if wd, err := os.Getwd(); err == nil {
-		possibleDirs = append(possibleDirs, filepath.Join(wd, "templates"))
+	// 获取 home 目录下的 templates
+	homeDir, _ := os.UserHomeDir()
+	if homeDir != "" {
+		possibleDirs = append(possibleDirs, filepath.Join(homeDir, ".neoray", "templates"))
 	}
 
 	for _, dir := range possibleDirs {
