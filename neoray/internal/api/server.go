@@ -220,6 +220,7 @@ func (s *Server) Start() error {
 	// REST API 端点
 	mux.HandleFunc("/api/sessions", s.wrapMiddleware(s.handleSessions))
 	mux.HandleFunc("/api/sessions/", s.wrapMiddleware(s.handleSession))
+	mux.HandleFunc("/api/config", s.wrapMiddleware(s.handleConfig))
 	mux.HandleFunc("/api/health", s.wrapMiddleware(s.handleHealth))
 
 

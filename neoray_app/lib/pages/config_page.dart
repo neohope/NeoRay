@@ -4,6 +4,7 @@ import '../models/app_config.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 import '../constants/constants.dart';
+import '../utils/logger.dart';
 
 class ConfigPage extends ConsumerStatefulWidget {
   const ConfigPage({super.key});
@@ -23,16 +24,32 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
   late TextEditingController _appIdController;
   late TextEditingController _appSecretController;
 
+  // 当前选中的 provider 名称
+  String _selectedProvider = AppDefaults.defaultLLMProvider;
+
   @override
   void initState() {
     super.initState();
-    final config = ref.read(appConfigProvider);
-    _apiKeyController = TextEditingController(text: config.llm.apiKey);
-    _apiUrlController = TextEditingController(text: config.llm.apiUrl);
-    _maxTokensController = TextEditingController(text: config.llm.maxTokens.toString());
-    _timeoutController = TextEditingController(text: config.llm.timeout.toString());
-    _appIdController = TextEditingController(text: config.channel.appId);
-    _appSecretController = TextEditingController(text: config.channel.appSecret);
+    // 用空值初始化，等服务端配置加载后再填充
+    _apiKeyController = TextEditingController();
+    _apiUrlController = TextEditingController();
+    _maxTokensController = TextEditingController();
+    _timeoutController = TextEditingController();
+    _appIdController = TextEditingController();
+    _appSecretController = TextEditingController();
+  }
+
+  /// 从服务端配置填充控制器
+  void _syncControllersFromServer(ServerConfig config) {
+    final provider = config.llm.providers[_selectedProvider];
+    if (provider != null) {
+      _apiKeyController.text = provider.apiKey;
+      _apiUrlController.text = provider.apiUrl;
+      _maxTokensController.text = provider.maxTokens.toString();
+      _timeoutController.text = provider.timeout.toString();
+    }
+    _appIdController.text = config.channels.feishu.appId;
+    _appSecretController.text = config.channels.feishu.appSecret;
   }
 
   @override
@@ -48,17 +65,35 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
 
   @override
   Widget build(BuildContext context) {
-    // 使用 select 精确订阅，避免无关字段变化触发全局 rebuild
-    final llm = ref.watch(appConfigProvider.select((c) => c.llm));
-    final channel = ref.watch(appConfigProvider.select((c) => c.channel));
-    final tools = ref.watch(appConfigProvider.select((c) => c.tools));
+    final serverConfigAsync = ref.watch(serverConfigProvider);
 
     return Scaffold(
       body: Row(
         children: [
           _buildSidebar(context),
           Expanded(
-            child: _buildContent(context, llm, channel, tools),
+            child: serverConfigAsync.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.error_outline, size: 48, color: AppTheme.danger),
+                    const SizedBox(height: AppDimensions.spacingLg),
+                    Text('${AppStrings.loadFailed}: $e'),
+                    const SizedBox(height: AppDimensions.spacingLg),
+                    ElevatedButton(
+                      onPressed: () => ref.read(serverConfigProvider.notifier).load(),
+                      child: Text(AppStrings.retry),
+                    ),
+                  ],
+                ),
+              ),
+              data: (config) {
+                _syncControllersFromServer(config);
+                return _buildContent(context, config);
+              },
+            ),
           ),
         ],
       ),
@@ -66,8 +101,6 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
   }
 
   Widget _buildSidebar(BuildContext context) {
-    final currentPage = ref.watch(activePageProvider);
-
     return Container(
       width: AppDimensions.sidebarWidth,
       color: _isDark(context) ? AppTheme.sidebarBackgroundDark : AppTheme.sidebarBackgroundLight,
@@ -208,7 +241,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
     );
   }
 
-  Widget _buildContent(BuildContext context, LLMConfig llm, ChannelConfig channel, ToolConfig tools) {
+  Widget _buildContent(BuildContext context, ServerConfig config) {
     return Container(
       color: _isDark(context) ? AppTheme.backgroundDark : AppTheme.backgroundLight,
       child: Column(
@@ -220,11 +253,11 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildLLMSection(context, llm),
+                  _buildLLMSection(context, config),
                   const SizedBox(height: AppDimensions.spacing2Xl),
-                  _buildChannelSection(context, channel),
+                  _buildChannelSection(context, config),
                   const SizedBox(height: AppDimensions.spacing2Xl),
-                  _buildToolSection(context, tools),
+                  _buildToolSection(context, config),
                   const SizedBox(height: AppDimensions.spacing2Xl),
                   _buildSaveButton(context),
                 ],
@@ -254,7 +287,13 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
     );
   }
 
-  Widget _buildLLMSection(BuildContext context, LLMConfig config) {
+  Widget _buildLLMSection(BuildContext context, ServerConfig config) {
+    final providerNames = config.llm.providers.keys.toList();
+    if (!providerNames.contains(_selectedProvider) && providerNames.isNotEmpty) {
+      _selectedProvider = providerNames.first;
+    }
+    final currentProvider = config.llm.providers[_selectedProvider];
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(AppDimensions.cardPadding),
@@ -270,13 +309,21 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
             const SizedBox(height: AppDimensions.spacingLg),
             _buildDropdownField(
               label: AppStrings.configProvider,
-              value: config.provider,
-              items: AppDefaults.availableProviders,
+              value: _selectedProvider,
+              items: providerNames,
               onChanged: (value) {
                 if (value != null) {
-                  ref
-                      .read(appConfigProvider.notifier)
-                      .updateLLMConfig(config.copyWith(provider: value));
+                  setState(() {
+                    _selectedProvider = value;
+                    // 切换 provider 时更新控制器
+                    final p = config.llm.providers[value];
+                    if (p != null) {
+                      _apiKeyController.text = p.apiKey;
+                      _apiUrlController.text = p.apiUrl;
+                      _maxTokensController.text = p.maxTokens.toString();
+                      _timeoutController.text = p.timeout.toString();
+                    }
+                  });
                 }
               },
             ),
@@ -285,59 +332,33 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
               label: AppStrings.configApiKey,
               controller: _apiKeyController,
               obscureText: true,
-              onChanged: (value) =>
-                  ref.read(appConfigProvider.notifier).updateLLMConfig(
-                        config.copyWith(apiKey: value),
-                      ),
+              onChanged: (value) {}, // 保存时统一提交
             ),
             const SizedBox(height: AppDimensions.spacingLg),
             _buildTextField(
               label: AppStrings.configApiUrl,
               controller: _apiUrlController,
-              onChanged: (value) =>
-                  ref.read(appConfigProvider.notifier).updateLLMConfig(
-                        config.copyWith(apiUrl: value),
-                      ),
-            ),
-            const SizedBox(height: AppDimensions.spacingLg),
-            _buildDropdownField(
-              label: AppStrings.configModel,
-              value: config.model,
-              items: AppDefaults.availableModels,
-              onChanged: (value) {
-                if (value != null) {
-                  ref
-                      .read(appConfigProvider.notifier)
-                      .updateLLMConfig(config.copyWith(model: value));
-                }
-              },
+              onChanged: (value) {},
             ),
             const SizedBox(height: AppDimensions.spacingLg),
             _buildNumberField(
               label: AppStrings.configMaxTokens,
               controller: _maxTokensController,
-              onChanged: (value) =>
-                  ref.read(appConfigProvider.notifier).updateLLMConfig(
-                        config.copyWith(maxTokens: value),
-                      ),
+              onChanged: (value) {},
             ),
             const SizedBox(height: AppDimensions.spacingLg),
             _buildSliderField(
               label: AppStrings.configTemperature,
-              value: config.temperature,
-              onChanged: (value) =>
-                  ref.read(appConfigProvider.notifier).updateLLMConfig(
-                        config.copyWith(temperature: value),
-                      ),
+              value: currentProvider?.temperature ?? AppDefaults.defaultTemperature,
+              onChanged: (value) {
+                // 保存时统一提交
+              },
             ),
             const SizedBox(height: AppDimensions.spacingLg),
             _buildNumberField(
               label: AppStrings.configTimeout,
               controller: _timeoutController,
-              onChanged: (value) =>
-                  ref.read(appConfigProvider.notifier).updateLLMConfig(
-                        config.copyWith(timeout: value),
-                      ),
+              onChanged: (value) {},
             ),
           ],
         ),
@@ -345,7 +366,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
     );
   }
 
-  Widget _buildChannelSection(BuildContext context, ChannelConfig config) {
+  Widget _buildChannelSection(BuildContext context, ServerConfig config) {
     return Card(
       key: _channelKey,
       child: Padding(
@@ -362,43 +383,25 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
             const SizedBox(height: AppDimensions.spacingLg),
             _buildSwitchField(
               label: AppStrings.configEnableFeishu,
-              value: config.enabled,
-              onChanged: (value) =>
-                  ref.read(appConfigProvider.notifier).updateChannelConfig(
-                        config.copyWith(enabled: value),
-                      ),
-            ),
-            const SizedBox(height: AppDimensions.spacingLg),
-            _buildDropdownField(
-              label: AppStrings.configChannelType,
-              value: config.provider,
-              items: AppDefaults.availableChannelProviders,
+              value: config.channels.feishu.enabled,
               onChanged: (value) {
-                if (value != null) {
-                  ref.read(appConfigProvider.notifier).updateChannelConfig(
-                        config.copyWith(provider: value),
-                      );
-                }
+                ref.read(serverConfigProvider.notifier).updateChannels({
+                  'feishu': {'enabled': value},
+                });
               },
             ),
             const SizedBox(height: AppDimensions.spacingLg),
             _buildTextField(
               label: AppStrings.configAppId,
               controller: _appIdController,
-              onChanged: (value) =>
-                  ref.read(appConfigProvider.notifier).updateChannelConfig(
-                        config.copyWith(appId: value),
-                      ),
+              onChanged: (value) {},
             ),
             const SizedBox(height: AppDimensions.spacingLg),
             _buildTextField(
               label: AppStrings.configAppSecret,
               controller: _appSecretController,
               obscureText: true,
-              onChanged: (value) =>
-                  ref.read(appConfigProvider.notifier).updateChannelConfig(
-                        config.copyWith(appSecret: value),
-                      ),
+              onChanged: (value) {},
             ),
           ],
         ),
@@ -406,7 +409,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
     );
   }
 
-  Widget _buildToolSection(BuildContext context, ToolConfig config) {
+  Widget _buildToolSection(BuildContext context, ServerConfig config) {
     return Card(
       key: _toolKey,
       child: Padding(
@@ -423,29 +426,32 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
             const SizedBox(height: AppDimensions.spacingLg),
             _buildSwitchField(
               label: AppStrings.configShellTool,
-              value: config.shellEnabled,
-              onChanged: (value) =>
-                  ref.read(appConfigProvider.notifier).updateToolConfig(
-                        config.copyWith(shellEnabled: value),
-                      ),
+              value: config.tools.shell.enabled,
+              onChanged: (value) {
+                ref.read(serverConfigProvider.notifier).updateTools({
+                  'shell': {'enabled': value},
+                });
+              },
             ),
             const SizedBox(height: AppDimensions.spacingMd),
             _buildSwitchField(
               label: AppStrings.configCronTool,
-              value: config.cronEnabled,
-              onChanged: (value) =>
-                  ref.read(appConfigProvider.notifier).updateToolConfig(
-                        config.copyWith(cronEnabled: value),
-                      ),
+              value: config.tools.cron.enabled,
+              onChanged: (value) {
+                ref.read(serverConfigProvider.notifier).updateTools({
+                  'cron': {'enabled': value},
+                });
+              },
             ),
             const SizedBox(height: AppDimensions.spacingMd),
             _buildSwitchField(
               label: AppStrings.configWebTool,
-              value: config.webEnabled,
-              onChanged: (value) =>
-                  ref.read(appConfigProvider.notifier).updateToolConfig(
-                        config.copyWith(webEnabled: value),
-                      ),
+              value: config.tools.web.enabled,
+              onChanged: (value) {
+                ref.read(serverConfigProvider.notifier).updateTools({
+                  'web': {'enabled': value},
+                });
+              },
             ),
           ],
         ),
@@ -462,11 +468,44 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
           button: true,
           child: ElevatedButton(
             onPressed: () async {
-              await ref.read(appConfigProvider.notifier).persist();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text(AppStrings.configSaved)),
+              try {
+                // 收集当前编辑的 LLM 配置
+                final maxTokens = int.tryParse(_maxTokensController.text) ?? AppDefaults.defaultMaxTokens;
+                final timeout = double.tryParse(_timeoutController.text) ?? AppDefaults.defaultTimeoutSec.toDouble();
+
+                await ref.read(serverConfigProvider.notifier).updateLLMProvider(
+                  _selectedProvider,
+                  {
+                    'api_key': _apiKeyController.text,
+                    'api_url': _apiUrlController.text,
+                    'max_tokens': maxTokens,
+                    'timeout': timeout,
+                  },
                 );
+
+                // 收集 Channel 配置
+                await ref.read(serverConfigProvider.notifier).updateChannels({
+                  'feishu': {
+                    'app_id': _appIdController.text,
+                    'app_secret': _appSecretController.text,
+                  },
+                });
+
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text(AppStrings.configSaved)),
+                  );
+                }
+              } catch (e) {
+                logger.e('保存配置失败', error: e);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('${AppStrings.saveConfig}: $e'),
+                      backgroundColor: AppTheme.danger,
+                    ),
+                  );
+                }
               }
             },
             child: const Text(AppStrings.saveConfig),

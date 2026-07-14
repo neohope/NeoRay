@@ -42,7 +42,8 @@ final webSocketServiceProvider = Provider<WebSocketService>((ref) {
   return service;
 });
 
-// App Config Provider
+// ─── 客户端本地配置（serverUrl + themeMode） ───
+
 final appConfigProvider = StateNotifierProvider<AppConfigNotifier, AppConfig>((ref) {
   return AppConfigNotifier();
 });
@@ -85,37 +86,78 @@ class AppConfigNotifier extends StateNotifier<AppConfig> {
     }
   }
 
-  Timer? _persistDebounce;
-
-  void updateConfig(AppConfig config) {
-    state = config;
-    _debouncePersist();
+  void updateServerUrl(String url) {
+    state = state.copyWith(serverUrl: url);
   }
 
-  void updateLLMConfig(LLMConfig config) {
-    state = state.copyWith(llm: config);
-    _debouncePersist();
+  void updateThemeMode(String mode) {
+    state = state.copyWith(themeMode: mode);
+    persist();
+  }
+}
+
+// ─── 服务端配置（通过 API 读写） ───
+
+final serverConfigProvider = StateNotifierProvider<ServerConfigNotifier, AsyncValue<ServerConfig>>((ref) {
+  final apiService = ref.watch(apiServiceProvider);
+  return ServerConfigNotifier(apiService);
+});
+
+class ServerConfigNotifier extends StateNotifier<AsyncValue<ServerConfig>> {
+  final ApiService _apiService;
+
+  ServerConfigNotifier(this._apiService) : super(const AsyncValue.loading()) {
+    load();
   }
 
-  void updateChannelConfig(ChannelConfig config) {
-    state = state.copyWith(channel: config);
-    _debouncePersist();
+  Future<void> load() async {
+    state = const AsyncValue.loading();
+    try {
+      final config = await _apiService.getServerConfig();
+      state = AsyncValue.data(config);
+    } catch (e, stackTrace) {
+      state = AsyncValue.error(e, stackTrace);
+    }
   }
 
-  void updateToolConfig(ToolConfig config) {
-    state = state.copyWith(tools: config);
-    _debouncePersist();
+  Future<void> updateLLMProvider(String providerName, Map<String, dynamic> updates) async {
+    try {
+      final config = await _apiService.updateServerConfig({
+        'llm': {
+          'providers': {
+            providerName: updates,
+          },
+        },
+      });
+      state = AsyncValue.data(config);
+    } catch (e, stackTrace) {
+      logger.e('更新 LLM 配置失败', error: e, stackTrace: stackTrace);
+      rethrow;
+    }
   }
 
-  void _debouncePersist() {
-    _persistDebounce?.cancel();
-    _persistDebounce = Timer(const Duration(seconds: 2), persist);
+  Future<void> updateChannels(Map<String, dynamic> updates) async {
+    try {
+      final config = await _apiService.updateServerConfig({
+        'channels': updates,
+      });
+      state = AsyncValue.data(config);
+    } catch (e, stackTrace) {
+      logger.e('更新 Channel 配置失败', error: e, stackTrace: stackTrace);
+      rethrow;
+    }
   }
 
-  @override
-  void dispose() {
-    _persistDebounce?.cancel();
-    super.dispose();
+  Future<void> updateTools(Map<String, dynamic> updates) async {
+    try {
+      final config = await _apiService.updateServerConfig({
+        'tools': updates,
+      });
+      state = AsyncValue.data(config);
+    } catch (e, stackTrace) {
+      logger.e('更新工具配置失败', error: e, stackTrace: stackTrace);
+      rethrow;
+    }
   }
 }
 

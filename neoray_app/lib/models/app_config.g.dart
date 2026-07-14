@@ -6,22 +6,49 @@ part of 'app_config.dart';
 // JsonSerializableGenerator
 // **************************************************************************
 
-_$LLMConfigImpl _$$LLMConfigImplFromJson(Map<String, dynamic> json) =>
-    _$LLMConfigImpl(
-      provider: json['provider'] as String? ?? AppDefaults.defaultLLMProvider,
-      apiKey: json['apiKey'] as String? ?? '',
-      apiUrl: json['apiUrl'] as String? ?? AppDefaults.defaultApiUrl,
-      model: json['model'] as String? ?? AppDefaults.defaultLLMModel,
-      maxTokens:
-          (json['maxTokens'] as num?)?.toInt() ?? AppDefaults.defaultMaxTokens,
-      temperature: (json['temperature'] as num?)?.toDouble() ??
-          AppDefaults.defaultTemperature,
-      timeout:
-          (json['timeout'] as num?)?.toInt() ?? AppDefaults.defaultTimeoutSec,
-      reasoningEffort: json['reasoningEffort'] as String? ??
-          AppDefaults.defaultReasoningEffort,
-      promptCacheEnabled: json['promptCacheEnabled'] as bool? ??
-          AppDefaults.defaultPromptCacheEnabled,
+_$AppConfigImpl _$$AppConfigImplFromJson(Map<String, dynamic> json) =>
+    _$AppConfigImpl(
+      serverUrl: json['serverUrl'] as String? ?? AppDefaults.defaultServerUrl,
+      themeMode: json['themeMode'] as String? ?? AppDefaults.defaultThemeMode,
+    );
+
+Map<String, dynamic> _$$AppConfigImplToJson(_$AppConfigImpl instance) =>
+    <String, dynamic>{
+      'serverUrl': instance.serverUrl,
+      'themeMode': instance.themeMode,
+    };
+
+_$ServerConfigImpl _$$ServerConfigImplFromJson(Map<String, dynamic> json) =>
+    _$ServerConfigImpl(
+      llm: json['llm'] == null
+          ? const ServerLLMConfig()
+          : ServerLLMConfig.fromJson(json['llm'] as Map<String, dynamic>),
+      channels: json['channels'] == null
+          ? const ServerChannelConfig()
+          : ServerChannelConfig.fromJson(
+              json['channels'] as Map<String, dynamic>),
+      tools: json['tools'] == null
+          ? const ServerToolConfig()
+          : ServerToolConfig.fromJson(json['tools'] as Map<String, dynamic>),
+    );
+
+Map<String, dynamic> _$$ServerConfigImplToJson(_$ServerConfigImpl instance) =>
+    <String, dynamic>{
+      'llm': instance.llm,
+      'channels': instance.channels,
+      'tools': instance.tools,
+    };
+
+_$ServerLLMConfigImpl _$$ServerLLMConfigImplFromJson(
+        Map<String, dynamic> json) =>
+    _$ServerLLMConfigImpl(
+      defaultProvider:
+          json['defaultProvider'] as String? ?? AppDefaults.defaultLLMProvider,
+      providers: (json['providers'] as Map<String, dynamic>?)?.map(
+            (k, e) =>
+                MapEntry(k, ProviderConfig.fromJson(e as Map<String, dynamic>)),
+          ) ??
+          const {},
       fallbackModels: (json['fallbackModels'] as List<dynamic>?)
               ?.map((e) =>
                   FallbackModelConfig.fromJson(e as Map<String, dynamic>))
@@ -29,9 +56,34 @@ _$LLMConfigImpl _$$LLMConfigImplFromJson(Map<String, dynamic> json) =>
           const [],
     );
 
-Map<String, dynamic> _$$LLMConfigImplToJson(_$LLMConfigImpl instance) =>
+Map<String, dynamic> _$$ServerLLMConfigImplToJson(
+        _$ServerLLMConfigImpl instance) =>
     <String, dynamic>{
-      'provider': instance.provider,
+      'defaultProvider': instance.defaultProvider,
+      'providers': instance.providers,
+      'fallbackModels': instance.fallbackModels,
+    };
+
+_$ProviderConfigImpl _$$ProviderConfigImplFromJson(Map<String, dynamic> json) =>
+    _$ProviderConfigImpl(
+      apiKey: json['apiKey'] as String? ?? '',
+      apiUrl: json['apiUrl'] as String? ?? '',
+      model: json['model'] as String? ?? AppDefaults.defaultLLMModel,
+      maxTokens:
+          (json['maxTokens'] as num?)?.toInt() ?? AppDefaults.defaultMaxTokens,
+      temperature: (json['temperature'] as num?)?.toDouble() ??
+          AppDefaults.defaultTemperature,
+      timeout: (json['timeout'] as num?)?.toDouble() ??
+          AppDefaults.defaultTimeoutSec,
+      reasoningEffort: json['reasoningEffort'] as String? ??
+          AppDefaults.defaultReasoningEffort,
+      promptCacheEnabled: json['promptCacheEnabled'] as bool? ??
+          AppDefaults.defaultPromptCacheEnabled,
+    );
+
+Map<String, dynamic> _$$ProviderConfigImplToJson(
+        _$ProviderConfigImpl instance) =>
+    <String, dynamic>{
       'apiKey': instance.apiKey,
       'apiUrl': instance.apiUrl,
       'model': instance.model,
@@ -40,7 +92,6 @@ Map<String, dynamic> _$$LLMConfigImplToJson(_$LLMConfigImpl instance) =>
       'timeout': instance.timeout,
       'reasoningEffort': instance.reasoningEffort,
       'promptCacheEnabled': instance.promptCacheEnabled,
-      'fallbackModels': instance.fallbackModels,
     };
 
 _$FallbackModelConfigImpl _$$FallbackModelConfigImplFromJson(
@@ -63,59 +114,64 @@ Map<String, dynamic> _$$FallbackModelConfigImplToJson(
       'reasoningEffort': instance.reasoningEffort,
     };
 
-_$ChannelConfigImpl _$$ChannelConfigImplFromJson(Map<String, dynamic> json) =>
-    _$ChannelConfigImpl(
-      enabled: json['enabled'] as bool? ?? AppDefaults.defaultChannelEnabled,
-      provider:
-          json['provider'] as String? ?? AppDefaults.defaultChannelProvider,
+_$ServerChannelConfigImpl _$$ServerChannelConfigImplFromJson(
+        Map<String, dynamic> json) =>
+    _$ServerChannelConfigImpl(
+      feishu: json['feishu'] == null
+          ? const FeishuConfig()
+          : FeishuConfig.fromJson(json['feishu'] as Map<String, dynamic>),
+    );
+
+Map<String, dynamic> _$$ServerChannelConfigImplToJson(
+        _$ServerChannelConfigImpl instance) =>
+    <String, dynamic>{
+      'feishu': instance.feishu,
+    };
+
+_$FeishuConfigImpl _$$FeishuConfigImplFromJson(Map<String, dynamic> json) =>
+    _$FeishuConfigImpl(
+      enabled: json['enabled'] as bool? ?? false,
       appId: json['appId'] as String? ?? '',
       appSecret: json['appSecret'] as String? ?? '',
     );
 
-Map<String, dynamic> _$$ChannelConfigImplToJson(_$ChannelConfigImpl instance) =>
+Map<String, dynamic> _$$FeishuConfigImplToJson(_$FeishuConfigImpl instance) =>
     <String, dynamic>{
       'enabled': instance.enabled,
-      'provider': instance.provider,
       'appId': instance.appId,
       'appSecret': instance.appSecret,
     };
 
-_$ToolConfigImpl _$$ToolConfigImplFromJson(Map<String, dynamic> json) =>
-    _$ToolConfigImpl(
-      shellEnabled:
-          json['shellEnabled'] as bool? ?? AppDefaults.defaultShellEnabled,
-      cronEnabled:
-          json['cronEnabled'] as bool? ?? AppDefaults.defaultCronEnabled,
-      webEnabled: json['webEnabled'] as bool? ?? AppDefaults.defaultWebEnabled,
+_$ServerToolConfigImpl _$$ServerToolConfigImplFromJson(
+        Map<String, dynamic> json) =>
+    _$ServerToolConfigImpl(
+      shell: json['shell'] == null
+          ? const ToolEnabledConfig()
+          : ToolEnabledConfig.fromJson(json['shell'] as Map<String, dynamic>),
+      web: json['web'] == null
+          ? const ToolEnabledConfig()
+          : ToolEnabledConfig.fromJson(json['web'] as Map<String, dynamic>),
+      cron: json['cron'] == null
+          ? const ToolEnabledConfig()
+          : ToolEnabledConfig.fromJson(json['cron'] as Map<String, dynamic>),
     );
 
-Map<String, dynamic> _$$ToolConfigImplToJson(_$ToolConfigImpl instance) =>
+Map<String, dynamic> _$$ServerToolConfigImplToJson(
+        _$ServerToolConfigImpl instance) =>
     <String, dynamic>{
-      'shellEnabled': instance.shellEnabled,
-      'cronEnabled': instance.cronEnabled,
-      'webEnabled': instance.webEnabled,
+      'shell': instance.shell,
+      'web': instance.web,
+      'cron': instance.cron,
     };
 
-_$AppConfigImpl _$$AppConfigImplFromJson(Map<String, dynamic> json) =>
-    _$AppConfigImpl(
-      serverUrl: json['serverUrl'] as String? ?? AppDefaults.defaultServerUrl,
-      themeMode: json['themeMode'] as String? ?? AppDefaults.defaultThemeMode,
-      llm: json['llm'] == null
-          ? const LLMConfig()
-          : LLMConfig.fromJson(json['llm'] as Map<String, dynamic>),
-      channel: json['channel'] == null
-          ? const ChannelConfig()
-          : ChannelConfig.fromJson(json['channel'] as Map<String, dynamic>),
-      tools: json['tools'] == null
-          ? const ToolConfig()
-          : ToolConfig.fromJson(json['tools'] as Map<String, dynamic>),
+_$ToolEnabledConfigImpl _$$ToolEnabledConfigImplFromJson(
+        Map<String, dynamic> json) =>
+    _$ToolEnabledConfigImpl(
+      enabled: json['enabled'] as bool? ?? true,
     );
 
-Map<String, dynamic> _$$AppConfigImplToJson(_$AppConfigImpl instance) =>
+Map<String, dynamic> _$$ToolEnabledConfigImplToJson(
+        _$ToolEnabledConfigImpl instance) =>
     <String, dynamic>{
-      'serverUrl': instance.serverUrl,
-      'themeMode': instance.themeMode,
-      'llm': instance.llm,
-      'channel': instance.channel,
-      'tools': instance.tools,
+      'enabled': instance.enabled,
     };

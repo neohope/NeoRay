@@ -644,3 +644,173 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// maskAPIKey 将 API Key 掩码为 ***last4 格式
+func maskAPIKey(key string) string {
+	if len(key) <= 4 {
+		return "***"
+	}
+	return "***" + key[len(key)-4:]
+}
+
+// buildConfigResponse 构建配置响应（掩码敏感字段）
+func (s *Server) buildConfigResponse() map[string]interface{} {
+	cfg := s.cfg
+
+	// 构建 providers 列表，掩码 API Key
+	providers := make(map[string]interface{})
+	for name, p := range cfg.LLM.Providers {
+		providers[name] = map[string]interface{}{
+			"api_key":             maskAPIKey(p.APIKey),
+			"api_url":             p.APIURL,
+			"model":               p.Model,
+			"max_tokens":          p.MaxTokens,
+			"temperature":         p.Temperature,
+			"timeout":             p.Timeout.Seconds(),
+			"reasoning_effort":    p.ReasoningEffort,
+			"prompt_cache_enabled": p.PromptCacheEnabled,
+		}
+	}
+
+	// 构建 fallback models
+	fallbackModels := make([]map[string]interface{}, 0, len(cfg.LLM.FallbackModels))
+	for _, fm := range cfg.LLM.FallbackModels {
+		fallbackModels = append(fallbackModels, map[string]interface{}{
+			"model":            fm.Model,
+			"provider":         fm.Provider,
+			"max_tokens":       fm.MaxTokens,
+			"temperature":      fm.Temperature,
+			"reasoning_effort": fm.ReasoningEffort,
+		})
+	}
+
+	// 构建 channels（掩码 secret）
+	channels := map[string]interface{}{
+		"websocket": map[string]interface{}{
+			"enabled": cfg.Channels.WebSocket.Enabled,
+		},
+		"feishu": map[string]interface{}{
+			"enabled":     cfg.Channels.Feishu.Enabled,
+			"app_id":      cfg.Channels.Feishu.AppID,
+			"app_secret":  maskAPIKey(cfg.Channels.Feishu.AppSecret),
+		},
+	}
+
+	// 构建 tools
+	tools := map[string]interface{}{
+		"shell": map[string]interface{}{
+			"enabled": cfg.Tools.Shell.Enabled,
+		},
+		"web": map[string]interface{}{
+			"enabled": cfg.Tools.Web.Enabled,
+		},
+		"cron": map[string]interface{}{
+			"enabled": cfg.Tools.Cron.Enabled,
+		},
+	}
+
+	return map[string]interface{}{
+		"llm": map[string]interface{}{
+			"default_provider": cfg.LLM.DefaultProvider,
+			"providers":        providers,
+			"fallback_models":  fallbackModels,
+		},
+		"channels": channels,
+		"tools":    tools,
+	}
+}
+
+// handleConfig 处理配置读取和更新
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case http.MethodGet:
+		// 返回当前配置（敏感字段已掩码）
+		json.NewEncoder(w).Encode(s.buildConfigResponse())
+
+	case http.MethodPut:
+		// 更新配置 — 限制请求体大小
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB
+		var req map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+
+		// 更新 LLM 配置
+		if llm, ok := req["llm"].(map[string]interface{}); ok {
+			if dp, ok := llm["default_provider"].(string); ok {
+				s.cfg.LLM.DefaultProvider = dp
+			}
+			if providers, ok := llm["providers"].(map[string]interface{}); ok {
+				for name, p := range providers {
+					if pc, ok := p.(map[string]interface{}); ok {
+						existing := s.cfg.LLM.Providers[name]
+						if v, ok := pc["api_key"].(string); ok && v != "" && !strings.HasPrefix(v, "***") {
+							existing.APIKey = v
+						}
+						if v, ok := pc["api_url"].(string); ok {
+							existing.APIURL = v
+						}
+						if v, ok := pc["model"].(string); ok {
+							existing.Model = v
+						}
+						if v, ok := pc["max_tokens"].(float64); ok {
+							existing.MaxTokens = int(v)
+						}
+						if v, ok := pc["temperature"].(float64); ok {
+							existing.Temperature = v
+						}
+						if v, ok := pc["reasoning_effort"].(string); ok {
+							existing.ReasoningEffort = v
+						}
+						s.cfg.LLM.Providers[name] = existing
+					}
+				}
+			}
+		}
+
+		// 更新 channels 配置
+		if channels, ok := req["channels"].(map[string]interface{}); ok {
+			if feishu, ok := channels["feishu"].(map[string]interface{}); ok {
+				if v, ok := feishu["enabled"].(bool); ok {
+					s.cfg.Channels.Feishu.Enabled = v
+				}
+				if v, ok := feishu["app_id"].(string); ok {
+					s.cfg.Channels.Feishu.AppID = v
+				}
+				if v, ok := feishu["app_secret"].(string); ok && v != "" && !strings.HasPrefix(v, "***") {
+					s.cfg.Channels.Feishu.AppSecret = v
+				}
+			}
+		}
+
+		// 更新 tools 配置
+		if tools, ok := req["tools"].(map[string]interface{}); ok {
+			if shell, ok := tools["shell"].(map[string]interface{}); ok {
+				if v, ok := shell["enabled"].(bool); ok {
+					s.cfg.Tools.Shell.Enabled = v
+				}
+			}
+			if web, ok := tools["web"].(map[string]interface{}); ok {
+				if v, ok := web["enabled"].(bool); ok {
+					s.cfg.Tools.Web.Enabled = v
+				}
+			}
+			if cron, ok := tools["cron"].(map[string]interface{}); ok {
+				if v, ok := cron["enabled"].(bool); ok {
+					s.cfg.Tools.Cron.Enabled = v
+				}
+			}
+		}
+
+		logger.Info("Config updated via API")
+
+		// 返回更新后的配置
+		json.NewEncoder(w).Encode(s.buildConfigResponse())
+
+	default:
+		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
+	}
+}
+

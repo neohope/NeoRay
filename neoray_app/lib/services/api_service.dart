@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/session.dart';
 import '../models/message.dart';
+import '../models/app_config.dart';
 import '../constants/constants.dart';
 import '../utils/logger.dart';
 
@@ -163,6 +164,30 @@ class ApiService {
       await _httpClient
           .delete(_buildUri('/api/sessions/$sessionId'))
           .timeout(timeout, onTimeout: () => throw TimeoutException('请求超时'));
+    });
+  }
+
+  Future<ServerConfig> getServerConfig() async {
+    return _executeRequest(() async {
+      final response = await _httpClient
+          .get(_buildUri('/api/config'))
+          .timeout(timeout, onTimeout: () => throw TimeoutException('请求超时'));
+      final data = await _handleResponse(response);
+      return ServerConfig.fromJson(data);
+    });
+  }
+
+  Future<ServerConfig> updateServerConfig(Map<String, dynamic> updates) async {
+    return _executeRequest(() async {
+      final response = await _httpClient
+          .put(
+            _buildUri('/api/config'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(updates),
+          )
+          .timeout(timeout, onTimeout: () => throw TimeoutException('请求超时'));
+      final data = await _handleResponse(response);
+      return ServerConfig.fromJson(data);
     });
   }
 
