@@ -28,9 +28,9 @@ func Load(configPath string) (*Config, error) {
 
 	// 1. 从命令行参数指定的路径加载
 	// 2. 从环境变量 NEORAY_CONFIG 指定的路径加载
-	// 3. 从 ~/.neoray/config.toml 加载
-	// 4. 从 ./config.toml 加载
-	// 5. 从可执行文件同目录的 config.toml 加载
+	// 3. 从 ~/.neoray/neoray.toml 加载
+	// 4. 从 ./neoray.toml 加载
+	// 5. 从可执行文件同目录的 neoray.toml 加载
 
 	if configPath != "" {
 		v.SetConfigFile(configPath)
@@ -73,7 +73,7 @@ func Load(configPath string) (*Config, error) {
 	cfg.HomeDir = homeDir
 
 	// 如果用户目录没有配置文件，保存默认配置
-	userConfigPath := filepath.Join(homeDir, "config.toml")
+	userConfigPath := filepath.Join(homeDir, "neoray.toml")
 	if _, err := os.Stat(userConfigPath); os.IsNotExist(err) {
 		fmt.Printf("Creating default config in %s\n", userConfigPath)
 		if err := saveDefaultConfig(userConfigPath); err != nil {
@@ -279,7 +279,7 @@ func saveDefaultConfig(path string) error {
 
 	// 创建默认配置内容
 	defaultConfig := `# NeoRay 配置文件
-# 配置文件自动生成于: ~/.neoray/config.toml
+# 配置文件自动生成于: ~/.neoray/neoray.toml
 
 [app]
 name = "neoray"

@@ -736,7 +736,7 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 	}
 
 	if p == nil {
-		errMsg := "⚠️ No LLM provider configured! Please edit your config.toml and add an API key for Anthropic or OpenAI."
+		errMsg := "⚠️ No LLM provider configured! Please edit your neoray.toml and add an API key for Anthropic or OpenAI."
 		logger.Error("No LLM provider available", logger.String("default_provider", al.cfg.LLM.DefaultProvider))
 		if trace != nil {
 			trace.AddError(fmt.Errorf("no provider"), "Provider resolution")

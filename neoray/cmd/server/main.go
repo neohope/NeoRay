@@ -430,7 +430,7 @@ func main() {
 	if !hasAPIKey {
 		fmt.Println("")
 		fmt.Println("⚠️ ⚠️ ⚠️ WARNING: NO LLM API KEYS CONFIGURED! ⚠️ ⚠️ ⚠️")
-		fmt.Println("Please edit config.toml and add your API key")
+		fmt.Println("Please edit neoray.toml and add your API key")
 		fmt.Println("")
 	} else {
 		fmt.Println("")
