@@ -88,6 +88,18 @@ type StreamChatResponse struct {
 	Error          error
 }
 
+// ProviderError 带重试信息的提供商错误
+type ProviderError struct {
+	Err             error
+	RetryAfter      time.Duration
+	ErrorShouldRetry bool
+	ErrorType       string
+	StatusCode      int
+}
+
+func (e *ProviderError) Error() string { return e.Err.Error() }
+func (e *ProviderError) Unwrap() error { return e.Err }
+
 // GenerationSettings 生成设置
 type GenerationSettings struct {
 	Temperature      float64

@@ -135,8 +135,7 @@ func (t *MessageTool) Execute(ctx context.Context, args json.RawMessage) (json.R
 	}
 
 	if err := json.Unmarshal(args, &params); err != nil {
-		res, _ := json.Marshal(fmt.Sprintf("Error: invalid arguments: %v", err))
-		return res, nil
+		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
 
 	content := t.stripThink(params.Content)
@@ -155,8 +154,7 @@ func (t *MessageTool) Execute(ctx context.Context, args json.RawMessage) (json.R
 		}
 	}
 	if !validButtons {
-		res, _ := json.Marshal("Error: buttons must be a list of list of strings")
-		return res, nil
+		return nil, fmt.Errorf("buttons must be a list of list of strings")
 	}
 
 	t.mu.Lock()
@@ -177,10 +175,9 @@ func (t *MessageTool) Execute(ctx context.Context, args json.RawMessage) (json.R
 
 	// 检查 WebSocket 的 chat_id 限制
 	if defaultChannel == "websocket" && channel == "websocket" && params.ChatID != "" && strings.TrimSpace(params.ChatID) != "" && strings.TrimSpace(params.ChatID) != strings.TrimSpace(defaultChatID) {
-		res, _ := json.Marshal("Error: chat_id does not match the active WebSocket conversation. " +
-			"Omit chat_id (and usually channel) so delivery uses the current conversation id " +
-			"from context — WebSocket client_id strings (e.g. anon-…) are not chat ids.")
-		return res, nil
+		return nil, fmt.Errorf("chat_id does not match the active WebSocket conversation; " +
+			"omit chat_id (and usually channel) so delivery uses the current conversation id " +
+			"from context")
 	}
 
 	// 仅当目标与当前频道+聊天一致时继承默认 message_id
@@ -191,13 +188,11 @@ func (t *MessageTool) Execute(ctx context.Context, args json.RawMessage) (json.R
 	}
 
 	if channel == "" || chatID == "" {
-		res, _ := json.Marshal("Error: No target channel/chat specified")
-		return res, nil
+		return nil, fmt.Errorf("no target channel/chat specified")
 	}
 
 	if t.messageBus == nil {
-		res, _ := json.Marshal("Error: Message sending not configured")
-		return res, nil
+		return nil, fmt.Errorf("message sending not configured (no message bus)")
 	}
 
 	var resolvedMedia []string
@@ -205,8 +200,7 @@ func (t *MessageTool) Execute(ctx context.Context, args json.RawMessage) (json.R
 		var resolveErr error
 		resolvedMedia, resolveErr = t.resolveMedia(params.Media)
 		if resolveErr != nil {
-			res, _ := json.Marshal(fmt.Sprintf("Error: media path is not allowed: %v", resolveErr))
-			return res, nil
+			return nil, fmt.Errorf("media path is not allowed: %w", resolveErr)
 		}
 	}
 
@@ -232,8 +226,7 @@ func (t *MessageTool) Execute(ctx context.Context, args json.RawMessage) (json.R
 	}
 
 	if err := t.messageBus.PublishOutbound(msg); err != nil {
-		res, _ := json.Marshal(fmt.Sprintf("Error sending message: %v", err))
-		return res, nil
+		return nil, fmt.Errorf("send message: %w", err)
 	}
 
 	t.mu.Lock()

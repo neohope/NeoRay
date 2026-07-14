@@ -3,7 +3,7 @@ package bus
 import (
 	"context"
 	crypto_rand "crypto/rand"
-	"fmt"
+	"encoding/hex"
 	"time"
 )
 
@@ -166,11 +166,11 @@ func (m *OutboundMessage) WithMedia(media []string) *OutboundMessage {
 	return m
 }
 
-// generateID 生成唯一消息 ID（纳秒时间戳 + 随机后缀，防止并发重复）
+// generateID 生成唯一消息 ID（纯随机，128 位熵，与 session 包一致）
 func generateID() string {
-	b := make([]byte, 4)
+	b := make([]byte, 16)
 	_, _ = crypto_rand.Read(b)
-	return fmt.Sprintf("%s-%x", time.Now().Format("20060102150405.000000000"), b)
+	return hex.EncodeToString(b)
 }
 
 // SessionKey 获取会话键

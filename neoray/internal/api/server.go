@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	crypto_rand "crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -233,6 +234,11 @@ func (s *Server) Start() error {
 		IdleTimeout:  60 * time.Second,
 	}
 
+	// 检查认证配置
+	if s.cfg.Security.Auth.Enabled && s.cfg.Security.Auth.SecretKey == "" {
+		logger.Warn("Auth is enabled but SecretKey is empty — all requests will be rejected. Set security.auth.secret_key in neoray.toml.")
+	}
+
 	logger.Info("API server starting",
 		logger.String("addr", addr),
 	)
@@ -430,21 +436,25 @@ func (s *Server) authenticateRequest(r *http.Request) bool {
 	}
 	expectedKey := s.cfg.Security.Auth.SecretKey
 	if expectedKey == "" {
-		return true
+		// Auth 启用但密钥为空 — 拒绝所有请求，防止开发模式下无认证保护
+		logger.Warn("Request rejected: auth enabled but SecretKey is empty",
+			logger.String("remote", r.RemoteAddr),
+			logger.String("path", r.URL.Path))
+		return false
 	}
 
 	// Check Authorization: Bearer <key>
 	if authHeader := r.Header.Get("Authorization"); authHeader != "" {
 		const prefix = "Bearer "
 		if len(authHeader) > len(prefix) && authHeader[:len(prefix)] == prefix {
-			if authHeader[len(prefix):] == expectedKey {
+			if subtle.ConstantTimeCompare([]byte(authHeader[len(prefix):]), []byte(expectedKey)) == 1 {
 				return true
 			}
 		}
 	}
 
 	// Check X-Api-Key header
-	if apiKey := r.Header.Get("X-Api-Key"); apiKey == expectedKey {
+	if apiKey := r.Header.Get("X-Api-Key"); subtle.ConstantTimeCompare([]byte(apiKey), []byte(expectedKey)) == 1 {
 		return true
 	}
 
@@ -511,7 +521,7 @@ func (c *Client) readPump() {
 
 		logger.Debug("Received WebSocket message",
 			logger.String("client_id", c.ID),
-			logger.String("message", string(message)),
+			logger.Int("message_bytes", len(message)),
 		)
 
 		// 处理消息

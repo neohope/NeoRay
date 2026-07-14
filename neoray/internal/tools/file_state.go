@@ -225,16 +225,26 @@ func (fs *FileStates) Clear() {
 	fs.state = make(map[string]*ReadState)
 }
 
+// fileStateEntry 带访问时间的 FileStates 条目
+type fileStateEntry struct {
+	fs       *FileStates
+	lastAccess time.Time
+}
+
 // FileStateStore 每个会话的文件读写状态查找表
 type FileStateStore struct {
-	mu         sync.RWMutex
-	statesByKey map[string]*FileStates
+	mu           sync.RWMutex
+	statesByKey  map[string]*fileStateEntry
+	maxSessions  int
 }
+
+const defaultMaxFileStateSessions = 200
 
 // NewFileStateStore 创建一个新的 FileStateStore
 func NewFileStateStore() *FileStateStore {
 	return &FileStateStore{
-		statesByKey: make(map[string]*FileStates),
+		statesByKey: make(map[string]*fileStateEntry),
+		maxSessions: defaultMaxFileStateSessions,
 	}
 }
 
@@ -248,13 +258,38 @@ func (fss *FileStateStore) ForSession(sessionKey string) *FileStates {
 		key = "__default__"
 	}
 
-	fs, exists := fss.statesByKey[key]
-	if !exists {
-		fs = NewFileStates()
-		fss.statesByKey[key] = fs
+	entry, exists := fss.statesByKey[key]
+	if exists {
+		entry.lastAccess = time.Now()
+		return entry.fs
 	}
 
+	// 达到上限时淘汰最久未访问的条目
+	if len(fss.statesByKey) >= fss.maxSessions {
+		fss.evictOldestLocked()
+	}
+
+	fs := NewFileStates()
+	fss.statesByKey[key] = &fileStateEntry{fs: fs, lastAccess: time.Now()}
 	return fs
+}
+
+// evictOldestLocked 淘汰最久未访问的条目（调用者必须持有写锁）
+func (fss *FileStateStore) evictOldestLocked() {
+	if len(fss.statesByKey) == 0 {
+		return
+	}
+	var oldestKey string
+	var oldestTime time.Time
+	for key, entry := range fss.statesByKey {
+		if oldestKey == "" || entry.lastAccess.Before(oldestTime) {
+			oldestKey = key
+			oldestTime = entry.lastAccess
+		}
+	}
+	if oldestKey != "" {
+		delete(fss.statesByKey, oldestKey)
+	}
 }
 
 // Clear 清除所有状态
@@ -262,7 +297,7 @@ func (fss *FileStateStore) Clear() {
 	fss.mu.Lock()
 	defer fss.mu.Unlock()
 
-	fss.statesByKey = make(map[string]*FileStates)
+	fss.statesByKey = make(map[string]*fileStateEntry)
 }
 
 // 全局默认实例（向后兼容）

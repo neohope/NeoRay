@@ -149,20 +149,17 @@ func (t *CronTool) Execute(ctx context.Context, args json.RawMessage) (json.RawM
 	case "remove":
 		return t.handleRemove(ctx, input)
 	default:
-		res, _ := json.Marshal(fmt.Sprintf("Error: Unknown action '%s'", input.Action))
-		return res, nil
+		return nil, fmt.Errorf("unknown action '%s'", input.Action)
 	}
 }
 
 func (t *CronTool) handleAdd(ctx context.Context, input CronArgs) (json.RawMessage, error) {
 	if strings.TrimSpace(input.Message) == "" {
-		res, _ := json.Marshal("Error: message is required when action='add'")
-		return res, nil
+		return nil, fmt.Errorf("message is required when action='add'")
 	}
 
 	if t.scheduler == nil {
-		res, _ := json.Marshal("Error: cron scheduler not available")
-		return res, nil
+		return nil, fmt.Errorf("cron scheduler not available")
 	}
 
 	context := t.getContext()
@@ -185,8 +182,7 @@ func (t *CronTool) handleAdd(ctx context.Context, input CronArgs) (json.RawMessa
 	} else if input.At != "" {
 		atMs, err := t.parseAtTime(input.At, input.TZ)
 		if err != nil {
-			res, _ := json.Marshal(fmt.Sprintf("Error: %v", err))
-			return res, nil
+			return nil, err
 		}
 		schedule = map[string]any{
 			"kind":  "at",
@@ -194,8 +190,7 @@ func (t *CronTool) handleAdd(ctx context.Context, input CronArgs) (json.RawMessa
 		}
 		deleteAfterRun = true
 	} else {
-		res, _ := json.Marshal("Error: either every_seconds, cron_expr, or at is required")
-		return res, nil
+		return nil, fmt.Errorf("either every_seconds, cron_expr, or at is required")
 	}
 
 	// 设置默认值
@@ -225,8 +220,7 @@ func (t *CronTool) handleAdd(ctx context.Context, input CronArgs) (json.RawMessa
 		context.SessionKey,
 	)
 	if err != nil {
-		res, _ := json.Marshal(fmt.Sprintf("Error: failed to add job: %v", err))
-		return res, nil
+		return nil, fmt.Errorf("add job: %w", err)
 	}
 
 	// 从返回的 job 中提取 name 和 id
@@ -247,8 +241,7 @@ func (t *CronTool) handleAdd(ctx context.Context, input CronArgs) (json.RawMessa
 
 func (t *CronTool) handleList(ctx context.Context, input CronArgs) (json.RawMessage, error) {
 	if t.scheduler == nil {
-		res, _ := json.Marshal("Cron scheduler not available")
-		return res, nil
+		return nil, fmt.Errorf("cron scheduler not available")
 	}
 
 	jobs := t.scheduler.ListJobs(true)
@@ -300,13 +293,11 @@ func (t *CronTool) handleList(ctx context.Context, input CronArgs) (json.RawMess
 
 func (t *CronTool) handleRemove(ctx context.Context, input CronArgs) (json.RawMessage, error) {
 	if strings.TrimSpace(input.JobID) == "" {
-		res, _ := json.Marshal("Error: job_id is required for remove")
-		return res, nil
+		return nil, fmt.Errorf("job_id is required for remove")
 	}
 
 	if t.scheduler == nil {
-		res, _ := json.Marshal("Error: cron scheduler not available")
-		return res, nil
+		return nil, fmt.Errorf("cron scheduler not available")
 	}
 
 	result := t.scheduler.RemoveJob(input.JobID)

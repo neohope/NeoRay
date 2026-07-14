@@ -53,6 +53,16 @@ const (
 	StateEventShortcut StateEvent = "shortcut"
 )
 
+// 代理循环常量
+const (
+	defaultMaxIterations     = 10
+	defaultPendingQueueSize  = 20
+	defaultStreamChanSize    = 100
+	goroutineTimeout         = 10 * time.Minute
+	compactThresholdMessages = 100
+	toolExecutionTimeout     = 30 * time.Second
+)
+
 // StateTraceEntry 状态追踪记录
 type StateTraceEntry struct {
 	State     TurnState
@@ -149,12 +159,18 @@ type AgentLoop struct {
 
 	// 并发控制
 	running       bool
-	sessionLocks  map[string]*sync.Mutex
+	sessionLocks  map[string]*sessionLockEntry
 	pendingQueues   map[string]chan *bus.InboundMessage
 	concurrencyGate chan struct{}
 
 	mu             sync.RWMutex
 	currentSession *session.Session
+}
+
+// sessionLockEntry 引用计数的会话锁
+type sessionLockEntry struct {
+	mu  sync.Mutex
+	ref int
 }
 
 // AgentLoopOption 代理循环配置选项
@@ -222,7 +238,7 @@ func NewAgentLoop(
 		providerMgr:   providerMgr,
 		sessionMgr:    sessionMgr,
 		toolRegistry:  toolRegistry,
-		sessionLocks:  make(map[string]*sync.Mutex),
+		sessionLocks:  make(map[string]*sessionLockEntry),
 		pendingQueues: make(map[string]chan *bus.InboundMessage),
 	}
 
@@ -398,10 +414,18 @@ func (al *AgentLoop) ProcessDirect(
 	}
 
 	lock := al.getSessionLock(sessionKey)
-	lock.Lock()
-	defer lock.Unlock()
+	lock.mu.Lock()
+	defer lock.mu.Unlock()
+	defer al.releaseSessionLock(sessionKey)
 
-	return al.processMessage(ctx, msg, sessionKey)
+	result, err := al.processMessage(ctx, msg, sessionKey)
+
+	// 清理追踪会话，防止内存泄漏
+	if al.traceManager != nil {
+		al.traceManager.RemoveSession(sessionKey)
+	}
+
+	return result, err
 }
 
 // handleInboundMessage 处理来自总线的消息
@@ -426,12 +450,14 @@ func (al *AgentLoop) handleInboundMessage(ctx context.Context, msg *bus.InboundM
 	}
 
 	// 启动新任务处理 — 派生独立 context，避免捕获短生命周期的请求 context
+	// 锁顺序约定：始终先获取 al.mu 再获取 lock.mu，防止死锁
 	go func() {
-		lock.Lock()
-		defer lock.Unlock()
+		lock.mu.Lock()
+		defer lock.mu.Unlock()
+		defer al.releaseSessionLock(sessionKey)
 
-		// 创建 pending 队列
-		pendingQueue := make(chan *bus.InboundMessage, 20)
+		// 创建 pending 队列（al.mu 已在 getSessionLock 中释放，此处重新获取）
+		pendingQueue := make(chan *bus.InboundMessage, defaultPendingQueueSize)
 		al.mu.Lock()
 		al.pendingQueues[sessionKey] = pendingQueue
 		al.mu.Unlock()
@@ -457,7 +483,6 @@ func (al *AgentLoop) handleInboundMessage(ctx context.Context, msg *bus.InboundM
 		// Derive a background context so the goroutine survives the caller's scope.
 		// Preserve logger/provider values but drop the caller's cancellation.
 		goroutineCtx := context.WithoutCancel(ctx)
-		const goroutineTimeout = 10 * time.Minute
 		var cancel context.CancelFunc
 		goroutineCtx, cancel = context.WithTimeout(goroutineCtx, goroutineTimeout)
 		defer cancel()
@@ -465,6 +490,11 @@ func (al *AgentLoop) handleInboundMessage(ctx context.Context, msg *bus.InboundM
 		_, err := al.processMessage(goroutineCtx, msg, sessionKey)
 		if err != nil {
 			logger.Error("Error processing message", logger.ErrorField(err))
+		}
+
+		// 清理追踪会话，防止内存泄漏
+		if al.traceManager != nil {
+			al.traceManager.RemoveSession(sessionKey)
 		}
 	}()
 
@@ -587,7 +617,7 @@ func (al *AgentLoop) stateCompact(ctx context.Context, turnCtx *TurnContext) (St
 	logger.Debug("State: Compact", logger.String("session_key", turnCtx.SessionKey))
 
 	// 如果消息数量超过阈值，触发后台压缩
-	if al.memoryManager != nil && al.memoryManager.Store() != nil && len(turnCtx.Session.Messages) > 100 {
+	if al.memoryManager != nil && al.memoryManager.Store() != nil && len(turnCtx.Session.Messages) > compactThresholdMessages {
 		go func() {
 			if err := al.memoryManager.Store().CompactHistory(); err != nil {
 				logger.Warn("Background compaction failed", logger.ErrorField(err))
@@ -673,27 +703,10 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 	return StateEventOK, nil
 }
 
-// stateRun 运行 LLM
-func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateEvent, error) {
-	logger.Debug("State: Run", logger.String("session_key", turnCtx.SessionKey))
-
-	// Hook: BeforeIter
-	if err := al.hook.BeforeIter(ctx, turnCtx.Session); err != nil {
-		logger.Warn("Hook BeforeIter failed", logger.ErrorField(err))
-	}
-
-	if turnCtx.VisibleRunStartedAt == nil {
-		now := time.Now()
-		turnCtx.VisibleRunStartedAt = &now
-	}
-
-	// Per-session 工具接线（从 Agent.Chat 迁移）
-	al.mu.Lock()
-	al.currentSession = turnCtx.Session
-	al.mu.Unlock()
-
+// wireToolsForSession 将 FileStateStore 和 ExecSessionManager 绑定到当前会话
+func (al *AgentLoop) wireToolsForSession(sessionID string) {
 	if al.fileStateStore != nil {
-		fileStates := al.fileStateStore.ForSession(turnCtx.Session.ID)
+		fileStates := al.fileStateStore.ForSession(sessionID)
 		if tool, ok := al.toolRegistry.Get("filesystem"); ok {
 			if fsTool, ok := tool.(*tools.FileSystemTool); ok {
 				fsTool.SetFileStates(fileStates)
@@ -709,20 +722,41 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 		if tool, ok := al.toolRegistry.Get("shell"); ok {
 			if shellTool, ok := tool.(*tools.ShellTool); ok {
 				shellTool.SetSessionManager(al.execSessionManager)
-				shellTool.SetSessionKey(turnCtx.Session.ID)
+				shellTool.SetSessionKey(sessionID)
 			}
 		}
 		if tool, ok := al.toolRegistry.Get("write_stdin"); ok {
 			if writeTool, ok := tool.(*tools.WriteStdinTool); ok {
-				writeTool.SetSessionKey(turnCtx.Session.ID)
+				writeTool.SetSessionKey(sessionID)
 			}
 		}
 		if tool, ok := al.toolRegistry.Get("list_exec_sessions"); ok {
 			if listTool, ok := tool.(*tools.ListExecSessionsTool); ok {
-				listTool.SetSessionKey(turnCtx.Session.ID)
+				listTool.SetSessionKey(sessionID)
 			}
 		}
 	}
+}
+
+// stateRun 运行 LLM
+func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateEvent, error) {
+	logger.Debug("State: Run", logger.String("session_key", turnCtx.SessionKey))
+
+	// Hook: BeforeIter
+	if err := al.hook.BeforeIter(ctx, turnCtx.Session); err != nil {
+		logger.Warn("Hook BeforeIter failed", logger.ErrorField(err))
+	}
+
+	if turnCtx.VisibleRunStartedAt == nil {
+		now := time.Now()
+		turnCtx.VisibleRunStartedAt = &now
+	}
+
+	// Per-session 工具接线
+	al.mu.Lock()
+	al.currentSession = turnCtx.Session
+	al.mu.Unlock()
+	al.wireToolsForSession(turnCtx.Session.ID)
 
 	// 创建 Trace
 	var trace *TraceSession
@@ -749,7 +783,11 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 	if al.toolRegistry != nil {
 		for _, def := range al.toolRegistry.GetDefinitions() {
 			var schema map[string]interface{}
-			_ = json.Unmarshal(def.InputSchema, &schema)
+			if err := json.Unmarshal(def.InputSchema, &schema); err != nil {
+				logger.Warn("Skipping tool with invalid InputSchema",
+					logger.String("tool", def.Name), logger.ErrorField(err))
+				continue
+			}
 			providerTools = append(providerTools, provider.Tool{
 				Name:        def.Name,
 				Description: def.Description,
@@ -758,7 +796,7 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 		}
 	}
 
-	maxIterations := 10
+	maxIterations := defaultMaxIterations
 	if al.cfg.Agent.MaxIterations > 0 {
 		maxIterations = al.cfg.Agent.MaxIterations
 	}
@@ -877,7 +915,7 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 
 	logger.Warn("Max tool iterations reached")
 	if trace != nil {
-		trace.AddInfo("达到最大迭代次数", map[string]interface{}{"max_iterations": maxIterations})
+		trace.AddInfo("Max tool iterations reached", map[string]interface{}{"max_iterations": maxIterations})
 	}
 
 	// 生成最大迭代次数的提示消息
@@ -1015,17 +1053,31 @@ func (al *AgentLoop) effectiveSessionKey(msg *bus.InboundMessage) string {
 	return msg.SessionKey()
 }
 
-// getSessionLock 获取会话锁
-func (al *AgentLoop) getSessionLock(sessionKey string) *sync.Mutex {
+// getSessionLock 获取会话锁（调用者必须在使用后调用 releaseSessionLock）
+func (al *AgentLoop) getSessionLock(sessionKey string) *sessionLockEntry {
 	al.mu.Lock()
 	defer al.mu.Unlock()
 
-	lock, ok := al.sessionLocks[sessionKey]
+	entry, ok := al.sessionLocks[sessionKey]
 	if !ok {
-		lock = &sync.Mutex{}
-		al.sessionLocks[sessionKey] = lock
+		entry = &sessionLockEntry{}
+		al.sessionLocks[sessionKey] = entry
 	}
-	return lock
+	entry.ref++
+	return entry
+}
+
+// releaseSessionLock 释放会话锁引用，引用归零时从 map 中移除
+func (al *AgentLoop) releaseSessionLock(sessionKey string) {
+	al.mu.Lock()
+	defer al.mu.Unlock()
+
+	if entry, ok := al.sessionLocks[sessionKey]; ok {
+		entry.ref--
+		if entry.ref <= 0 {
+			delete(al.sessionLocks, sessionKey)
+		}
+	}
 }
 
 // Chat 发送聊天消息（同步入口，替代 Agent.Chat）
@@ -1040,6 +1092,7 @@ func (al *AgentLoop) Chat(ctx context.Context, sess *session.Session, userInput 
 	// 跟踪活跃会话
 	if al.memoryManager != nil {
 		al.memoryManager.TrackSession(sess.ID)
+		defer al.memoryManager.UntrackSession(sess.ID)
 	}
 
 	// 构建 bus 消息
@@ -1054,14 +1107,17 @@ func (al *AgentLoop) Chat(ctx context.Context, sess *session.Session, userInput 
 
 	sessionKey := sess.ID
 	lock := al.getSessionLock(sessionKey)
-	lock.Lock()
-	defer lock.Unlock()
+	lock.mu.Lock()
+	defer lock.mu.Unlock()
+	defer al.releaseSessionLock(sessionKey)
 
 	// 创建 Trace
 	trace := al.traceManager.GetOrCreateSession(sess.ID)
 	if trace != nil {
-		trace.AddInfo(fmt.Sprintf("开始聊天: %s", sess.ID), nil)
+		trace.AddInfo(fmt.Sprintf("Chat started: %s", sess.ID), nil)
 	}
+	// 清理追踪会话，防止内存泄漏（trace 对象仍被 result 持有）
+	defer al.traceManager.RemoveSession(sess.ID)
 
 	// 通过状态机处理
 	outbound, err := al.processMessage(ctx, msg, sessionKey)
@@ -1124,7 +1180,7 @@ func (al *AgentLoop) finishChat(ctx context.Context, sess *session.Session, user
 
 // ChatStream 发送聊天消息（流式入口，替代 Agent.ChatStream）
 func (al *AgentLoop) ChatStream(ctx context.Context, sess *session.Session, userInput string) (<-chan StreamChunk, error) {
-	resultChan := make(chan StreamChunk, 100)
+	resultChan := make(chan StreamChunk, defaultStreamChanSize)
 
 	// 设置当前会话
 	al.mu.Lock()
@@ -1132,37 +1188,7 @@ func (al *AgentLoop) ChatStream(ctx context.Context, sess *session.Session, user
 	al.mu.Unlock()
 
 	// Per-session 工具接线
-	if al.fileStateStore != nil {
-		fileStates := al.fileStateStore.ForSession(sess.ID)
-		if tool, ok := al.toolRegistry.Get("filesystem"); ok {
-			if fsTool, ok := tool.(*tools.FileSystemTool); ok {
-				fsTool.SetFileStates(fileStates)
-			}
-		}
-		if tool, ok := al.toolRegistry.Get("apply_patch"); ok {
-			if patchTool, ok := tool.(*tools.ApplyPatchTool); ok {
-				patchTool.SetFileStates(fileStates)
-			}
-		}
-	}
-	if al.execSessionManager != nil {
-		if tool, ok := al.toolRegistry.Get("shell"); ok {
-			if shellTool, ok := tool.(*tools.ShellTool); ok {
-				shellTool.SetSessionManager(al.execSessionManager)
-				shellTool.SetSessionKey(sess.ID)
-			}
-		}
-		if tool, ok := al.toolRegistry.Get("write_stdin"); ok {
-			if writeTool, ok := tool.(*tools.WriteStdinTool); ok {
-				writeTool.SetSessionKey(sess.ID)
-			}
-		}
-		if tool, ok := al.toolRegistry.Get("list_exec_sessions"); ok {
-			if listTool, ok := tool.(*tools.ListExecSessionsTool); ok {
-				listTool.SetSessionKey(sess.ID)
-			}
-		}
-	}
+	al.wireToolsForSession(sess.ID)
 
 	// 先检查是否是指令
 	if al.cmdManager != nil {
@@ -1204,10 +1230,16 @@ func (al *AgentLoop) ChatStream(ctx context.Context, sess *session.Session, user
 
 	go func() {
 		defer close(resultChan)
+		// 清理活跃会话跟踪，防止内存泄漏
+		if al.memoryManager != nil {
+			defer al.memoryManager.UntrackSession(sess.ID)
+		}
 
 		var trace *TraceSession
 		if al.traceManager.IsEnabled() {
 			trace = al.traceManager.GetOrCreateSession(sess.ID)
+			// 清理追踪会话，防止内存泄漏
+			defer al.traceManager.RemoveSession(sess.ID)
 		}
 
 		p, err := al.providerMgr.GetProvider(al.cfg.LLM.DefaultProvider)
@@ -1224,14 +1256,18 @@ func (al *AgentLoop) ChatStream(ctx context.Context, sess *session.Session, user
 		if al.toolRegistry != nil {
 			for _, def := range al.toolRegistry.GetDefinitions() {
 				var schema map[string]interface{}
-				_ = json.Unmarshal(def.InputSchema, &schema)
+				if err := json.Unmarshal(def.InputSchema, &schema); err != nil {
+					logger.Warn("Skipping tool with invalid InputSchema",
+						logger.String("tool", def.Name), logger.ErrorField(err))
+					continue
+				}
 				providerTools = append(providerTools, provider.Tool{Name: def.Name, Description: def.Description, InputSchema: schema})
 			}
 		}
 
 		maxIterations := al.cfg.Agent.MaxIterations
 		if maxIterations <= 0 {
-			maxIterations = 10
+			maxIterations = defaultMaxIterations
 		}
 
 		for iteration := 0; iteration < maxIterations; iteration++ {
@@ -1575,7 +1611,7 @@ func (al *AgentLoop) executeToolCalls(
 		wg.Add(1)
 		go func(idx int, tc provider.ToolCall) {
 			defer wg.Done()
-			toolCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			toolCtx, cancel := context.WithTimeout(ctx, toolExecutionTimeout)
 			defer cancel()
 
 			toolStart := time.Now()

@@ -88,21 +88,18 @@ func (t *MemoryTool) Execute(ctx context.Context, args json.RawMessage) (json.Ra
 	case "dream":
 		return t.handleDream(ctx, input)
 	default:
-		res, _ := json.Marshal(fmt.Sprintf("Error: Unknown action '%s'", input.Action))
-		return res, nil
+		return nil, fmt.Errorf("unknown action '%s'", input.Action)
 	}
 }
 
 func (t *MemoryTool) handleRead(ctx context.Context, input MemoryArgs) (json.RawMessage, error) {
 	if strings.TrimSpace(input.FileType) == "" {
-		res, _ := json.Marshal("Error: file_type is required when action='read'")
-		return res, nil
+		return nil, fmt.Errorf("file_type is required when action='read'")
 	}
 
 	content, err := t.manager.ReadMemoryFile(input.FileType)
 	if err != nil {
-		res, _ := json.Marshal(fmt.Sprintf("Error: %v", err))
-		return res, nil
+		return nil, fmt.Errorf("read memory file: %w", err)
 	}
 
 	res, _ := json.Marshal(map[string]any{
@@ -114,14 +111,12 @@ func (t *MemoryTool) handleRead(ctx context.Context, input MemoryArgs) (json.Raw
 
 func (t *MemoryTool) handleWrite(ctx context.Context, input MemoryArgs) (json.RawMessage, error) {
 	if strings.TrimSpace(input.FileType) == "" {
-		res, _ := json.Marshal("Error: file_type is required when action='write'")
-		return res, nil
+		return nil, fmt.Errorf("file_type is required when action='write'")
 	}
 
 	err := t.manager.WriteMemoryFile(input.FileType, input.Content)
 	if err != nil {
-		res, _ := json.Marshal(fmt.Sprintf("Error: %v", err))
-		return res, nil
+		return nil, fmt.Errorf("write memory file: %w", err)
 	}
 
 	res, _ := json.Marshal(fmt.Sprintf("Success: Updated %s file", input.FileType))
@@ -131,8 +126,7 @@ func (t *MemoryTool) handleWrite(ctx context.Context, input MemoryArgs) (json.Ra
 func (t *MemoryTool) handleDream(ctx context.Context, input MemoryArgs) (json.RawMessage, error) {
 	changed, err := t.manager.RunDream(ctx)
 	if err != nil {
-		res, _ := json.Marshal(fmt.Sprintf("Error: %v", err))
-		return res, nil
+		return nil, fmt.Errorf("run dream: %w", err)
 	}
 
 	if changed {

@@ -138,7 +138,7 @@ func NewProgressHook(b *bus.MessageBus) *ProgressHook {
 }
 
 func (ph *ProgressHook) BeforeIter(ctx context.Context, sess *session.Session) error {
-	ph.publishProgress(sess, "thinking", "开始处理...")
+	ph.publishProgress(sess, "thinking", "Processing...")
 	return nil
 }
 
@@ -146,7 +146,7 @@ func (ph *ProgressHook) AfterIter(ctx context.Context, sess *session.Session, re
 	if result.Error != nil {
 		ph.publishProgress(sess, "error", result.Error.Error())
 	} else {
-		ph.publishProgress(sess, "done", "处理完成")
+		ph.publishProgress(sess, "done", "Done")
 	}
 	return nil
 }

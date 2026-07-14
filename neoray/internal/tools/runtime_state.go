@@ -21,13 +21,13 @@ type RuntimeState struct {
 	webConfig           map[string]interface{}
 	workspaceSandbox    string
 	subagents           map[string]interface{}
-	lastUsage           TokenUsage
+	lastUsage           RuntimeTokenUsage
 	currentIteration    int
 	runtimeVars         map[string]interface{}
 }
 
-// TokenUsage Token 使用统计
-type TokenUsage struct {
+// RuntimeTokenUsage 运行时 Token 使用统计（与 agent.TokenUsage 区分）
+type RuntimeTokenUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 }
@@ -114,7 +114,7 @@ func (s *RuntimeState) SetWorkspace(val string) {
 }
 
 // GetLastUsage 获取最后一次 token 使用
-func (s *RuntimeState) GetLastUsage() TokenUsage {
+func (s *RuntimeState) GetLastUsage() RuntimeTokenUsage {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.lastUsage
@@ -124,7 +124,7 @@ func (s *RuntimeState) GetLastUsage() TokenUsage {
 func (s *RuntimeState) SetLastUsage(prompt, completion int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.lastUsage = TokenUsage{PromptTokens: prompt, CompletionTokens: completion}
+	s.lastUsage = RuntimeTokenUsage{PromptTokens: prompt, CompletionTokens: completion}
 }
 
 // GetCurrentIteration 获取当前迭代
@@ -270,7 +270,7 @@ func FormatValue(val interface{}, key string) string {
 			return fmt.Sprintf("%s: [%d items]", key, len(v))
 		}
 		return fmt.Sprintf("%s: %v", key, v)
-	case TokenUsage:
+	case RuntimeTokenUsage:
 		return fmt.Sprintf("%s: {prompt_tokens: %d, completion_tokens: %d}", key, v.PromptTokens, v.CompletionTokens)
 	default:
 		return fmt.Sprintf("%s: %v", key, v)

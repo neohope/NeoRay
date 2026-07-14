@@ -248,7 +248,11 @@ func (m *Manager) runSubagent(
 	if subToolRegistry != nil {
 		for _, def := range subToolRegistry.GetDefinitions() {
 			var schema map[string]interface{}
-			_ = json.Unmarshal(def.InputSchema, &schema)
+			if err := json.Unmarshal(def.InputSchema, &schema); err != nil {
+				logger.Warn("Skipping tool with invalid InputSchema",
+					logger.String("tool", def.Name), logger.ErrorField(err))
+				continue
+			}
 			providerTools = append(providerTools, provider.Tool{
 				Name:        def.Name,
 				Description: def.Description,

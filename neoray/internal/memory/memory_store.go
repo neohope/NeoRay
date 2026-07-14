@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"neoray/internal/logger"
 )
 
 const (
@@ -40,9 +42,15 @@ type MemoryStore struct {
 	dreamCursorFile   string
 	maxHistoryEntries int
 
-	git   *GitStore
-	mu    sync.RWMutex
-	dirty bool
+	git      *GitStore
+	mu       sync.RWMutex
+	dirty    bool
+	initErr  error // 初始化时的错误（如目录创建失败）
+}
+
+// InitError 返回初始化时的错误（如目录创建失败），nil 表示正常
+func (ms *MemoryStore) InitError() error {
+	return ms.initErr
 }
 
 // NewMemoryStore 创建 MemoryStore
@@ -66,7 +74,11 @@ func NewMemoryStore(workspace string, opts ...MemoryStoreOption) *MemoryStore {
 	ms.dreamCursorFile = filepath.Join(ms.memoryDir, ".dream_cursor")
 
 	// 确保目录存在
-	_ = os.MkdirAll(ms.memoryDir, 0755)
+	if err := os.MkdirAll(ms.memoryDir, 0755); err != nil {
+		ms.initErr = fmt.Errorf("create memory directory %s: %w", ms.memoryDir, err)
+		logger.Error("Failed to create memory directory",
+			logger.String("dir", ms.memoryDir), logger.ErrorField(err))
+	}
 
 	// 初始化 GitStore
 	ms.git = NewGitStore(workspace, []string{

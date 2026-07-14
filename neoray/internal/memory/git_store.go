@@ -83,7 +83,10 @@ func (gs *GitStore) Init() bool {
 		return false
 	}
 	for _, f := range gs.trackedFiles {
-		_ = gs.runGitCommand("add", "--", f)
+		if err := gs.runGitCommand("add", "--", f); err != nil {
+			// 文件可能尚不存在，仅记录警告
+			fmt.Printf("Warning: git add %s failed: %v\n", f, err)
+		}
 	}
 
 	if err := gs.runGitCommand("commit", "-m", "init: neoray memory store"); err != nil {
@@ -107,7 +110,9 @@ func (gs *GitStore) AutoCommit(message string) string {
 
 	// 添加追踪文件
 	for _, f := range gs.trackedFiles {
-		_ = gs.runGitCommand("add", "--", f)
+		if err := gs.runGitCommand("add", "--", f); err != nil {
+			fmt.Printf("Warning: git add %s failed: %v\n", f, err)
+		}
 	}
 
 	// 提交

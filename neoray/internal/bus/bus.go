@@ -3,6 +3,7 @@ package bus
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"neoray/internal/logger"
 )
@@ -28,9 +29,9 @@ type MessageBus struct {
 	stopChan   chan struct{}
 	wg         sync.WaitGroup
 
-	// 队列大小监控
-	inboundSize  int
-	outboundSize int
+	// 队列大小监控（原子操作，无需加锁）
+	inboundSize  atomic.Int64
+	outboundSize atomic.Int64
 }
 
 // NewMessageBus 创建消息总线
@@ -105,9 +106,7 @@ func (b *MessageBus) PublishInbound(msg *InboundMessage) error {
 
 	select {
 	case b.inboundQueue <- msg:
-		b.mu.Lock()
-		b.inboundSize++
-		b.mu.Unlock()
+		b.inboundSize.Add(1)
 		return nil
 	case <-b.stopChan:
 		return ErrBusStopped
@@ -125,9 +124,7 @@ func (b *MessageBus) PublishOutbound(msg *OutboundMessage) error {
 
 	select {
 	case b.outboundQueue <- msg:
-		b.mu.Lock()
-		b.outboundSize++
-		b.mu.Unlock()
+		b.outboundSize.Add(1)
 		return nil
 	case <-b.stopChan:
 		return ErrBusStopped
@@ -162,9 +159,7 @@ func (b *MessageBus) UnsubscribeOutbound(subscriberID string) {
 
 // GetQueueSizes 获取队列大小
 func (b *MessageBus) GetQueueSizes() (int, int) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return b.inboundSize, b.outboundSize
+	return int(b.inboundSize.Load()), int(b.outboundSize.Load())
 }
 
 // IsRunning 检查是否运行中
@@ -181,8 +176,8 @@ func (b *MessageBus) processInbound() {
 	for {
 		select {
 		case msg := <-b.inboundQueue:
+			b.inboundSize.Add(-1)
 			b.mu.Lock()
-			b.inboundSize--
 			handlers := make([]MessageHandler, len(b.inboundHandlers))
 			copy(handlers, b.inboundHandlers)
 			b.mu.Unlock()
@@ -209,8 +204,8 @@ func (b *MessageBus) processOutbound() {
 	for {
 		select {
 		case msg := <-b.outboundQueue:
+			b.outboundSize.Add(-1)
 			b.mu.Lock()
-			b.outboundSize--
 			subscribers := make(map[string]chan<- *OutboundMessage, len(b.outboundSubscribers))
 			for id, ch := range b.outboundSubscribers {
 				subscribers[id] = ch

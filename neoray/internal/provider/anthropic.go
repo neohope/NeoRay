@@ -342,17 +342,29 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req *ChatRequest) (<
 
 		resp, err := p.streamClient.Do(httpReq)
 		if err != nil {
-			_, _ = p.handleError(err, nil)
-			resultChan <- StreamChatResponse{Error: fmt.Errorf("do request: %w", err)}
+			errResp, _ := p.handleError(err, nil)
+			resultChan <- StreamChatResponse{Error: &ProviderError{
+				Err:              fmt.Errorf("do request: %w", err),
+				RetryAfter:       errResp.RetryAfter,
+				ErrorShouldRetry: errResp.ErrorShouldRetry,
+				ErrorType:        errResp.ErrorType,
+			}}
 			return
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024)) // 64 KB max
-			_ = p.parseErrorResponse(errBody)
+			errResp := p.parseErrorResponse(errBody)
+			errResp.ErrorStatusCode = resp.StatusCode
 			resultChan <- StreamChatResponse{
-				Error: fmt.Errorf("api error: %s", resp.Status),
+				Error: &ProviderError{
+					Err:              fmt.Errorf("api error: %s", resp.Status),
+					RetryAfter:       errResp.RetryAfter,
+					ErrorShouldRetry: errResp.ErrorShouldRetry,
+					ErrorType:        errResp.ErrorType,
+					StatusCode:       resp.StatusCode,
+				},
 			}
 			return
 		}

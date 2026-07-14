@@ -57,7 +57,12 @@ func Load(configPath string) (*Config, error) {
 
 	// 加载本地覆盖配置 (可选)
 	v.SetConfigName("config.local")
-	_ = v.MergeInConfig()
+	if err := v.MergeInConfig(); err != nil {
+		// config.local 是可选的，仅在文件存在但解析失败时警告
+		if _, statErr := os.Stat(filepath.Join(filepath.Dir(v.ConfigFileUsed()), "config.local.toml")); statErr == nil {
+			fmt.Printf("⚠️  Warning: config.local.toml exists but failed to merge: %v\n", err)
+		}
+	}
 
 	// 环境变量覆盖
 	v.SetEnvPrefix("NEORAY")
@@ -356,7 +361,7 @@ temperature = 0.7
 timeout = "120s"
 `
 
-	return os.WriteFile(path, []byte(defaultConfig), 0644)
+	return os.WriteFile(path, []byte(defaultConfig), 0600)
 }
 
 // GetEnv 获取当前环境

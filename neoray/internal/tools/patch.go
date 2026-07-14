@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"neoray/internal/config"
+	"neoray/internal/logger"
 )
 
 var absoluteWindowsRe = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
@@ -290,13 +291,17 @@ func (t *ApplyPatchTool) Execute(ctx context.Context, args json.RawMessage) (jso
 	for path, content := range writes {
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			// Restore backups
-			restoreBackups(backups)
+			if restoreErr := restoreBackups(backups); restoreErr != nil {
+				logger.Error("Failed to restore backups after patch error", logger.ErrorField(restoreErr))
+			}
 			result := fmt.Sprintf("Error applying patch: %v", err)
 			return json.Marshal(result)
 		}
 		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 			// Restore backups
-			restoreBackups(backups)
+			if restoreErr := restoreBackups(backups); restoreErr != nil {
+				logger.Error("Failed to restore backups after patch error", logger.ErrorField(restoreErr))
+			}
 			result := fmt.Sprintf("Error applying patch: %v", err)
 			return json.Marshal(result)
 		}
@@ -395,15 +400,27 @@ func formatSummary(summary patchSummary) string {
 	return fmt.Sprintf("- %s %s%s", summary.action, summary.path, stats)
 }
 
-func restoreBackups(backups map[string][]byte) {
+func restoreBackups(backups map[string][]byte) error {
+	var errs []string
 	for path, data := range backups {
 		if data == nil {
 			// Delete file
-			_ = os.Remove(path)
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				errs = append(errs, fmt.Sprintf("remove %s: %v", path, err))
+			}
 		} else {
 			// Restore file
-			_ = os.MkdirAll(filepath.Dir(path), 0755)
-			_ = os.WriteFile(path, data, 0644)
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				errs = append(errs, fmt.Sprintf("mkdir %s: %v", filepath.Dir(path), err))
+				continue
+			}
+			if err := os.WriteFile(path, data, 0644); err != nil {
+				errs = append(errs, fmt.Sprintf("write %s: %v", path, err))
+			}
 		}
 	}
+	if len(errs) > 0 {
+		return fmt.Errorf("backup restoration errors: %s", strings.Join(errs, "; "))
+	}
+	return nil
 }

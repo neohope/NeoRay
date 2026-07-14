@@ -7,12 +7,17 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
 	"neoray/internal/config"
 	"neoray/internal/logger"
 	"neoray/internal/security"
+)
+
+const (
+	defaultShellTimeout = 30 * time.Second
 )
 
 // ShellTool Shell 执行工具
@@ -30,7 +35,7 @@ type ShellTool struct {
 func NewShellTool(cfg *config.Config) *ShellTool {
 	timeout := cfg.Tools.Shell.Timeout
 	if timeout == 0 {
-		timeout = 30 * time.Second
+		timeout = defaultShellTimeout
 	}
 	return &ShellTool{
 		cfg:       cfg,
@@ -43,7 +48,7 @@ func NewShellTool(cfg *config.Config) *ShellTool {
 func NewShellToolWithSessionManager(cfg *config.Config, mgr *ExecSessionManager) *ShellTool {
 	timeout := cfg.Tools.Shell.Timeout
 	if timeout == 0 {
-		timeout = 30 * time.Second
+		timeout = defaultShellTimeout
 	}
 	return &ShellTool{
 		cfg:            cfg,
@@ -98,6 +103,16 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+
+	// Check blocked_commands
+	if err := checkBlockedCommands(params.Command, t.cfg.Tools.Shell.BlockedCommands); err != nil {
+		result := map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		}
+		res, _ := json.Marshal(result)
+		return res, nil
 	}
 
 	// Check if we're in session mode
@@ -250,4 +265,22 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 
 	res, _ := json.Marshal(result)
 	return res, nil
+}
+
+// checkBlockedCommands 检查命令是否匹配 blocked_commands 列表
+func checkBlockedCommands(command string, blockedCommands []string) error {
+	if len(blockedCommands) == 0 {
+		return nil
+	}
+	cmdLower := strings.ToLower(strings.TrimSpace(command))
+	for _, blocked := range blockedCommands {
+		if blocked == "" {
+			continue
+		}
+		blockedLower := strings.ToLower(blocked)
+		if strings.Contains(cmdLower, blockedLower) {
+			return fmt.Errorf("command blocked: matches blocked pattern %q", blocked)
+		}
+	}
+	return nil
 }

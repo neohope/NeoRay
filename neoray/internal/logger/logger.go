@@ -57,6 +57,7 @@ func (w *DailyWriter) Sync() error {
 func (w *DailyWriter) rotate(date string) {
 	if w.file != nil {
 		_ = w.file.Close()
+		w.file = nil // 关闭后置 nil，避免向已关闭文件写入
 	}
 
 	ext := filepath.Ext(w.path)
@@ -73,6 +74,8 @@ func (w *DailyWriter) rotate(date string) {
 		w.currentDate = date
 		w.file = file
 	}
+	// 打开失败时 w.file 保持 nil，Write 方法会返回 0, nil（静默丢弃），
+	// 但不会向已关闭的旧文件写入
 }
 
 // Close 关闭

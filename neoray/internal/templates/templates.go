@@ -73,10 +73,15 @@ func (tl *TemplateLoader) findTemplateDir() {
 	tl.templateDir = "templates"
 }
 
-// loadTemplates 加载所有模板
+// loadTemplates 加载所有模板（获取锁）
 func (tl *TemplateLoader) loadTemplates() {
 	tl.mu.Lock()
 	defer tl.mu.Unlock()
+	tl.loadTemplatesLocked()
+}
+
+// loadTemplatesLocked 加载所有模板（调用者必须持有写锁）
+func (tl *TemplateLoader) loadTemplatesLocked() {
 
 	if tl.templateDir == "" {
 		return
@@ -182,5 +187,5 @@ func (tl *TemplateLoader) SetTemplateDir(dir string) {
 	defer tl.mu.Unlock()
 	tl.templateDir = dir
 	tl.templates = make(map[string]string)
-	tl.loadTemplates()
+	tl.loadTemplatesLocked()
 }

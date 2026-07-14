@@ -129,10 +129,11 @@ func (o *orderedMap) add(key string) {
 }
 
 type streamBuf struct {
-	text     string
-	cardID   string
-	sequence int
-	lastEdit float64
+	text      string
+	cardID    string
+	sequence  int
+	lastEdit  float64
+	createdAt time.Time
 }
 
 func NewFeishuChannel(cfg *FeishuConfig, appConfig *config.Config, aiAgent agent.AgentInterface, sessionMgr *session.Manager) *FeishuChannel {
@@ -187,6 +188,7 @@ func (f *FeishuChannel) Start() error {
 	}()
 
 	go f.tokenRefreshLoop()
+	go f.streamBufCleanupLoop()
 
 	wsCtx, cancel := context.WithCancel(context.Background())
 	f.mu.Lock()
@@ -224,15 +226,9 @@ func (f *FeishuChannel) Stop() error {
 }
 
 func (f *FeishuChannel) fetchBotOpenID() error {
-	f.mu.RLock()
-	token := f.tenantToken
-	f.mu.RUnlock()
-
-	if token == "" {
-		if err := f.refreshToken(); err != nil {
-			return err
-		}
-		token = f.tenantToken
+	token, err := f.ensureToken()
+	if err != nil {
+		return err
 	}
 
 	req, err := http.NewRequest("GET", f.getDomain()+"/open-apis/bot/v3/info", nil)
@@ -310,15 +306,9 @@ func (f *FeishuChannel) SendMessage(ctx context.Context, receiveID, message stri
 }
 
 func (f *FeishuChannel) sendTextMessage(ctx context.Context, receiveID, message string, replyToMsgID string, replyInThread bool) error {
-	f.mu.RLock()
-	token := f.tenantToken
-	f.mu.RUnlock()
-
-	if token == "" {
-		if err := f.refreshToken(); err != nil {
-			return fmt.Errorf("no feishu token available")
-		}
-		token = f.tenantToken
+	token, err := f.ensureToken()
+	if err != nil {
+		return err
 	}
 
 	var url string
@@ -500,28 +490,53 @@ func (f *FeishuChannel) sendMessageWithFormat(ctx context.Context, msg bus.Outbo
 func (f *FeishuChannel) sendStreamDelta(ctx context.Context, chatID string, delta string, metadata map[string]interface{}) error {
 	streamKey := f.streamKey(chatID, metadata)
 
-	// Hold the lock for the entire buffer mutation + read-snapshot to prevent
-	// interleaved writes from other goroutines between unlock/lock gaps.
-	f.mu.Lock()
-	buf := f.streamBufs[streamKey]
-	if buf == nil {
-		buf = &streamBuf{}
-		f.streamBufs[streamKey] = buf
+	// Phase 1: 快照阶段（持有锁）—— 读取/创建 buffer，追加 delta
+	type snapshot struct {
+		text     string
+		cardID   string
+		sequence int
+		needNewCard bool
+		needUpdate  bool
 	}
-	buf.text += delta
-	text := buf.text
-	cardID := buf.cardID
-	lastEdit := buf.lastEdit
 
-	if strings.TrimSpace(text) == "" {
-		f.mu.Unlock()
+	var snap snapshot
+	func() {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+
+		buf := f.streamBufs[streamKey]
+		if buf == nil {
+			buf = &streamBuf{createdAt: time.Now()}
+			f.streamBufs[streamKey] = buf
+		}
+		buf.text += delta
+		text := buf.text
+
+		if strings.TrimSpace(text) == "" {
+			return
+		}
+
+		snap.text = text
+		snap.cardID = buf.cardID
+		snap.sequence = buf.sequence
+
+		now := float64(time.Now().UnixNano()) / 1e9
+		if buf.cardID == "" {
+			snap.needNewCard = true
+		} else if now-buf.lastEdit >= 0.5 {
+			buf.sequence++
+			buf.lastEdit = now
+			snap.sequence = buf.sequence
+			snap.needUpdate = true
+		}
+	}()
+
+	// Phase 2: 动作阶段（无锁）—— 创建卡片或更新内容
+	if snap.text == "" {
 		return nil
 	}
 
-	now := float64(time.Now().UnixNano()) / 1e9
-	if cardID == "" {
-		f.mu.Unlock()
-
+	if snap.needNewCard {
 		receiveIDType := f.receiveIDType(chatID)
 		replyMsgID := ""
 		if metadata != nil {
@@ -536,21 +551,17 @@ func (f *FeishuChannel) sendStreamDelta(ctx context.Context, chatID string, delt
 		}
 
 		f.mu.Lock()
-		buf.cardID = newCardID
-		buf.sequence = 1
-		buf.lastEdit = now
+		buf := f.streamBufs[streamKey]
+		if buf != nil {
+			buf.cardID = newCardID
+			buf.sequence = 1
+			buf.lastEdit = float64(time.Now().UnixNano()) / 1e9
+		}
 		f.mu.Unlock()
 
-		_ = f.streamUpdateText(ctx, newCardID, text, 1)
-	} else if now-lastEdit >= 0.5 {
-		buf.sequence++
-		newSeq := buf.sequence
-		buf.lastEdit = now
-		f.mu.Unlock()
-
-		_ = f.streamUpdateText(ctx, cardID, text, newSeq)
-	} else {
-		f.mu.Unlock()
+		_ = f.streamUpdateText(ctx, newCardID, snap.text, 1)
+	} else if snap.needUpdate {
+		_ = f.streamUpdateText(ctx, snap.cardID, snap.text, snap.sequence)
 	}
 
 	return nil
@@ -588,19 +599,20 @@ func (f *FeishuChannel) finalizeStream(ctx context.Context, chatID string, metad
 
 	if buf.cardID != "" {
 		buf.sequence++
-		ok := f.streamUpdateText(ctx, buf.cardID, buf.text, buf.sequence)
-		if ok {
+		if err := f.streamUpdateText(ctx, buf.cardID, buf.text, buf.sequence); err == nil {
 			buf.sequence++
 			_ = f.closeStreamingMode(ctx, buf.cardID, buf.sequence)
 			return nil
+		} else {
+			logger.Warn("Streaming card final update failed, falling back to regular card", logger.String("card_id", buf.cardID), logger.ErrorField(err))
 		}
-		logger.Warn("Streaming card final update failed, falling back to regular card", logger.String("card_id", buf.cardID))
 	}
 
 	receiveIDType := f.receiveIDType(chatID)
 
 	elements := f.buildCardElements(buf.text)
 	chunks := f.splitElementsByTableLimit(elements)
+	var sendErrors []string
 	for _, chunk := range chunks {
 		card := map[string]interface{}{
 			"config":   map[string]interface{}{"wide_screen_mode": true},
@@ -610,25 +622,43 @@ func (f *FeishuChannel) finalizeStream(ctx context.Context, chatID string, metad
 
 		replyMsgID := f.threadReplyTarget(metadata)
 		if replyMsgID != "" {
-			_, _ = f.replyMessage(ctx, replyMsgID, "interactive", string(cardContent), f.shouldUseReplyInThread(metadata))
+			if _, err := f.replyMessage(ctx, replyMsgID, "interactive", string(cardContent), f.shouldUseReplyInThread(metadata)); err != nil {
+				sendErrors = append(sendErrors, fmt.Sprintf("reply failed: %v", err))
+			}
 		} else {
-			_ = f.createMessage(ctx, receiveIDType, chatID, "interactive", string(cardContent))
+			if err := f.createMessage(ctx, receiveIDType, chatID, "interactive", string(cardContent)); err != nil {
+				sendErrors = append(sendErrors, fmt.Sprintf("create failed: %v", err))
+			}
 		}
 	}
 
+	if len(sendErrors) > 0 {
+		return fmt.Errorf("feishu send errors: %s", strings.Join(sendErrors, "; "))
+	}
 	return nil
 }
 
-func (f *FeishuChannel) addReaction(messageID, emojiType string) (string, error) {
+// ensureToken 获取有效的 tenant token，必要时刷新
+func (f *FeishuChannel) ensureToken() (string, error) {
 	f.mu.RLock()
 	token := f.tenantToken
 	f.mu.RUnlock()
 
 	if token == "" {
 		if err := f.refreshToken(); err != nil {
-			return "", fmt.Errorf("no feishu token available")
+			return "", fmt.Errorf("no feishu token available: %w", err)
 		}
+		f.mu.RLock()
 		token = f.tenantToken
+		f.mu.RUnlock()
+	}
+	return token, nil
+}
+
+func (f *FeishuChannel) addReaction(messageID, emojiType string) (string, error) {
+	token, err := f.ensureToken()
+	if err != nil {
+		return "", err
 	}
 
 	reqBody := map[string]interface{}{
@@ -677,15 +707,9 @@ func (f *FeishuChannel) addReaction(messageID, emojiType string) (string, error)
 }
 
 func (f *FeishuChannel) removeReaction(messageID, reactionID string) error {
-	f.mu.RLock()
-	token := f.tenantToken
-	f.mu.RUnlock()
-
-	if token == "" {
-		if err := f.refreshToken(); err != nil {
-			return fmt.Errorf("no feishu token available")
-		}
-		token = f.tenantToken
+	token, err := f.ensureToken()
+	if err != nil {
+		return err
 	}
 
 	url := f.getDomain() + fmt.Sprintf("/open-apis/im/v1/messages/%s/reactions/%s", messageID, reactionID)
@@ -1011,6 +1035,9 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 		logger.String("user_id", userID),
 		logger.String("message_id", messageID),
 		logger.String("chat_type", chatType),
+		logger.Int("content_length", len(content)))
+	logger.Debug("Feishu message content",
+		logger.String("user_id", userID),
 		logger.String("content", content))
 
 	go func() {
@@ -1019,10 +1046,18 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 			if err == nil && reactionID != "" {
 				f.mu.Lock()
 				f.reactionIDs[messageID] = reactionID
-				if len(f.reactionIDs) > 500 {
+				// 清理过期条目，保留最近 400 个
+				const maxReactionIDs = 500
+				const targetReactionIDs = 400
+				if len(f.reactionIDs) > maxReactionIDs {
+					removed := 0
+					toRemove := len(f.reactionIDs) - targetReactionIDs
 					for k := range f.reactionIDs {
 						delete(f.reactionIDs, k)
-						break
+						removed++
+						if removed >= toRemove {
+							break
+						}
 					}
 				}
 				f.mu.Unlock()
@@ -1131,15 +1166,9 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 }
 
 func (f *FeishuChannel) getMessageContent(messageID string) string {
-	f.mu.RLock()
-	token := f.tenantToken
-	f.mu.RUnlock()
-
-	if token == "" {
-		if err := f.refreshToken(); err != nil {
-			return ""
-		}
-		token = f.tenantToken
+	token, err := f.ensureToken()
+	if err != nil {
+		return ""
 	}
 
 	url := f.getDomain() + fmt.Sprintf("/open-apis/im/v1/messages/%s", messageID)
@@ -1451,15 +1480,9 @@ func (f *FeishuChannel) downloadAndSaveMedia(msgType string, contentJSON map[str
 }
 
 func (f *FeishuChannel) downloadImage(messageID, imageKey string) ([]byte, string, error) {
-	f.mu.RLock()
-	token := f.tenantToken
-	f.mu.RUnlock()
-
-	if token == "" {
-		if err := f.refreshToken(); err != nil {
-			return nil, "", err
-		}
-		token = f.tenantToken
+	token, err := f.ensureToken()
+	if err != nil {
+		return nil, "", err
 	}
 
 	url := f.getDomain() + fmt.Sprintf("/open-apis/im/v1/messages/%s/resources?file_key=%s&type=image", messageID, imageKey)
@@ -1494,15 +1517,9 @@ func (f *FeishuChannel) downloadImage(messageID, imageKey string) ([]byte, strin
 }
 
 func (f *FeishuChannel) downloadFile(messageID, fileKey, resourceType string) ([]byte, string, error) {
-	f.mu.RLock()
-	token := f.tenantToken
-	f.mu.RUnlock()
-
-	if token == "" {
-		if err := f.refreshToken(); err != nil {
-			return nil, "", err
-		}
-		token = f.tenantToken
+	token, err := f.ensureToken()
+	if err != nil {
+		return nil, "", err
 	}
 
 	downloadType := resourceType
@@ -1542,15 +1559,9 @@ func (f *FeishuChannel) downloadFile(messageID, fileKey, resourceType string) ([
 }
 
 func (f *FeishuChannel) uploadImage(ctx context.Context, filePath string) (string, error) {
-	f.mu.RLock()
-	token := f.tenantToken
-	f.mu.RUnlock()
-
-	if token == "" {
-		if err := f.refreshToken(); err != nil {
-			return "", err
-		}
-		token = f.tenantToken
+	token, err := f.ensureToken()
+	if err != nil {
+		return "", err
 	}
 
 	fileData, err := os.ReadFile(filePath)
@@ -1605,15 +1616,9 @@ func (f *FeishuChannel) uploadImage(ctx context.Context, filePath string) (strin
 }
 
 func (f *FeishuChannel) uploadFile(ctx context.Context, filePath string) (string, error) {
-	f.mu.RLock()
-	token := f.tenantToken
-	f.mu.RUnlock()
-
-	if token == "" {
-		if err := f.refreshToken(); err != nil {
-			return "", err
-		}
-		token = f.tenantToken
+	token, err := f.ensureToken()
+	if err != nil {
+		return "", err
 	}
 
 	ext := strings.ToLower(filepath.Ext(filePath))
@@ -1677,15 +1682,9 @@ func (f *FeishuChannel) uploadFile(ctx context.Context, filePath string) (string
 }
 
 func (f *FeishuChannel) createMessage(ctx context.Context, receiveIDType, receiveID, msgType, content string) error {
-	f.mu.RLock()
-	token := f.tenantToken
-	f.mu.RUnlock()
-
-	if token == "" {
-		if err := f.refreshToken(); err != nil {
-			return err
-		}
-		token = f.tenantToken
+	token, err := f.ensureToken()
+	if err != nil {
+		return err
 	}
 
 	url := f.getDomain() + "/open-apis/im/v1/messages?receive_id_type=" + receiveIDType
@@ -1740,15 +1739,9 @@ func (f *FeishuChannel) sendInteractiveMessage(ctx context.Context, receiveID, c
 }
 
 func (f *FeishuChannel) replyMessage(ctx context.Context, messageID, msgType, content string, replyInThread bool) (bool, error) {
-	f.mu.RLock()
-	token := f.tenantToken
-	f.mu.RUnlock()
-
-	if token == "" {
-		if err := f.refreshToken(); err != nil {
-			return false, err
-		}
-		token = f.tenantToken
+	token, err := f.ensureToken()
+	if err != nil {
+		return false, err
 	}
 
 	url := f.getDomain() + fmt.Sprintf("/open-apis/im/v1/messages/%s/reply", messageID)
@@ -1793,15 +1786,9 @@ func (f *FeishuChannel) replyMessage(ctx context.Context, messageID, msgType, co
 }
 
 func (f *FeishuChannel) createStreamingCard(ctx context.Context, receiveIDType, chatID, replyMessageID string, replyInThread bool) (string, error) {
-	f.mu.RLock()
-	token := f.tenantToken
-	f.mu.RUnlock()
-
-	if token == "" {
-		if err := f.refreshToken(); err != nil {
-			return "", err
-		}
-		token = f.tenantToken
+	token, err := f.ensureToken()
+	if err != nil {
+		return "", err
 	}
 
 	cardJSON := map[string]interface{}{
@@ -1883,16 +1870,10 @@ func (f *FeishuChannel) createStreamingCard(ctx context.Context, receiveIDType, 
 	return cardID, nil
 }
 
-func (f *FeishuChannel) streamUpdateText(ctx context.Context, cardID, content string, sequence int) bool {
-	f.mu.RLock()
-	token := f.tenantToken
-	f.mu.RUnlock()
-
-	if token == "" {
-		if err := f.refreshToken(); err != nil {
-			return false
-		}
-		token = f.tenantToken
+func (f *FeishuChannel) streamUpdateText(ctx context.Context, cardID, content string, sequence int) error {
+	token, err := f.ensureToken()
+	if err != nil {
+		return err
 	}
 
 	reqBody := map[string]interface{}{
@@ -1904,7 +1885,7 @@ func (f *FeishuChannel) streamUpdateText(ctx context.Context, cardID, content st
 	url := f.getDomain() + fmt.Sprintf("/open-apis/cardkit/v1/cards/%s/elements/streaming_md/content", cardID)
 	req, err := http.NewRequestWithContext(ctx, "PATCH", url, bytes.NewReader(body))
 	if err != nil {
-		return false
+		return fmt.Errorf("create request: %w", err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -1912,7 +1893,7 @@ func (f *FeishuChannel) streamUpdateText(ctx context.Context, cardID, content st
 
 	resp, err := f.httpClient.Do(req)
 	if err != nil {
-		return false
+		return fmt.Errorf("do request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -1924,27 +1905,20 @@ func (f *FeishuChannel) streamUpdateText(ctx context.Context, cardID, content st
 	}
 
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return false
+		return fmt.Errorf("parse response: %w", err)
 	}
 
 	if result.Code != 0 {
-		logger.Warn("Failed to stream update card", logger.String("card_id", cardID), logger.String("msg", result.Msg), logger.Int("code", result.Code))
-		return false
+		return fmt.Errorf("stream update card error: %s (code: %d)", result.Msg, result.Code)
 	}
 
-	return true
+	return nil
 }
 
-func (f *FeishuChannel) closeStreamingMode(ctx context.Context, cardID string, sequence int) bool {
-	f.mu.RLock()
-	token := f.tenantToken
-	f.mu.RUnlock()
-
-	if token == "" {
-		if err := f.refreshToken(); err != nil {
-			return false
-		}
-		token = f.tenantToken
+func (f *FeishuChannel) closeStreamingMode(ctx context.Context, cardID string, sequence int) error {
+	token, err := f.ensureToken()
+	if err != nil {
+		return err
 	}
 
 	settings, _ := json.Marshal(map[string]interface{}{
@@ -1961,7 +1935,7 @@ func (f *FeishuChannel) closeStreamingMode(ctx context.Context, cardID string, s
 	url := f.getDomain() + fmt.Sprintf("/open-apis/cardkit/v1/cards/%s/settings", cardID)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
-		return false
+		return fmt.Errorf("create request: %w", err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -1969,7 +1943,7 @@ func (f *FeishuChannel) closeStreamingMode(ctx context.Context, cardID string, s
 
 	resp, err := f.httpClient.Do(req)
 	if err != nil {
-		return false
+		return fmt.Errorf("do request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -1981,15 +1955,14 @@ func (f *FeishuChannel) closeStreamingMode(ctx context.Context, cardID string, s
 	}
 
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return false
+		return fmt.Errorf("parse response: %w", err)
 	}
 
 	if result.Code != 0 {
-		logger.Warn("Failed to close streaming mode", logger.String("card_id", cardID), logger.String("msg", result.Msg), logger.Int("code", result.Code))
-		return false
+		return fmt.Errorf("close streaming mode error: %s (code: %d)", result.Msg, result.Code)
 	}
 
-	return true
+	return nil
 }
 
 func (f *FeishuChannel) detectMsgFormat(content string) string {
@@ -2419,6 +2392,28 @@ func (f *FeishuChannel) refreshToken() error {
 	logger.Debug("Feishu token refreshed", logger.String("expiry", f.tokenExpiry.String()))
 
 	return nil
+}
+
+// streamBufCleanupLoop 定期清理超时的 streamBuf，防止异常退出时内存泄漏
+func (f *FeishuChannel) streamBufCleanupLoop() {
+	const (
+		cleanupInterval = 5 * time.Minute
+		maxBufAge       = 30 * time.Minute
+	)
+	ticker := time.NewTicker(cleanupInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		f.mu.Lock()
+		now := time.Now()
+		for key, buf := range f.streamBufs {
+			if !buf.createdAt.IsZero() && now.Sub(buf.createdAt) > maxBufAge {
+				delete(f.streamBufs, key)
+				logger.Debug("Cleaned up stale streamBuf", logger.String("key", key))
+			}
+		}
+		f.mu.Unlock()
+	}
 }
 
 func (f *FeishuChannel) tokenRefreshLoop() {

@@ -23,22 +23,22 @@ func writeJSONError(w http.ResponseWriter, statusCode int, errMsg string) {
 	_, _ = w.Write(resp)
 }
 
-// handleChat 处理聊天消息
-func (c *Client) handleChat(payload interface{}) {
+// parseAndPrepareChat 解析聊天 payload，设置客户端身份，获取或创建会话
+func (c *Client) parseAndPrepareChat(payload interface{}) (*ChatPayload, *session.Session, bool) {
 	var chatPayload ChatPayload
 	payloadBytes, marshalErr := json.Marshal(payload)
 	if marshalErr != nil {
 		c.sendError("invalid_payload", "Invalid chat payload")
-		return
+		return nil, nil, false
 	}
 	if err := json.Unmarshal(payloadBytes, &chatPayload); err != nil {
 		c.sendError("invalid_payload", "Invalid chat payload")
-		return
+		return nil, nil, false
 	}
 
 	if chatPayload.Message == "" {
 		c.sendError("empty_message", "Message cannot be empty")
-		return
+		return nil, nil, false
 	}
 
 	// 设置客户端的频道和用户ID
@@ -63,17 +63,26 @@ func (c *Client) handleChat(payload interface{}) {
 		sess, err = c.Server.sessionMgr.GetSessionWithValidation(chatPayload.SessionID, c.GetChannelID(), c.GetUserID())
 		if err != nil {
 			c.sendError("session_not_found", "Session not found or access denied")
-			return
+			return nil, nil, false
 		}
 	} else {
 		sess, err = c.Server.sessionMgr.CreateSession(c.GetChannelID(), c.GetUserID())
 	}
 	if err != nil {
 		c.sendError("session_error", "Failed to create or retrieve session")
-		return
+		return nil, nil, false
 	}
 
 	c.SetSessionID(sess.ID)
+	return &chatPayload, sess, true
+}
+
+// handleChat 处理聊天消息
+func (c *Client) handleChat(payload interface{}) {
+	chatPayload, sess, ok := c.parseAndPrepareChat(payload)
+	if !ok {
+		return
+	}
 
 	// 发送开始响应
 	c.sendMessage("chat_start", map[string]interface{}{
@@ -111,55 +120,10 @@ func (c *Client) handleChat(payload interface{}) {
 
 // handleChatStream 处理流式聊天消息
 func (c *Client) handleChatStream(payload interface{}) {
-	var chatPayload ChatPayload
-	payloadBytes, marshalErr := json.Marshal(payload)
-	if marshalErr != nil {
-		c.sendError("invalid_payload", "Invalid chat payload")
+	chatPayload, sess, ok := c.parseAndPrepareChat(payload)
+	if !ok {
 		return
 	}
-	if err := json.Unmarshal(payloadBytes, &chatPayload); err != nil {
-		c.sendError("invalid_payload", "Invalid chat payload")
-		return
-	}
-
-	if chatPayload.Message == "" {
-		c.sendError("empty_message", "Message cannot be empty")
-		return
-	}
-
-	// 设置客户端的频道和用户ID
-	if chatPayload.ChannelID != "" {
-		c.SetChannelID(chatPayload.ChannelID)
-	}
-	if chatPayload.UserID != "" {
-		c.SetUserID(chatPayload.UserID)
-	}
-	if c.GetChannelID() == "" {
-		c.SetChannelID("default")
-	}
-	if c.GetUserID() == "" {
-		c.SetUserID("default")
-	}
-
-	// 获取或创建会话
-	var sess *session.Session
-	var err error
-
-	if chatPayload.SessionID != "" {
-		sess, err = c.Server.sessionMgr.GetSessionWithValidation(chatPayload.SessionID, c.GetChannelID(), c.GetUserID())
-		if err != nil {
-			c.sendError("session_not_found", "Session not found or access denied")
-			return
-		}
-	} else {
-		sess, err = c.Server.sessionMgr.CreateSession(c.GetChannelID(), c.GetUserID())
-	}
-	if err != nil {
-		c.sendError("session_error", "Failed to create or retrieve session")
-		return
-	}
-
-	c.SetSessionID(sess.ID)
 
 	// 发送开始响应
 	c.sendMessage("chat_start", map[string]interface{}{
@@ -389,7 +353,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		// 列出会话
 		sessions, err := s.sessionMgr.ListSessionsByChannelAndUser(channelID, userID)
 		if err != nil {
-			http.Error(w, `{"error":"Failed to list sessions"}`, http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to list sessions")
 			return
 		}
 
@@ -419,7 +383,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			Name      string `json:"name"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
+			writeJSONError(w, http.StatusBadRequest, "Invalid request body")
 			return
 		}
 
@@ -440,7 +404,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 		sess, err := s.sessionMgr.CreateSession(reqChannelID, reqUserID)
 		if err != nil {
-			http.Error(w, `{"error":"Failed to create session"}`, http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to create session")
 			return
 		}
 		if title != "New Session" {
@@ -458,7 +422,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		})
 
 	default:
-		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
 }
 
@@ -485,7 +449,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	// 从 URL 中提取 session ID
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 4 {
-		http.Error(w, `{"error":"Invalid session ID"}`, http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Invalid session ID")
 		return
 	}
 	sessionID := pathParts[3]
@@ -495,7 +459,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		// 获取会话详情
 		sess, err := s.sessionMgr.GetSessionWithValidation(sessionID, channelID, userID)
 		if err != nil {
-			http.Error(w, `{"error":"Session not found or access denied"}`, http.StatusNotFound)
+			writeJSONError(w, http.StatusNotFound, "Session not found or access denied")
 			return
 		}
 
@@ -511,12 +475,12 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			Stream    bool   `json:"stream"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
+			writeJSONError(w, http.StatusBadRequest, "Invalid request body")
 			return
 		}
 
 		if req.Message == "" {
-			http.Error(w, `{"error":"Message cannot be empty"}`, http.StatusBadRequest)
+			writeJSONError(w, http.StatusBadRequest, "Message cannot be empty")
 			return
 		}
 
@@ -532,7 +496,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 
 		sess, err := s.sessionMgr.GetSessionWithValidation(sessionID, reqChannelID, reqUserID)
 		if err != nil {
-			http.Error(w, `{"error":"Session not found or access denied"}`, http.StatusNotFound)
+			writeJSONError(w, http.StatusNotFound, "Session not found or access denied")
 			return
 		}
 
@@ -620,18 +584,18 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		// 删除会话 — 先验证权限
 		if _, err := s.sessionMgr.GetSessionWithValidation(sessionID, channelID, userID); err != nil {
-			http.Error(w, `{"error":"Session not found or access denied"}`, http.StatusNotFound)
+			writeJSONError(w, http.StatusNotFound, "Session not found or access denied")
 			return
 		}
 		if err := s.sessionMgr.DeleteSession(sessionID); err != nil {
-			http.Error(w, `{"error":"Failed to delete session"}`, http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to delete session")
 			return
 		}
 
 		w.WriteHeader(http.StatusNoContent)
 
 	default:
-		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
 }
 
@@ -810,7 +774,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(s.buildConfigResponse())
 
 	default:
-		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
 }
 

@@ -59,7 +59,7 @@ func (ts *TraceSession) AddToolCall(toolName, toolID string, isError bool, durat
 	ts.AddStep(TraceStep{
 		Timestamp:   time.Now(),
 		Type:        "tool_call",
-		Description: "工具调用: " + toolName,
+		Description: "Tool call: " + toolName,
 		Details: map[string]interface{}{
 			"tool_name": toolName,
 			"tool_id":   toolID,

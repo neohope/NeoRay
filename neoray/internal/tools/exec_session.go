@@ -10,7 +10,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,14 +22,15 @@ import (
 )
 
 const (
-	DefaultYieldMs      = 1000
-	MaxYieldMs          = 30000
-	DefaultWaitForMs    = 10000
-	MaxWaitForMs        = 120000
-	DefaultMaxOutput    = 10000
-	MaxMaxOutput        = 50000
-	MaxSessions         = 8
-	IdleTimeoutSeconds  = 1800
+	DefaultYieldMs     = 1000
+	MaxYieldMs         = 30000
+	DefaultWaitForMs   = 10000
+	MaxWaitForMs       = 120000
+	DefaultMaxOutput   = 10000
+	MaxMaxOutput       = 50000
+	MaxSessions        = 8
+	IdleTimeoutSeconds = 1800
+	MaxChunks          = 4096 // max chunks per exec session to prevent unbounded memory growth
 )
 
 // SessionPoll represents a poll result from an exec session
@@ -183,6 +186,11 @@ func (s *ExecSession) readStream(stream io.ReadCloser, prefix string) {
 			output = line + "\n"
 		}
 		s.mu.Lock()
+		// 防止 chunks 无限增长：达到上限时合并为单个 chunk
+		if len(s.chunks) >= MaxChunks {
+			merged := stringsJoin(s.chunks, "")
+			s.chunks = []string{merged}
+		}
 		s.chunks = append(s.chunks, output)
 		s.mu.Unlock()
 	}
@@ -306,7 +314,7 @@ func (s *ExecSession) poll(
 
 // ExecSessionManager manages multiple exec sessions
 type ExecSessionManager struct {
-	maxSessions int
+	MaxSessions int
 	idleTimeout time.Duration
 	mu          sync.Mutex
 	sessions    map[string]*ExecSession
@@ -315,7 +323,7 @@ type ExecSessionManager struct {
 // NewExecSessionManager creates a new ExecSessionManager
 func NewExecSessionManager() *ExecSessionManager {
 	return &ExecSessionManager{
-		maxSessions: MaxSessions,
+		MaxSessions: MaxSessions,
 		idleTimeout: IdleTimeoutSeconds * time.Second,
 		sessions:    make(map[string]*ExecSession),
 	}
@@ -345,8 +353,8 @@ func (m *ExecSessionManager) Start(
 	// Clean up stale sessions
 	m.cleanupLocked()
 
-	if len(m.sessions) >= m.maxSessions {
-		return "", nil, fmt.Errorf("maximum exec sessions reached (%d)", m.maxSessions)
+	if len(m.sessions) >= m.MaxSessions {
+		return "", nil, fmt.Errorf("maximum exec sessions reached (%d)", m.MaxSessions)
 	}
 
 	// Spawn the process
@@ -510,6 +518,11 @@ func spawnCommand(ctx context.Context, command string, cwd string, cfg *config.C
 		workspace = cwd
 	}
 
+	// 检查 blocked_commands
+	if err := checkBlockedCommands(command, cfg.Tools.Shell.BlockedCommands); err != nil {
+		return nil, err
+	}
+
 	// 应用安全检查
 	if cfg.Security.RestrictToWorkspace {
 		var err error
@@ -562,7 +575,9 @@ func spawnCommand(ctx context.Context, command string, cwd string, cfg *config.C
 	return cmd, nil
 }
 
-// buildEnv builds environment variables for subprocess
+// buildEnv builds environment variables for subprocess.
+// PATH is sanitized to only include well-known system directories,
+// preventing malicious executables in user-writable directories from being invoked.
 func buildEnv() []string {
 	if runtime.GOOS == "windows" {
 		sr := os.Getenv("SYSTEMROOT")
@@ -578,7 +593,7 @@ func buildEnv() []string {
 			"TEMP=" + os.Getenv("TEMP"),
 			"TMP=" + os.Getenv("TMP"),
 			"PATHEXT=" + os.Getenv("PATHEXT"),
-			"PATH=" + os.Getenv("PATH"),
+			"PATH=" + sanitizePathWindows(sr),
 			"PYTHONUNBUFFERED=1",
 		}
 		return env
@@ -600,8 +615,19 @@ func buildEnv() []string {
 		"HOME=" + home,
 		"LANG=" + lang,
 		"TERM=" + term,
+		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"PYTHONUNBUFFERED=1",
 	}
+}
+
+// sanitizePathWindows 返回仅包含 Windows 系统目录的安全 PATH
+func sanitizePathWindows(systemRoot string) string {
+	safeDirs := []string{
+		filepath.Join(systemRoot, "System32"),
+		filepath.Join(systemRoot, "System32", "WindowsPowerShell", "v1.0"),
+		systemRoot,
+	}
+	return strings.Join(safeDirs, ";")
 }
 
 // truncateOutput truncates output to max chars
