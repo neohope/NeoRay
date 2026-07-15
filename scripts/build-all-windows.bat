@@ -36,7 +36,7 @@ echo 后端输出: neoray\dist\
 echo 前端输出: neoray_app\dist\
 echo.
 echo 运行方式:
-echo   1. 后端: cd neoray\build ^&^& neoray-server.exe --no-tui
+echo   1. 后端: cd neoray\build ^&^& neoray.exe --no-tui
 echo   2. 前端: cd neoray_app ^&^& flutter run
 echo.
 pause

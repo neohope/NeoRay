@@ -84,9 +84,9 @@ chmod +x scripts/build-linux.sh
 ```
 
 后端输出位置：
-- Windows: `neoray/dist/neoray-server-windows.zip`
-- macOS: `neoray/dist/neoray-server-macos.tar.gz`
-- Linux: `neoray/dist/neoray-server-linux.tar.gz`
+- Windows: `neoray/dist/neoray-windows.zip`
+- macOS: `neoray/dist/neoray-macos.tar.gz`
+- Linux: `neoray/dist/neoray-linux.tar.gz`
 
 详细说明请参阅 [neoray/BUILD.md](neoray/BUILD.md)。
 
@@ -165,7 +165,7 @@ scripts\build-windows.bat
 ```bash
 # 终端 1 - 启动后端
 cd neoray\build
-neoray-server.exe --no-tui
+neoray.exe --no-tui
 
 # 终端 2 - 启动前端
 cd neoray_app
@@ -176,10 +176,10 @@ flutter run
 
 ## 发布包内容
 
-### 后端包 (neoray-server-*.zip/tar.gz)
+### 后端包 (neoray-*.zip/tar.gz)
 
 ```
-neoray-server.exe / neoray-server
+neoray.exe / neoray
 config.yaml
 config.yaml.example
 ```

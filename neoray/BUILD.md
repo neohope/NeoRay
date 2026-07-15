@@ -39,7 +39,7 @@ make windows
 ```bash
 cd neoray
 go mod tidy
-go build -ldflags "-s -w" -o neoray-server.exe ./cmd/server
+go build -ldflags "-s -w" -o neoray.exe ./cmd/server
 ```
 
 ---
@@ -58,7 +58,7 @@ make windows
 # 或手动
 set GOOS=windows
 set GOARCH=amd64
-go build -ldflags "-s -w" -o build/neoray-server.exe ./cmd/server
+go build -ldflags "-s -w" -o build/neoray.exe ./cmd/server
 ```
 
 ### macOS
@@ -75,7 +75,7 @@ make macos
 export GOOS=darwin
 export GOARCH=arm64  # Apple Silicon
 # 或 export GOARCH=amd64  # Intel
-go build -ldflags "-s -w" -o build/neoray-server ./cmd/server
+go build -ldflags "-s -w" -o build/neoray ./cmd/server
 ```
 
 ### Linux
@@ -91,7 +91,7 @@ make linux
 # 或手动
 export GOOS=linux
 export GOARCH=amd64
-go build -ldflags "-s -w" -o build/neoray-server ./cmd/server
+go build -ldflags "-s -w" -o build/neoray ./cmd/server
 ```
 
 ---
@@ -102,9 +102,9 @@ go build -ldflags "-s -w" -o build/neoray-server ./cmd/server
 
 | 平台 | 输出文件 |
 |-------|---------|
-| **Windows** | `dist/neoray-server-windows.zip` |
-| **macOS** | `dist/neoray-server-macos.tar.gz` |
-| **Linux** | `dist/neoray-server-linux.tar.gz` |
+| **Windows** | `dist/neoray-windows.zip` |
+| **macOS** | `dist/neoray-macos.tar.gz` |
+| **Linux** | `dist/neoray-linux.tar.gz` |
 
 可执行文件位于 `build/` 目录。
 
@@ -116,26 +116,26 @@ go build -ldflags "-s -w" -o build/neoray-server ./cmd/server
 
 ```bash
 # Windows
-neoray-server.exe
+neoray.exe
 
 # macOS/Linux
-./neoray-server
+./neoray
 ```
 
 ### 仅服务器模式（无 TUI）
 
 ```bash
 # Windows
-neoray-server.exe --no-tui
+neoray.exe --no-tui
 
 # macOS/Linux
-./neoray-server --no-tui
+./neoray --no-tui
 ```
 
 ### 指定配置文件
 
 ```bash
-neoray-server --config /path/to/config.yaml
+neoray --config /path/to/config.yaml
 ```
 
 ---
@@ -180,12 +180,12 @@ make fmt          # 格式化代码
 # Linux
 set GOOS=linux
 set GOARCH=amd64
-go build -o neoray-server ./cmd/server
+go build -o neoray ./cmd/server
 
 # macOS
 set GOOS=darwin
 set GOARCH=arm64
-go build -o neoray-server ./cmd/server
+go build -o neoray ./cmd/server
 ```
 
 ### 在 macOS 上构建 Windows/Linux
@@ -194,12 +194,12 @@ go build -o neoray-server ./cmd/server
 # Windows
 export GOOS=windows
 export GOARCH=amd64
-go build -o neoray-server.exe ./cmd/server
+go build -o neoray.exe ./cmd/server
 
 # Linux
 export GOOS=linux
 export GOARCH=amd64
-go build -o neoray-server ./cmd/server
+go build -o neoray ./cmd/server
 ```
 
 ---

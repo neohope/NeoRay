@@ -45,7 +45,7 @@ echo [5/6] 构建 Windows 可执行文件...
 mkdir build 2>nul
 set GOOS=windows
 set GOARCH=amd64
-call go build -ldflags "-s -w" -o build/neoray-server.exe ./cmd/server
+call go build -ldflags "-s -w" -o build/neoray.exe ./cmd/server
 if errorlevel 1 (
     echo ❌ 构建失败！
     pause
@@ -62,20 +62,20 @@ copy config.yaml.example build\config.yaml.example 2>nul
 copy config.yaml build\config.yaml 2>nul || copy config.yaml.example build\config.yaml
 
 REM 创建发布包
-powershell -Command "Compress-Archive -Path build\* -DestinationPath dist\neoray-server-windows.zip -Force"
+powershell -Command "Compress-Archive -Path build\* -DestinationPath dist\neoray-windows.zip -Force"
 
 echo.
 echo ====================================
 echo   ✅ 构建成功！
 echo ====================================
-echo 输出位置: dist\neoray-server-windows.zip
-echo 可执行文件: build\neoray-server.exe
+echo 输出位置: dist\neoray-windows.zip
+echo 可执行文件: build\neoray.exe
 echo.
 echo 运行方式:
 echo   cd build
-echo   neoray-server.exe
+echo   neoray.exe
 echo.
 echo 或仅服务器模式:
-echo   neoray-server.exe --no-tui
+echo   neoray.exe --no-tui
 echo.
 pause

@@ -26,7 +26,7 @@ windows:
 		./scripts/build-windows.bat; \
 	else \
 		echo "请在 Windows 上运行此命令，或使用交叉编译"; \
-		GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o build/neoray-server.exe ./cmd/server; \
+		GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o build/neoray.exe ./cmd/server; \
 	fi
 
 # macOS 构建
@@ -37,7 +37,7 @@ macos:
 		./scripts/build-macos.sh; \
 	else \
 		echo "请在 macOS 上运行此命令，或使用交叉编译"; \
-		GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o build/neoray-server ./cmd/server; \
+		GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o build/neoray ./cmd/server; \
 	fi
 
 # Linux 构建
@@ -48,7 +48,7 @@ linux:
 		./scripts/build-linux.sh; \
 	else \
 		echo "请在 Linux 上运行此命令，或使用交叉编译"; \
-		GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o build/neoray-server ./cmd/server; \
+		GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o build/neoray ./cmd/server; \
 	fi
 
 # 运行测试

@@ -42,12 +42,12 @@ echo "[5/6] 构建 Linux 可执行文件..."
 mkdir -p build
 export GOOS=linux
 export GOARCH=amd64
-go build -ldflags "-s -w" -o build/neoray-server ./cmd/server
+go build -ldflags "-s -w" -o build/neoray ./cmd/server
 if [ $? -ne 0 ]; then
     echo "❌ 构建失败！"
     exit 1
 fi
-chmod +x build/neoray-server
+chmod +x build/neoray
 echo "✅ 构建成功"
 
 echo ""
@@ -60,20 +60,20 @@ cp config.yaml build/config.yaml 2>/dev/null || cp config.yaml.example build/con
 
 # 创建 tar.gz 包
 cd build
-tar -czf ../dist/neoray-server-linux.tar.gz .
+tar -czf ../dist/neoray-linux.tar.gz .
 cd ..
 
 echo ""
 echo "===================================="
 echo "  ✅ 构建成功！"
 echo "===================================="
-echo "输出位置: dist/neoray-server-linux.tar.gz"
-echo "可执行文件: build/neoray-server"
+echo "输出位置: dist/neoray-linux.tar.gz"
+echo "可执行文件: build/neoray"
 echo ""
 echo "运行方式:"
 echo "  cd build"
-echo "  ./neoray-server"
+echo "  ./neoray"
 echo ""
 echo "或仅服务器模式:"
-echo "  ./neoray-server --no-tui"
+echo "  ./neoray --no-tui"
 echo ""
