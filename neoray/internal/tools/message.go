@@ -257,8 +257,27 @@ func (t *MessageTool) Execute(ctx context.Context, args json.RawMessage) (json.R
 
 // stripThink 移除可能的思考内容（仅返回用户可见的内容）
 func (t *MessageTool) stripThink(content string) string {
-	// TODO: 实现真正的 strip think 逻辑
+	content = removeTag(content, "<think>", "</think>")
+	content = removeTag(content, "<thinking>", "</thinking>")
+	content = removeTag(content, "<channel|", ">")
 	return content
+}
+
+// removeTag 迭代移除所有配对的 start/end 标签
+func removeTag(s, start, end string) string {
+	for {
+		startIdx := strings.Index(s, start)
+		if startIdx == -1 {
+			break
+		}
+		endIdx := strings.Index(s[startIdx:], end)
+		if endIdx == -1 {
+			break
+		}
+		endIdx += startIdx + len(end)
+		s = s[:startIdx] + s[endIdx:]
+	}
+	return s
 }
 
 // resolveMedia 解析本地媒体附件并在启用时强制工作区限制

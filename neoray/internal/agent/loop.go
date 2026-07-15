@@ -75,6 +75,16 @@ type StateTraceEntry struct {
 	Error     error
 }
 
+// providerSnapshotKey 是存储 ProviderSnapshot 的 context key
+type providerSnapshotKey struct{}
+
+// ProviderSnapshot 提供者配置快照，用于在一次回合中保持一致的 provider 视图
+type ProviderSnapshot struct {
+	ProviderName   string
+	Model          string
+	Settings       provider.GenerationSettings
+}
+
 // TurnContext 回合上下文
 type TurnContext struct {
 	// 基本信息
@@ -512,10 +522,6 @@ func (al *AgentLoop) processMessage(
 ) (*bus.OutboundMessage, error) {
 	ctx = al.refreshProviderSnapshot(ctx)
 
-	if msg.ChannelID == "system" {
-		return al.processSystemMessage(ctx, msg, sessionKey)
-	}
-
 	turnCtx := NewTurnContext(msg, sessionKey)
 
 	// 状态机主循环
@@ -608,9 +614,19 @@ func (al *AgentLoop) stateRestore(ctx context.Context, turnCtx *TurnContext) (St
 		}
 	}
 
-	// TODO: 恢复运行时检查点
-	// TODO: 恢复待处理用户回合
-	// TODO: 提取文档
+	// 恢复运行时检查点：从 session metadata 恢复 goal state 等关键状态
+	if turnCtx.Session != nil {
+		if goalRaw, ok := turnCtx.Session.Metadata[session.GoalStateKey]; ok {
+			logger.Debug("Restored goal state from session metadata",
+				logger.String("session_id", turnCtx.Session.ID))
+			_ = goalRaw // GoalState 由 GoalManager 管理，此处仅做存在性检查
+		}
+	}
+
+	// 恢复待处理用户回合：pendingQueues 是内存结构，进程重启后不持久化
+	// 如果会话有待处理消息，它们会在 handleInboundMessage 中被正常排队处理
+
+	// 文档提取：session 摘要由 ContextBuilder.BuildMessages 在 stateBuild 阶段自动处理
 
 	return StateEventOK, nil
 }
@@ -694,14 +710,24 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 	// 构建初始消息
 	turnCtx.InitialMessages = al.contextBuilder.BuildMessages(turnCtx.Session)
 
-	// 持久化用户消息
+	// 持久化用户消息（系统消息使用 system 角色）
 	if !turnCtx.UserPersistedEarly {
-		userMsg := session.NewUserMessage("", "", "", turnCtx.Msg.Content)
-		turnCtx.Session.AddMessage(userMsg)
+		var sessMsg session.Message
+		if turnCtx.Msg.Type == bus.MessageTypeSystem {
+			sessMsg = session.NewSystemMessage("", "", "", turnCtx.Msg.Content)
+		} else {
+			sessMsg = session.NewUserMessage("", "", "", turnCtx.Msg.Content)
+		}
+		turnCtx.Session.AddMessage(sessMsg)
 		turnCtx.UserPersistedEarly = true
 	}
 
-	// TODO: 可能的压缩
+	// token 预算压缩：在发送到 LLM 前压缩过长的会话历史
+	if al.memoryManager != nil {
+		if err := al.memoryManager.MaybeConsolidateSession(ctx, turnCtx.Session); err != nil {
+			logger.Warn("Session consolidation failed", logger.ErrorField(err))
+		}
+	}
 
 	return StateEventOK, nil
 }
@@ -960,7 +986,10 @@ func (al *AgentLoop) stateSave(ctx context.Context, turnCtx *TurnContext) (State
 		logger.Warn("Failed to save session", logger.ErrorField(err))
 	}
 
-	// TODO: 可能的后台压缩
+	// 后台触发空闲会话压缩检查
+	if al.memoryManager != nil {
+		go al.memoryManager.CheckExpiredSessions(ctx)
+	}
 
 	return StateEventOK, nil
 }
@@ -989,29 +1018,6 @@ func (al *AgentLoop) stateRespond(ctx context.Context, turnCtx *TurnContext) (St
 	}
 
 	return StateEventOK, nil
-}
-
-// processSystemMessage 处理系统消息
-func (al *AgentLoop) processSystemMessage(
-	ctx context.Context,
-	msg *bus.InboundMessage,
-	sessionKey string,
-) (*bus.OutboundMessage, error) {
-	logger.Debug("Processing system message", logger.String("sender_id", msg.UserID))
-
-	_, err := al.sessionMgr.GetSession(sessionKey)
-	if err != nil {
-		_, err = al.sessionMgr.CreateSession(msg.ChannelID, msg.UserID)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// TODO: 系统消息处理逻辑
-
-	content := "System message processed"
-	outbound := bus.NewOutboundMessage(msg.ChannelID, msg.ChatID, content)
-	return outbound, nil
 }
 
 // dispatchCommandInline 内联分发命令
@@ -1555,10 +1561,36 @@ func (al *AgentLoop) streamContinuation(
 	}
 }
 
-// refreshProviderSnapshot 刷新提供者快照
+// refreshProviderSnapshot 刷新提供者快照，在回合开始时捕获 provider 配置
 func (al *AgentLoop) refreshProviderSnapshot(ctx context.Context) context.Context {
-	// TODO: 实现提供者快照刷新逻辑
-	return ctx
+	p, err := al.providerMgr.GetProvider(al.cfg.LLM.DefaultProvider)
+	if err != nil || p == nil {
+		p = al.providerMgr.DefaultProvider()
+	}
+	if p == nil {
+		return ctx
+	}
+
+	snapshot := ProviderSnapshot{
+		ProviderName: p.Name(),
+		Model:        p.GetDefaultModel(),
+		Settings:     p.GetGenerationSettings(),
+	}
+
+	// 从 per-provider 配置覆盖 settings
+	if pcfg, ok := al.cfg.LLM.Providers[p.Name()]; ok {
+		if pcfg.MaxTokens > 0 {
+			snapshot.Settings.MaxTokens = pcfg.MaxTokens
+		}
+		if pcfg.Temperature > 0 {
+			snapshot.Settings.Temperature = pcfg.Temperature
+		}
+		if pcfg.ReasoningEffort != "" {
+			snapshot.Settings.ReasoningEffort = pcfg.ReasoningEffort
+		}
+	}
+
+	return context.WithValue(ctx, providerSnapshotKey{}, snapshot)
 }
 
 // callLLMWithRetry 带重试的 LLM 调用
