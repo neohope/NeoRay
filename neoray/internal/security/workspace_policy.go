@@ -251,14 +251,17 @@ func ContainsPathTraversal(command string) bool {
 		return true
 	}
 
-	// Check for double URL-encoded variants
-	if strings.Contains(lower, "%252e%252e%252f") || strings.Contains(lower, "%252e%252e%255c") {
-		return true
-	}
+	// 递归 URL 解码直到稳定，防止多层编码绕过
+	// 例如: %252e%252e%252f -> %2e%2e%2f -> ../
+	decoded := command
+	for i := 0; i < 10; i++ { // 限制最多 10 次解码，防止恶意无限循环
+		unescaped, err := url.QueryUnescape(decoded)
+		if err != nil || unescaped == decoded {
+			break // 解码失败或已稳定
+		}
+		decoded = unescaped
 
-	// Try full URL decoding to catch other encoding tricks
-	decoded, err := url.QueryUnescape(command)
-	if err == nil && decoded != command {
+		// 每次解码后检查
 		if strings.Contains(decoded, "../") || strings.Contains(decoded, "..\\") {
 			return true
 		}

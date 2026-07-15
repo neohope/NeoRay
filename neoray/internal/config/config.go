@@ -272,6 +272,7 @@ type SecurityConfig struct {
 type AuthConfig struct {
 	Enabled    bool          `mapstructure:"enabled"`
 	SecretKey  string        `mapstructure:"secret_key"`
+	AdminToken string        `mapstructure:"admin_token"`
 	JWTExpiry  time.Duration `mapstructure:"jwt_expiry"`
 }
 

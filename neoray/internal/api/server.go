@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -186,10 +187,7 @@ func NewServer(cfg *config.Config, aiAgent agent.AgentInterface, sessionMgr *ses
 				}
 				allowedOrigins := cfg.Server.CORS.AllowedOrigins
 				if len(allowedOrigins) == 0 {
-					return strings.HasPrefix(origin, "http://localhost") ||
-						strings.HasPrefix(origin, "https://localhost") ||
-						strings.HasPrefix(origin, "http://127.0.0.1") ||
-						strings.HasPrefix(origin, "https://127.0.0.1")
+					return isLocalhostOrigin(origin)
 				}
 				for _, allowed := range allowedOrigins {
 					if origin == allowed {
@@ -268,48 +266,50 @@ func (s *Server) subscribeToBus() {
 		for msg := range outChan {
 			// 广播给所有 WebSocket 客户端，或者目标是 websocket 频道
 			if msg.ChannelID == "" || msg.ChannelID == "websocket" {
+				// 根据总线消息类型决定 WebSocket 消息类型
+				wsMsgType := string(msg.Type)
+				payload := make(map[string]interface{})
+
+				// 构建 payload
+				payload["session_id"] = msg.SessionID
+				if msg.Content != "" {
+					payload["content"] = msg.Content
+				}
+				if msg.Metadata != nil {
+					for k, v := range msg.Metadata {
+						payload[k] = v
+					}
+				}
+
+				// 向后兼容处理：如果是旧类型，映射到新类型
+				switch msg.Type {
+				case bus.MessageTypeDelta:
+					wsMsgType = "chat_chunk"
+				case bus.MessageTypeAssistant:
+					wsMsgType = "chat_end"
+				case bus.MessageTypeSystem:
+					wsMsgType = "progress"
+				case bus.MessageTypeToolCall:
+					wsMsgType = "tool_call_start"
+				case bus.MessageTypeToolResult:
+					wsMsgType = "tool_call_result"
+				}
+
+				// 在锁内收集待发送的客户端列表，释放锁后再发送
+				// 避免在持有读锁时阻塞在 channel 满的客户端上
 				s.clientsMu.RLock()
+				var targetClients []*Client
 				for _, client := range s.clients {
-					// 如果消息有 SessionID，只发给对应会话的客户端
 					if msg.SessionID == "" || msg.SessionID == client.SessionID {
-						// 根据总线消息类型决定 WebSocket 消息类型
-						wsMsgType := string(msg.Type)
-						payload := make(map[string]interface{})
-
-						// 构建 payload
-						payload["session_id"] = msg.SessionID
-						if msg.Content != "" {
-							payload["content"] = msg.Content
-						}
-						if msg.Metadata != nil {
-							for k, v := range msg.Metadata {
-								payload[k] = v
-							}
-						}
-
-						// 向后兼容处理：如果是旧类型，映射到新类型
-						switch msg.Type {
-						case bus.MessageTypeDelta:
-							wsMsgType = "chat_chunk"
-						case bus.MessageTypeAssistant:
-							wsMsgType = "chat_end"
-						case bus.MessageTypeSystem:
-							// 系统消息可能是进度消息
-							if status, ok := msg.Metadata["status"].(string); ok && status != "" {
-								wsMsgType = "progress"
-							} else {
-								wsMsgType = "progress"
-							}
-						case bus.MessageTypeToolCall:
-							wsMsgType = "tool_call_start"
-						case bus.MessageTypeToolResult:
-							wsMsgType = "tool_call_result"
-						}
-
-						client.sendMessage(wsMsgType, payload)
+						targetClients = append(targetClients, client)
 					}
 				}
 				s.clientsMu.RUnlock()
+
+				// 释放锁后逐个发送消息
+				for _, client := range targetClients {
+					client.sendMessage(wsMsgType, payload)
+				}
 			}
 		}
 	}()
@@ -362,7 +362,7 @@ func (s *Server) wrapMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		// 速率限制中间件 — 使用 RemoteAddr 防止 X-Forwarded-For 伪造绕过
-		clientIP := r.RemoteAddr
+		clientIP := extractIP(r.RemoteAddr)
 		if !s.rateLimiter.allow(clientIP) {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Retry-After", "60")
@@ -524,8 +524,25 @@ func (c *Client) readPump() {
 			logger.Int("message_bytes", len(message)),
 		)
 
-		// 处理消息
-		c.handleMessage(message)
+		// 处理消息（带超时控制，防止消息处理阻塞过久）
+		handleCtx, handleCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		done := make(chan struct{})
+		go func() {
+			c.handleMessage(message)
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			// 消息处理完成
+		case <-handleCtx.Done():
+			logger.Warn("WebSocket message handling timed out",
+				logger.String("client_id", c.ID),
+				logger.Int("message_bytes", len(message)),
+			)
+			c.sendError("timeout", "Message handling timed out")
+		}
+		handleCancel()
 	}
 }
 
@@ -680,4 +697,36 @@ func generateClientID() string {
 	b := make([]byte, 16)
 	_, _ = crypto_rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// extractIP 从 RemoteAddr 中提取纯 IP 地址（去除端口）
+func extractIP(remoteAddr string) string {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		// 如果解析失败，返回原始地址
+		return remoteAddr
+	}
+	return host
+}
+
+// isLocalhostOrigin 检查 origin 是否为本地地址（防止子域名绕过）
+// 只允许 http(s)://localhost、http(s)://127.0.0.1，可选端口或路径
+func isLocalhostOrigin(origin string) bool {
+	allowedHosts := []string{
+		"http://localhost",
+		"https://localhost",
+		"http://127.0.0.1",
+		"https://127.0.0.1",
+	}
+	for _, prefix := range allowedHosts {
+		if !strings.HasPrefix(origin, prefix) {
+			continue
+		}
+		rest := origin[len(prefix):]
+		// rest 必须为空、以 : 开头（端口）、或以 / 开头（路径）
+		if rest == "" || rest[0] == ':' || rest[0] == '/' {
+			return true
+		}
+	}
+	return false
 }

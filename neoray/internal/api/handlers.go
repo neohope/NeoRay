@@ -2,14 +2,19 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"neoray/internal/logger"
 	"neoray/internal/session"
 )
+
+// validSessionIDRe 会话 ID 格式校验（只允许字母、数字、下划线、连字符）
+var validSessionIDRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // writeJSONError writes a properly escaped JSON error response.
 func writeJSONError(w http.ResponseWriter, statusCode int, errMsg string) {
@@ -454,6 +459,12 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	}
 	sessionID := pathParts[3]
 
+	// 验证 session ID 格式，防止路径遍历等攻击
+	if sessionID == "" || !validSessionIDRe.MatchString(sessionID) {
+		writeJSONError(w, http.StatusBadRequest, "Invalid session ID format. Only alphanumeric, underscore and hyphen are allowed.")
+		return
+	}
+
 	switch r.Method {
 	case http.MethodGet:
 		// 获取会话详情
@@ -683,6 +694,24 @@ func (s *Server) buildConfigResponse() map[string]interface{} {
 	}
 }
 
+// isAdminRequest 检查请求是否具有管理员权限
+// 需要通过 X-Admin-Token 头提供管理员令牌，该令牌与 API Key 不同
+func (s *Server) isAdminRequest(r *http.Request) bool {
+	adminToken := s.cfg.Security.Auth.AdminToken
+	if adminToken == "" {
+		// 如果未配置 AdminToken，拒绝所有配置修改请求
+		logger.Warn("Config update rejected: admin_token not configured")
+		return false
+	}
+
+	// 检查 X-Admin-Token 头
+	token := r.Header.Get("X-Admin-Token")
+	if token == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(token), []byte(adminToken)) == 1
+}
+
 // handleConfig 处理配置读取和更新
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -693,6 +722,12 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(s.buildConfigResponse())
 
 	case http.MethodPut:
+		// 更新配置需要管理员权限 — 防止普通 API Key 修改 LLM provider 指向恶意服务器
+		if !s.isAdminRequest(r) {
+			writeJSONError(w, http.StatusForbidden, "Admin access required for config updates. Use X-Admin-Token header.")
+			return
+		}
+
 		// 更新配置 — 限制请求体大小
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB
 		var req map[string]interface{}

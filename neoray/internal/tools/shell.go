@@ -3,6 +3,8 @@ package tools
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -10,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 
 	"neoray/internal/config"
 	"neoray/internal/logger"
@@ -225,7 +228,9 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 	case "windows":
 		if bytes.Contains([]byte(finalCommand), []byte("\n")) {
 			shellCmd = "powershell"
-			shellArgs = []string{"-NoProfile", "-Command", finalCommand}
+			// 使用 EncodedCommand 避免命令注入：将命令 Base64 编码后通过 -EncodedCommand 传递
+			encodedCmd := encodePowerShellCommand(finalCommand)
+			shellArgs = []string{"-NoProfile", "-EncodedCommand", encodedCmd}
 		} else {
 			shellCmd = "cmd.exe"
 			shellArgs = []string{"/c", finalCommand}
@@ -265,6 +270,18 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 
 	res, _ := json.Marshal(result)
 	return res, nil
+}
+
+// encodePowerShellCommand 将命令编码为 PowerShell -EncodedCommand 所需的 Base64 UTF-16LE 格式
+// 这避免了命令注入问题，因为特殊字符（$()、反引号、分号等）不会被解释
+func encodePowerShellCommand(cmd string) string {
+	// PowerShell -EncodedCommand 期望 UTF-16LE 编码的 Base64
+	encoded := utf16.Encode([]rune(cmd))
+	buf := make([]byte, 2*len(encoded))
+	for i, r := range encoded {
+		binary.LittleEndian.PutUint16(buf[i*2:], r)
+	}
+	return base64.StdEncoding.EncodeToString(buf)
 }
 
 // checkBlockedCommands 检查命令是否匹配 blocked_commands 列表

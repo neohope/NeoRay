@@ -8,6 +8,33 @@ import (
 	"neoray/internal/logger"
 )
 
+// dropMetrics 消息丢弃统计
+type dropMetrics struct {
+	mu        sync.Mutex
+	counts    map[string]int64 // subscriber -> dropped count
+	totalDrop int64
+}
+
+// recordDrop 记录消息丢弃
+func (b *MessageBus) recordDrop(subscriberID string) {
+	b.drops.mu.Lock()
+	defer b.drops.mu.Unlock()
+	b.drops.counts[subscriberID]++
+	b.drops.totalDrop++
+}
+
+// GetDropMetrics 获取丢弃统计（用于监控）
+func (b *MessageBus) GetDropMetrics() map[string]int64 {
+	b.drops.mu.Lock()
+	defer b.drops.mu.Unlock()
+	result := make(map[string]int64, len(b.drops.counts)+1)
+	for k, v := range b.drops.counts {
+		result[k] = v
+	}
+	result["_total"] = b.drops.totalDrop
+	return result
+}
+
 // MessageHandler 消息处理函数类型
 type MessageHandler func(ctx context.Context, msg *InboundMessage) error
 
@@ -32,6 +59,9 @@ type MessageBus struct {
 	// 队列大小监控（原子操作，无需加锁）
 	inboundSize  atomic.Int64
 	outboundSize atomic.Int64
+
+	// 消息丢弃统计
+	drops *dropMetrics
 }
 
 // NewMessageBus 创建消息总线
@@ -48,6 +78,7 @@ func NewMessageBus(inboundSize, outboundSize int) *MessageBus {
 		inboundHandlers:     make([]MessageHandler, 0),
 		outboundSubscribers: make(map[string]chan<- *OutboundMessage),
 		stopChan:            make(chan struct{}),
+		drops:               &dropMetrics{counts: make(map[string]int64)},
 	}
 }
 
@@ -220,7 +251,8 @@ func (b *MessageBus) processOutbound() {
 				case <-b.stopChan:
 					return
 				default:
-					// 订阅者队列满了，记录日志
+					// 订阅者队列满了，记录丢弃指标并告警
+					b.recordDrop(id)
 					logger.Warn("Outbound subscriber queue full, dropping message",
 						logger.String("subscriber", id),
 						logger.String("msg_id", msg.ID))

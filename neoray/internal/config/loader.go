@@ -45,7 +45,7 @@ func Load(configPath string) (*Config, error) {
 			v.AddConfigPath(filepath.Dir(execPath))
 		}
 
-		v.SetConfigName("config")
+		v.SetConfigName("neoray")
 	}
 
 	// 尝试加载配置
@@ -232,10 +232,10 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("security.auth.enabled must be true in production")
 		}
 
-		// Secret key must not be empty or a placeholder
+		// Secret key validation
 		secret := cfg.Security.Auth.SecretKey
-		if secret == "" || secret == "your-secret-key-here" || secret == "change-me" {
-			return fmt.Errorf("security.auth.secret_key must be set to a strong random value in production")
+		if err := validateSecretKey(secret); err != nil {
+			return err
 		}
 
 		// RestrictToWorkspace should be enabled in production
@@ -243,6 +243,72 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("security.restrict_to_workspace must be true in production")
 		}
 	}
+	return nil
+}
+
+// validateSecretKey 验证密钥强度
+func validateSecretKey(secret string) error {
+	if secret == "" {
+		return fmt.Errorf("security.auth.secret_key must be set in production")
+	}
+
+	// 检查常见占位符
+	placeholders := []string{
+		"your-secret-key-here",
+		"change-me",
+		"secret",
+		"password",
+		"admin",
+		"default",
+		"test",
+		"example",
+	}
+	secretLower := strings.ToLower(secret)
+	for _, p := range placeholders {
+		if secretLower == p {
+			return fmt.Errorf("security.auth.secret_key must not be a placeholder value like %q", p)
+		}
+	}
+
+	// 最小长度检查（建议 32+ 字符）
+	if len(secret) < 32 {
+		return fmt.Errorf("security.auth.secret_key must be at least 32 characters long (got %d)", len(secret))
+	}
+
+	// 熵检查：至少包含 3 种字符类型（大写、小写、数字、特殊字符）
+	hasUpper := false
+	hasLower := false
+	hasDigit := false
+	hasSpecial := false
+	for _, c := range secret {
+		switch {
+		case c >= 'A' && c <= 'Z':
+			hasUpper = true
+		case c >= 'a' && c <= 'z':
+			hasLower = true
+		case c >= '0' && c <= '9':
+			hasDigit = true
+		default:
+			hasSpecial = true
+		}
+	}
+	charTypes := 0
+	if hasUpper {
+		charTypes++
+	}
+	if hasLower {
+		charTypes++
+	}
+	if hasDigit {
+		charTypes++
+	}
+	if hasSpecial {
+		charTypes++
+	}
+	if charTypes < 3 {
+		return fmt.Errorf("security.auth.secret_key must contain at least 3 different character types (uppercase, lowercase, digits, special)")
+	}
+
 	return nil
 }
 

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/semaphore"
+
 	"neoray/internal/bus"
 	"neoray/internal/command"
 	"neoray/internal/config"
@@ -61,6 +63,7 @@ const (
 	goroutineTimeout         = 10 * time.Minute
 	compactThresholdMessages = 100
 	toolExecutionTimeout     = 30 * time.Second
+	maxConcurrentToolCalls   = 8 // 工具调用并发上限
 )
 
 // StateTraceEntry 状态追踪记录
@@ -1596,21 +1599,36 @@ func (al *AgentLoop) callLLMWithRetry(
 	return nil, fmt.Errorf("LLM call failed after %d attempts: %w", maxRetries, lastErr)
 }
 
-// executeToolCalls 执行工具调用
+// executeToolCalls 执行工具调用（带并发限制）
 func (al *AgentLoop) executeToolCalls(
 	ctx context.Context,
 	toolCalls []provider.ToolCall,
 	trace *TraceSession,
 ) []map[string]interface{} {
-	var toolResponses []map[string]interface{}
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	toolResponses = make([]map[string]interface{}, len(toolCalls))
+	toolResponses := make([]map[string]interface{}, len(toolCalls))
+	sem := semaphore.NewWeighted(maxConcurrentToolCalls)
 
 	for i, tc := range toolCalls {
 		wg.Add(1)
 		go func(idx int, tc provider.ToolCall) {
 			defer wg.Done()
+
+			// 获取并发许可，限制同时运行的工具调用数量
+			if err := sem.Acquire(ctx, 1); err != nil {
+				logger.Warn("Failed to acquire semaphore for tool call", logger.ErrorField(err))
+				mu.Lock()
+				toolResponses[idx] = map[string]interface{}{
+					"tool_use_id": tc.ID,
+					"content":     fmt.Sprintf("Error: %v", err),
+					"is_error":    true,
+				}
+				mu.Unlock()
+				return
+			}
+			defer sem.Release(1)
+
 			toolCtx, cancel := context.WithTimeout(ctx, toolExecutionTimeout)
 			defer cancel()
 

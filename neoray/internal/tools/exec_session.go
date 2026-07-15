@@ -556,7 +556,9 @@ func spawnCommand(ctx context.Context, command string, cwd string, cfg *config.C
 	case "windows":
 		if bytes.Contains([]byte(command), []byte("\n")) {
 			shellCmd = "powershell"
-			shellArgs = []string{"-NoProfile", "-Command", command}
+			// 使用 EncodedCommand 避免命令注入（复用 shell.go 的 encodePowerShellCommand）
+			encodedCmd := encodePowerShellCommand(command)
+			shellArgs = []string{"-NoProfile", "-EncodedCommand", encodedCmd}
 		} else {
 			shellCmd = "cmd.exe"
 			shellArgs = []string{"/c", command}

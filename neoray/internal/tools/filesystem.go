@@ -22,20 +22,39 @@ type FileSystemTool struct {
 
 // NewFileSystemTool 创建文件系统工具
 func NewFileSystemTool(cfg *config.Config) *FileSystemTool {
+	workspace := resolveWorkspacePath(cfg)
 	return &FileSystemTool{
 		cfg:         cfg,
-		workspace:   cfg.ResolvePath("workspace"),
+		workspace:   workspace,
 		fileStates:  NewFileStates(),
 	}
 }
 
 // NewFileSystemToolWithFileStates 创建带 FileStates 的文件系统工具
 func NewFileSystemToolWithFileStates(cfg *config.Config, fileStates *FileStates) *FileSystemTool {
+	workspace := resolveWorkspacePath(cfg)
 	return &FileSystemTool{
 		cfg:         cfg,
-		workspace:   cfg.ResolvePath("workspace"),
+		workspace:   workspace,
 		fileStates:  fileStates,
 	}
+}
+
+// resolveWorkspacePath 解析 workspace 路径，评估符号链接以防止 TOCTOU 攻击
+func resolveWorkspacePath(cfg *config.Config) string {
+	rawPath := cfg.ResolvePath("workspace")
+	resolved, err := filepath.EvalSymlinks(rawPath)
+	if err != nil {
+		// 路径可能不存在，尝试解析父目录
+		parent := filepath.Dir(rawPath)
+		resolvedParent, perr := filepath.EvalSymlinks(parent)
+		if perr != nil {
+			// 父目录也无法解析，返回原始路径（后续验证会捕获问题）
+			return rawPath
+		}
+		return filepath.Join(resolvedParent, filepath.Base(rawPath))
+	}
+	return resolved
 }
 
 // SetFileStates 设置 FileStates
@@ -86,8 +105,21 @@ func (t *FileSystemTool) Execute(ctx context.Context, args json.RawMessage) (jso
 	}
 
 	// 安全检查：确保路径在 workspace 内
-	fullPath := filepath.Join(t.workspace, params.Path)
-	// 使用 IsPathWithin 进行更严格的验证
+	// 使用 EvalSymlinks 解析输入路径，防止符号链接指向 workspace 外部
+	inputPath := filepath.Join(t.workspace, params.Path)
+	resolvedInput, err := filepath.EvalSymlinks(inputPath)
+	if err != nil {
+		// 路径可能不存在（如写入新文件），使用父目录解析
+		parent := filepath.Dir(inputPath)
+		resolvedParent, perr := filepath.EvalSymlinks(parent)
+		if perr != nil {
+			return nil, fmt.Errorf("cannot resolve path: %w", err)
+		}
+		resolvedInput = filepath.Join(resolvedParent, filepath.Base(inputPath))
+	}
+
+	// 使用解析后的路径进行安全验证
+	fullPath := resolvedInput
 	if !security.IsPathWithin(fullPath, t.workspace) {
 		return nil, fmt.Errorf("path outside workspace: %s", params.Path)
 	}

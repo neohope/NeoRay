@@ -607,6 +607,17 @@ func (t *WebFetchTool) fetchJina(urlStr string, maxChars int) *WebFetchResult {
 		finalURL = urlStr
 	}
 
+	// 验证 Jina 返回的 finalURL，防止 SSRF 绕过
+	allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(t.allowLocalService)
+	valid, errMsg, _ := security.ValidateURLTarget(finalURL, allowLoopback)
+	if !valid {
+		return &WebFetchResult{
+			URL:      urlStr,
+			FinalURL: finalURL,
+			Error:    fmt.Sprintf("Jina returned blocked URL: %s", errMsg),
+		}
+	}
+
 	if content == "" {
 		return nil
 	}
