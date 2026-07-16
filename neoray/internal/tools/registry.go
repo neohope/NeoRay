@@ -72,6 +72,43 @@ func (r *Registry) GetDefinitions() []ToolDefinition {
 	return defs
 }
 
+// Names 返回所有已注册工具的名称
+func (r *Registry) Names() []string {
+	names := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		names = append(names, name)
+	}
+	return names
+}
+
+// Clone 创建注册表的浅拷贝，共享相同的 Tool 实例但拥有独立的 tools map
+func (r *Registry) Clone() *Registry {
+	clone := &Registry{
+		tools: make(map[string]Tool, len(r.tools)),
+	}
+	for name, tool := range r.tools {
+		clone.tools[name] = tool
+	}
+	return clone
+}
+
+// CloneFiltered 创建注册表的过滤拷贝，只包含指定名称的工具
+func (r *Registry) CloneFiltered(allowedNames ...string) *Registry {
+	allowed := make(map[string]struct{}, len(allowedNames))
+	for _, name := range allowedNames {
+		allowed[name] = struct{}{}
+	}
+	clone := &Registry{
+		tools: make(map[string]Tool, len(allowedNames)),
+	}
+	for name, tool := range r.tools {
+		if _, ok := allowed[name]; ok {
+			clone.tools[name] = tool
+		}
+	}
+	return clone
+}
+
 // Execute 执行工具
 func (r *Registry) Execute(ctx context.Context, name string, args json.RawMessage) (json.RawMessage, error) {
 	logger.Debug("Registry.Execute called",

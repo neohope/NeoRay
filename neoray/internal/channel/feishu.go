@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"container/list"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -93,39 +94,52 @@ type FeishuChannel struct {
 	streamBufs          map[string]*streamBuf
 }
 
+// orderedMap 是一个线程安全的 LRU 去重集合。
+// 使用 container/list 实现 O(1) 的访问提升和淘汰。
 type orderedMap struct {
-	mu   sync.RWMutex
-	keys []string
-	data map[string]struct{}
-	cap  int
+	mu    sync.RWMutex
+	data  map[string]*list.Element
+	order *list.List
+	cap   int
 }
 
 func newOrderedMap(capacity int) *orderedMap {
 	return &orderedMap{
-		data: make(map[string]struct{}),
-		cap:  capacity,
+		data:  make(map[string]*list.Element),
+		order: list.New(),
+		cap:   capacity,
 	}
 }
 
 func (o *orderedMap) has(key string) bool {
-	o.mu.RLock()
-	defer o.mu.RUnlock()
-	_, ok := o.data[key]
-	return ok
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if elem, ok := o.data[key]; ok {
+		// LRU：访问时提升到末尾（最近使用）
+		o.order.MoveToBack(elem)
+		return true
+	}
+	return false
 }
 
 func (o *orderedMap) add(key string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if _, ok := o.data[key]; ok {
+	if elem, ok := o.data[key]; ok {
+		// 已存在，提升到末尾
+		o.order.MoveToBack(elem)
 		return
 	}
-	if len(o.keys) >= o.cap {
-		delete(o.data, o.keys[0])
-		o.keys = o.keys[1:]
+	// 容量已满，淘汰最久未使用的（链表头部）
+	if o.order.Len() >= o.cap {
+		oldest := o.order.Front()
+		if oldest != nil {
+			delete(o.data, oldest.Value.(string))
+			o.order.Remove(oldest)
+		}
 	}
-	o.data[key] = struct{}{}
-	o.keys = append(o.keys, key)
+	elem := o.order.PushBack(key)
+	o.data[key] = elem
 }
 
 type streamBuf struct {
@@ -306,11 +320,6 @@ func (f *FeishuChannel) SendMessage(ctx context.Context, receiveID, message stri
 }
 
 func (f *FeishuChannel) sendTextMessage(ctx context.Context, receiveID, message string, replyToMsgID string, replyInThread bool) error {
-	token, err := f.ensureToken()
-	if err != nil {
-		return err
-	}
-
 	var url string
 	var msgBody map[string]interface{}
 
@@ -334,31 +343,8 @@ func (f *FeishuChannel) sendTextMessage(ctx context.Context, receiveID, message 
 		}
 	}
 
-	body, _ := json.Marshal(msgBody)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
+	if err := f.doAPIRequest(ctx, "POST", url, msgBody, nil); err != nil {
 		return err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := f.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
-	var result struct {
-		Code int    `json:"code"`
-		Msg  string `json:"msg"`
-	}
-	_ = json.Unmarshal(respBody, &result)
-
-	if resp.StatusCode != http.StatusOK || result.Code != 0 {
-		return fmt.Errorf("feishu api error: %s (code: %d, status: %d, body: %s)", result.Msg, result.Code, resp.StatusCode, truncateString(string(respBody), 500))
 	}
 
 	logger.Debug("Sent Feishu text message", logger.String("receive_id", receiveID))
@@ -1682,11 +1668,6 @@ func (f *FeishuChannel) uploadFile(ctx context.Context, filePath string) (string
 }
 
 func (f *FeishuChannel) createMessage(ctx context.Context, receiveIDType, receiveID, msgType, content string) error {
-	token, err := f.ensureToken()
-	if err != nil {
-		return err
-	}
-
 	url := f.getDomain() + "/open-apis/im/v1/messages?receive_id_type=" + receiveIDType
 	msgBody := map[string]interface{}{
 		"receive_id": receiveID,
@@ -1695,31 +1676,8 @@ func (f *FeishuChannel) createMessage(ctx context.Context, receiveIDType, receiv
 		"uuid":       fmt.Sprintf("%d", time.Now().UnixNano()),
 	}
 
-	body, _ := json.Marshal(msgBody)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
+	if err := f.doAPIRequest(ctx, "POST", url, msgBody, nil); err != nil {
 		return err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := f.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
-	var result struct {
-		Code int    `json:"code"`
-		Msg  string `json:"msg"`
-	}
-	_ = json.Unmarshal(respBody, &result)
-
-	if resp.StatusCode != http.StatusOK || result.Code != 0 {
-		return fmt.Errorf("feishu api error: %s (code: %d, status: %d, body: %s)", result.Msg, result.Code, resp.StatusCode, truncateString(string(respBody), 500))
 	}
 
 	logger.Debug("Created Feishu message", logger.String("receive_id_type", receiveIDType), logger.String("receive_id", receiveID), logger.String("msg_type", msgType))
@@ -1739,11 +1697,6 @@ func (f *FeishuChannel) sendInteractiveMessage(ctx context.Context, receiveID, c
 }
 
 func (f *FeishuChannel) replyMessage(ctx context.Context, messageID, msgType, content string, replyInThread bool) (bool, error) {
-	token, err := f.ensureToken()
-	if err != nil {
-		return false, err
-	}
-
 	url := f.getDomain() + fmt.Sprintf("/open-apis/im/v1/messages/%s/reply", messageID)
 	msgBody := map[string]interface{}{
 		"msg_type": msgType,
@@ -1754,31 +1707,8 @@ func (f *FeishuChannel) replyMessage(ctx context.Context, messageID, msgType, co
 		msgBody["reply_in_thread"] = true
 	}
 
-	body, _ := json.Marshal(msgBody)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
+	if err := f.doAPIRequest(ctx, "POST", url, msgBody, nil); err != nil {
 		return false, err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := f.httpClient.Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
-	var result struct {
-		Code int    `json:"code"`
-		Msg  string `json:"msg"`
-	}
-	_ = json.Unmarshal(respBody, &result)
-
-	if resp.StatusCode != http.StatusOK || result.Code != 0 {
-		return false, fmt.Errorf("feishu api error: %s (code: %d, status: %d, body: %s)", result.Msg, result.Code, resp.StatusCode, truncateString(string(respBody), 500))
 	}
 
 	logger.Debug("Reply sent", logger.String("message_id", messageID), logger.String("msg_type", msgType))
@@ -1786,11 +1716,6 @@ func (f *FeishuChannel) replyMessage(ctx context.Context, messageID, msgType, co
 }
 
 func (f *FeishuChannel) createStreamingCard(ctx context.Context, receiveIDType, chatID, replyMessageID string, replyInThread bool) (string, error) {
-	token, err := f.ensureToken()
-	if err != nil {
-		return "", err
-	}
-
 	cardJSON := map[string]interface{}{
 		"schema": "2.0",
 		"config": map[string]interface{}{
@@ -1810,42 +1735,16 @@ func (f *FeishuChannel) createStreamingCard(ctx context.Context, receiveIDType, 
 		"type": "card_json",
 		"data": string(cardData),
 	}
-	body, _ := json.Marshal(reqBody)
-
 	url := f.getDomain() + "/open-apis/cardkit/v1/cards"
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
+
+	var cardResult struct {
+		CardID string `json:"card_id"`
+	}
+	if err := f.doAPIRequest(ctx, "POST", url, reqBody, &cardResult); err != nil {
 		return "", err
 	}
 
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := f.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
-
-	var result struct {
-		Code int    `json:"code"`
-		Msg  string `json:"msg"`
-		Data struct {
-			CardID string `json:"card_id"`
-		} `json:"data"`
-	}
-
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", err
-	}
-
-	if result.Code != 0 {
-		return "", fmt.Errorf("create streaming card error: %s (code: %d)", result.Msg, result.Code)
-	}
-
-	cardID := result.Data.CardID
+	cardID := cardResult.CardID
 	if cardID == "" {
 		return "", fmt.Errorf("no card_id returned")
 	}
@@ -1855,6 +1754,7 @@ func (f *FeishuChannel) createStreamingCard(ctx context.Context, receiveIDType, 
 		"data": map[string]interface{}{"card_id": cardID},
 	})
 
+	var err error
 	if replyMessageID != "" {
 		_, err = f.replyMessage(ctx, replyMessageID, "interactive", string(interactiveContent), replyInThread)
 	} else {
@@ -1871,98 +1771,26 @@ func (f *FeishuChannel) createStreamingCard(ctx context.Context, receiveIDType, 
 }
 
 func (f *FeishuChannel) streamUpdateText(ctx context.Context, cardID, content string, sequence int) error {
-	token, err := f.ensureToken()
-	if err != nil {
-		return err
-	}
-
+	url := f.getDomain() + fmt.Sprintf("/open-apis/cardkit/v1/cards/%s/elements/streaming_md/content", cardID)
 	reqBody := map[string]interface{}{
 		"content":  content,
 		"sequence": sequence,
 	}
-	body, _ := json.Marshal(reqBody)
-
-	url := f.getDomain() + fmt.Sprintf("/open-apis/cardkit/v1/cards/%s/elements/streaming_md/content", cardID)
-	req, err := http.NewRequestWithContext(ctx, "PATCH", url, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := f.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("do request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
-
-	var result struct {
-		Code int    `json:"code"`
-		Msg  string `json:"msg"`
-	}
-
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return fmt.Errorf("parse response: %w", err)
-	}
-
-	if result.Code != 0 {
-		return fmt.Errorf("stream update card error: %s (code: %d)", result.Msg, result.Code)
-	}
-
-	return nil
+	return f.doAPIRequest(ctx, "PATCH", url, reqBody, nil)
 }
 
 func (f *FeishuChannel) closeStreamingMode(ctx context.Context, cardID string, sequence int) error {
-	token, err := f.ensureToken()
-	if err != nil {
-		return err
-	}
-
 	settings, _ := json.Marshal(map[string]interface{}{
 		"config": map[string]interface{}{"streaming_mode": false},
 	})
 
+	url := f.getDomain() + fmt.Sprintf("/open-apis/cardkit/v1/cards/%s/settings", cardID)
 	reqBody := map[string]interface{}{
 		"settings": string(settings),
 		"sequence": sequence,
 		"uuid":     fmt.Sprintf("%d", time.Now().UnixNano()),
 	}
-	body, _ := json.Marshal(reqBody)
-
-	url := f.getDomain() + fmt.Sprintf("/open-apis/cardkit/v1/cards/%s/settings", cardID)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := f.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("do request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
-
-	var result struct {
-		Code int    `json:"code"`
-		Msg  string `json:"msg"`
-	}
-
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return fmt.Errorf("parse response: %w", err)
-	}
-
-	if result.Code != 0 {
-		return fmt.Errorf("close streaming mode error: %s (code: %d)", result.Msg, result.Code)
-	}
-
-	return nil
+	return f.doAPIRequest(ctx, "POST", url, reqBody, nil)
 }
 
 func (f *FeishuChannel) detectMsgFormat(content string) string {
@@ -2270,16 +2098,36 @@ func (f *FeishuChannel) threadReplyTarget(metadata map[string]interface{}) strin
 func (f *FeishuChannel) safeMediaFilename(filename, fallback string) string {
 	filename = strings.ReplaceAll(filename, "\\", "/")
 	filename = filepath.Base(filename)
+
+	// 白名单方式：只保留安全字符（字母、数字、下划线、连字符、点），其余替换为下划线
 	filename = strings.Map(func(r rune) rune {
-		if r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|' {
-			return '_'
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.' {
+			return r
 		}
-		return r
+		return '_'
 	}, filename)
+
+	// 去除首尾的点和下划线（Windows 会静默去除尾部的点和空格）
+	filename = strings.Trim(filename, "._")
 
 	if filename == "" || filename == "." || filename == ".." {
 		return fallback
 	}
+
+	// 检查 Windows 保留设备名
+	upper := strings.ToUpper(filename)
+	baseName := strings.SplitN(upper, ".", 2)[0]
+	reservedNames := map[string]bool{
+		"CON": true, "PRN": true, "AUX": true, "NUL": true,
+		"COM1": true, "COM2": true, "COM3": true, "COM4": true,
+		"COM5": true, "COM6": true, "COM7": true, "COM8": true, "COM9": true,
+		"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true,
+		"LPT5": true, "LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true,
+	}
+	if reservedNames[baseName] {
+		return "_" + filename
+	}
+
 	return filename
 }
 
@@ -2437,6 +2285,96 @@ func (f *FeishuChannel) tokenRefreshLoop() {
 			return
 		}
 	}
+}
+
+// feishuAPIResponse 飞书 API 通用响应结构
+type feishuAPIResponse struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+	Data json.RawMessage `json:"data"`
+}
+
+// doAPIRequest 执行飞书 API 请求（带 JSON body），解析通用响应结构
+// method: HTTP 方法（POST, PATCH, DELETE 等）
+// url: 完整 API URL
+// body: 请求体（会被 JSON 序列化），传 nil 表示无 body
+// result: 响应 Data 字段的反序列化目标，传 nil 表示忽略 data
+func (f *FeishuChannel) doAPIRequest(ctx context.Context, method, url string, body interface{}, result interface{}) error {
+	token, err := f.ensureToken()
+	if err != nil {
+		return err
+	}
+
+	var reqBody io.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("marshal request body: %w", err)
+		}
+		reqBody = bytes.NewReader(data)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := f.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
+
+	var apiResp feishuAPIResponse
+	_ = json.Unmarshal(respBody, &apiResp)
+
+	if resp.StatusCode != http.StatusOK || apiResp.Code != 0 {
+		return fmt.Errorf("feishu api error: %s (code: %d, status: %d, body: %s)",
+			apiResp.Msg, apiResp.Code, resp.StatusCode, truncateString(string(respBody), 500))
+	}
+
+	if result != nil && len(apiResp.Data) > 0 {
+		if err := json.Unmarshal(apiResp.Data, result); err != nil {
+			return fmt.Errorf("unmarshal response data: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// doAPIGet 执行飞书 GET 请求，解析通用响应结构并将 Data 反序列化到 result
+func (f *FeishuChannel) doAPIGet(ctx context.Context, url string, result interface{}) error {
+	return f.doAPIRequest(ctx, http.MethodGet, url, nil, result)
+}
+
+// doAPIGetRaw 执行飞书 GET 请求，返回原始响应字节和 HTTP 状态码
+// 用于下载文件、图片等二进制内容
+func (f *FeishuChannel) doAPIGetRaw(ctx context.Context, url string) ([]byte, int, error) {
+	token, err := f.ensureToken()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := f.httpClient.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
+	return body, resp.StatusCode, nil
 }
 
 func truncateString(s string, max int) string {

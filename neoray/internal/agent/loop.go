@@ -466,8 +466,18 @@ func (al *AgentLoop) handleInboundMessage(ctx context.Context, msg *bus.InboundM
 	// 锁顺序约定：始终先获取 al.mu 再获取 lock.mu，防止死锁
 	go func() {
 		lock.mu.Lock()
-		defer lock.mu.Unlock()
-		defer al.releaseSessionLock(sessionKey)
+		lockAcquiredAt := time.Now()
+		defer func() {
+			lockHeld := time.Since(lockAcquiredAt)
+			if lockHeld > 30*time.Second {
+				logger.Warn("Session lock held for extended duration",
+					logger.String("session_key", sessionKey),
+					logger.String("duration", lockHeld.String()),
+				)
+			}
+			lock.mu.Unlock()
+			al.releaseSessionLock(sessionKey)
+		}()
 
 		// 创建 pending 队列（al.mu 已在 getSessionLock 中释放，此处重新获取）
 		pendingQueue := make(chan *bus.InboundMessage, defaultPendingQueueSize)

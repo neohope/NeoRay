@@ -57,7 +57,7 @@ func (t *SandboxStatusTool) Execute(ctx context.Context, args json.RawMessage) (
 	}
 
 	// 如果有当前的工作区范围，也包含它
-	if currentScope := security.CurrentWorkspaceScope(); currentScope != nil {
+	if currentScope := security.WorkspaceScopeFromContext(ctx); currentScope != nil {
 		result["current_scope"] = currentScope.Payload()
 	}
 

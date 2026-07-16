@@ -531,7 +531,7 @@ func spawnCommand(ctx context.Context, command string, cwd string, cfg *config.C
 			return nil, err
 		}
 
-		allowLoopback := cfg.Security.WebUIAllowLocalServiceAccess && security.CurrentScopeAllowsLoopback(cfg.Security.WebUIAllowLocalServiceAccess)
+		allowLoopback := cfg.Security.WebUIAllowLocalServiceAccess && security.CurrentScopeAllowsLoopback(ctx, cfg.Security.WebUIAllowLocalServiceAccess)
 		if security.ContainsInternalURL(command, allowLoopback) {
 			return nil, fmt.Errorf("command contains URL targeting internal/private address")
 		}

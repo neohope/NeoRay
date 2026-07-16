@@ -376,10 +376,17 @@ mainLoop:
 }
 
 // buildSubagentToolRegistry 构建子代理的工具注册表
+// 只包含安全的文件操作和搜索工具，排除递归生成、消息发送、调度等敏感工具
 func (m *Manager) buildSubagentToolRegistry() *tools.Registry {
-	// 简单地复制主代理的工具（只读）
-	// 在实际实现中，可能需要过滤一些工具或创建子代理专用工具
-	return m.toolRegistry
+	return m.toolRegistry.CloneFiltered(
+		"filesystem",    // 文件读写
+		"find_files",    // 文件搜索
+		"grep",          // 内容搜索
+		"apply_patch",   // 补丁应用
+		"web_search",    // 网页搜索
+		"web_fetch",     // 网页获取
+		"sandbox_status", // 沙箱状态
+	)
 }
 
 // buildSubagentSystemPrompt 构建子代理系统提示词

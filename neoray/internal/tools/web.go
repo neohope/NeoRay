@@ -551,7 +551,7 @@ func (t *WebFetchTool) Execute(ctx context.Context, args json.RawMessage) (json.
 		maxChars = t.maxChars
 	}
 
-	valid, errMsg := t.validateURLSafe(urlStr)
+	valid, errMsg := t.validateURLSafe(ctx, urlStr)
 	if !valid {
 		result := WebFetchResult{URL: urlStr, Error: fmt.Sprintf("URL validation failed: %s", errMsg)}
 		return json.Marshal(result)
@@ -559,16 +559,16 @@ func (t *WebFetchTool) Execute(ctx context.Context, args json.RawMessage) (json.
 
 	var result *WebFetchResult
 	if t.useJinaReader {
-		result = t.fetchJina(urlStr, maxChars)
+		result = t.fetchJina(ctx, urlStr, maxChars)
 	}
 	if result == nil {
-		result = t.fetchReadability(urlStr, extractMode, maxChars)
+		result = t.fetchReadability(ctx, urlStr, extractMode, maxChars)
 	}
 
 	return json.Marshal(result)
 }
 
-func (t *WebFetchTool) fetchJina(urlStr string, maxChars int) *WebFetchResult {
+func (t *WebFetchTool) fetchJina(ctx context.Context, urlStr string, maxChars int) *WebFetchResult {
 	client := &http.Client{Timeout: jinaFetchTimeout}
 	req, err := http.NewRequest("GET", fmt.Sprintf("https://r.jina.ai/%s", urlStr), nil)
 	if err != nil {
@@ -608,7 +608,7 @@ func (t *WebFetchTool) fetchJina(urlStr string, maxChars int) *WebFetchResult {
 	}
 
 	// 验证 Jina 返回的 finalURL，防止 SSRF 绕过
-	allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(t.allowLocalService)
+	allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(ctx, t.allowLocalService)
 	valid, errMsg, _ := security.ValidateURLTarget(finalURL, allowLoopback)
 	if !valid {
 		return &WebFetchResult{
@@ -645,13 +645,13 @@ func (t *WebFetchTool) fetchJina(urlStr string, maxChars int) *WebFetchResult {
 	}
 }
 
-func (t *WebFetchTool) fetchReadability(urlStr string, extractMode string, maxChars int) *WebFetchResult {
+func (t *WebFetchTool) fetchReadability(ctx context.Context, urlStr string, extractMode string, maxChars int) *WebFetchResult {
 	// Create a client with redirect validation
 	client := &http.Client{
 		Timeout: readabilityTimeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			// Validate each redirect URL
-			allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(t.allowLocalService)
+			allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(ctx, t.allowLocalService)
 			valid, errMsg, _ := security.ValidateURLTarget(req.URL.String(), allowLoopback)
 			if !valid {
 				return fmt.Errorf("redirect blocked: %s", errMsg)
@@ -681,7 +681,7 @@ func (t *WebFetchTool) fetchReadability(urlStr string, extractMode string, maxCh
 	// Validate the final URL after all redirects
 	finalURL := resp.Request.URL.String()
 	if finalURL != urlStr {
-		allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(t.allowLocalService)
+		allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(ctx, t.allowLocalService)
 		valid, errMsg, _ := security.ValidateURLTarget(finalURL, allowLoopback)
 		if !valid {
 			return &WebFetchResult{
@@ -769,8 +769,8 @@ func normalizeText(s string) string {
 	return newlineRe.ReplaceAllString(s, "\n\n")
 }
 
-func (t *WebFetchTool) validateURLSafe(urlStr string) (bool, string) {
-	allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(t.allowLocalService)
+func (t *WebFetchTool) validateURLSafe(ctx context.Context, urlStr string) (bool, string) {
+	allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(ctx, t.allowLocalService)
 	valid, errMsg, _ := security.ValidateURLTarget(urlStr, allowLoopback)
 	return valid, errMsg
 }

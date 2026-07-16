@@ -1,10 +1,10 @@
 package security
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 )
 
 // WorkspaceAccessMode represents the access mode for workspace.
@@ -184,11 +184,22 @@ func (r *WorkspaceScopeResolver) PersistMessageScope(
 	sessionMetadata[WorkspaceScopeMetadataKey] = copyMap(scopeMap)
 }
 
-// CurrentWorkspaceScope holds the current workspace scope in a thread-safe manner.
-var (
-	currentWorkspaceScope *WorkspaceScope
-	scopeMu               sync.RWMutex
-)
+// workspaceScopeKey 是存储 WorkspaceScope 的 context key
+type workspaceScopeKey struct{}
+
+// WithWorkspaceScope 将 workspace scope 注入 context
+func WithWorkspaceScope(ctx context.Context, scope *WorkspaceScope) context.Context {
+	return context.WithValue(ctx, workspaceScopeKey{}, scope)
+}
+
+// WorkspaceScopeFromContext 从 context 中提取 workspace scope，不存在则返回 nil
+func WorkspaceScopeFromContext(ctx context.Context) *WorkspaceScope {
+	if ctx == nil {
+		return nil
+	}
+	scope, _ := ctx.Value(workspaceScopeKey{}).(*WorkspaceScope)
+	return scope
+}
 
 // WorkspaceSandboxStatus returns how workspace restriction is enforced in the current host.
 func WorkspaceSandboxStatusFromConfig(
@@ -410,34 +421,15 @@ func ResolveEffectiveWorkspaceScope(
 	)
 }
 
-// BindWorkspaceScope sets the current workspace scope.
-func BindWorkspaceScope(scope *WorkspaceScope) {
-	scopeMu.Lock()
-	defer scopeMu.Unlock()
-	currentWorkspaceScope = scope
-}
-
-// ResetWorkspaceScope resets the current workspace scope.
-func ResetWorkspaceScope() {
-	scopeMu.Lock()
-	defer scopeMu.Unlock()
-	currentWorkspaceScope = nil
-}
-
-// CurrentWorkspaceScope returns the current workspace scope.
-func CurrentWorkspaceScope() *WorkspaceScope {
-	scopeMu.RLock()
-	defer scopeMu.RUnlock()
-	return currentWorkspaceScope
-}
-
 // CurrentToolWorkspace returns the workspace/access policy for the current tool call.
+// Scope is read from context via WorkspaceScopeFromContext.
 func CurrentToolWorkspace(
+	ctx context.Context,
 	defaultWorkspace string,
 	restrictToWorkspace bool,
 	sandboxRestrictsWorkspace bool,
 ) *ToolWorkspace {
-	scope := CurrentWorkspaceScope()
+	scope := WorkspaceScopeFromContext(ctx)
 
 	var projectPath string
 	if scope != nil {
@@ -462,8 +454,9 @@ func CurrentToolWorkspace(
 }
 
 // CurrentScopeAllowsLoopback returns true when the current WebUI Full Access turn may touch loopback URLs.
-func CurrentScopeAllowsLoopback(enabled bool) bool {
-	scope := CurrentWorkspaceScope()
+// Scope is read from context via WorkspaceScopeFromContext.
+func CurrentScopeAllowsLoopback(ctx context.Context, enabled bool) bool {
+	scope := WorkspaceScopeFromContext(ctx)
 	return enabled &&
 		scope != nil &&
 		scope.SourceChannel == "websocket" &&

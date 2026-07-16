@@ -736,9 +736,13 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// 审计日志：记录变更的字段
+		var changedFields []string
+
 		// 更新 LLM 配置
 		if llm, ok := req["llm"].(map[string]interface{}); ok {
 			if dp, ok := llm["default_provider"].(string); ok {
+				changedFields = append(changedFields, "llm.default_provider")
 				s.cfg.LLM.DefaultProvider = dp
 			}
 			if providers, ok := llm["providers"].(map[string]interface{}); ok {
@@ -747,21 +751,27 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 						existing := s.cfg.LLM.Providers[name]
 						if v, ok := pc["api_key"].(string); ok && v != "" && !strings.HasPrefix(v, "***") {
 							existing.APIKey = v
+							changedFields = append(changedFields, "llm.providers."+name+".api_key")
 						}
 						if v, ok := pc["api_url"].(string); ok {
 							existing.APIURL = v
+							changedFields = append(changedFields, "llm.providers."+name+".api_url")
 						}
 						if v, ok := pc["model"].(string); ok {
 							existing.Model = v
+							changedFields = append(changedFields, "llm.providers."+name+".model")
 						}
 						if v, ok := pc["max_tokens"].(float64); ok {
 							existing.MaxTokens = int(v)
+							changedFields = append(changedFields, "llm.providers."+name+".max_tokens")
 						}
 						if v, ok := pc["temperature"].(float64); ok {
 							existing.Temperature = v
+							changedFields = append(changedFields, "llm.providers."+name+".temperature")
 						}
 						if v, ok := pc["reasoning_effort"].(string); ok {
 							existing.ReasoningEffort = v
+							changedFields = append(changedFields, "llm.providers."+name+".reasoning_effort")
 						}
 						s.cfg.LLM.Providers[name] = existing
 					}
@@ -774,12 +784,15 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			if feishu, ok := channels["feishu"].(map[string]interface{}); ok {
 				if v, ok := feishu["enabled"].(bool); ok {
 					s.cfg.Channels.Feishu.Enabled = v
+					changedFields = append(changedFields, "channels.feishu.enabled")
 				}
 				if v, ok := feishu["app_id"].(string); ok {
 					s.cfg.Channels.Feishu.AppID = v
+					changedFields = append(changedFields, "channels.feishu.app_id")
 				}
 				if v, ok := feishu["app_secret"].(string); ok && v != "" && !strings.HasPrefix(v, "***") {
 					s.cfg.Channels.Feishu.AppSecret = v
+					changedFields = append(changedFields, "channels.feishu.app_secret")
 				}
 			}
 		}
@@ -789,21 +802,39 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			if shell, ok := tools["shell"].(map[string]interface{}); ok {
 				if v, ok := shell["enabled"].(bool); ok {
 					s.cfg.Tools.Shell.Enabled = v
+					changedFields = append(changedFields, "tools.shell.enabled")
 				}
 			}
 			if web, ok := tools["web"].(map[string]interface{}); ok {
 				if v, ok := web["enabled"].(bool); ok {
 					s.cfg.Tools.Web.Enabled = v
+					changedFields = append(changedFields, "tools.web.enabled")
 				}
 			}
 			if cron, ok := tools["cron"].(map[string]interface{}); ok {
 				if v, ok := cron["enabled"].(bool); ok {
 					s.cfg.Tools.Cron.Enabled = v
+					changedFields = append(changedFields, "tools.cron.enabled")
 				}
 			}
 		}
 
-		logger.Info("Config updated via API")
+		// 审计日志：记录配置变更详情
+		clientIP := r.RemoteAddr
+		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+			clientIP = fwd
+		}
+		if len(changedFields) > 0 {
+			logger.Info("Config updated via API",
+				logger.String("client_ip", clientIP),
+				logger.String("changed_fields", strings.Join(changedFields, ",")),
+				logger.Int("field_count", len(changedFields)),
+			)
+		} else {
+			logger.Info("Config update request with no changes",
+				logger.String("client_ip", clientIP),
+			)
+		}
 
 		// 返回更新后的配置
 		json.NewEncoder(w).Encode(s.buildConfigResponse())

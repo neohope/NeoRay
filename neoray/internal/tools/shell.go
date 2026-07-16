@@ -187,7 +187,7 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 			return res, nil
 		}
 
-		allowLoopback := t.cfg.Security.WebUIAllowLocalServiceAccess && security.CurrentScopeAllowsLoopback(t.cfg.Security.WebUIAllowLocalServiceAccess)
+		allowLoopback := t.cfg.Security.WebUIAllowLocalServiceAccess && security.CurrentScopeAllowsLoopback(ctx, t.cfg.Security.WebUIAllowLocalServiceAccess)
 		if security.ContainsInternalURL(filteredCmd, allowLoopback) {
 			result := map[string]interface{}{
 				"success": false,
@@ -226,15 +226,11 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 
 	switch runtime.GOOS {
 	case "windows":
-		if bytes.Contains([]byte(finalCommand), []byte("\n")) {
-			shellCmd = "powershell"
-			// 使用 EncodedCommand 避免命令注入：将命令 Base64 编码后通过 -EncodedCommand 传递
-			encodedCmd := encodePowerShellCommand(finalCommand)
-			shellArgs = []string{"-NoProfile", "-EncodedCommand", encodedCmd}
-		} else {
-			shellCmd = "cmd.exe"
-			shellArgs = []string{"/c", finalCommand}
-		}
+		// 统一使用 PowerShell -EncodedCommand 避免命令注入：
+		// cmd.exe /c 会解释 shell 元字符（|, &, >, ^, % 等），存在注入风险
+		shellCmd = "powershell"
+		encodedCmd := encodePowerShellCommand(finalCommand)
+		shellArgs = []string{"-NoProfile", "-EncodedCommand", encodedCmd}
 	default:
 		shellCmd = "bash"
 		shellArgs = []string{"-c", finalCommand}
