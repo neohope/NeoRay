@@ -551,6 +551,7 @@ func initProviders(cfg *config.Config) *provider.ProviderManager {
 	var defaultProvider provider.Provider
 
 	providerMgr := provider.NewProviderManager(nil)
+	factory := provider.NewDefaultProviderFactory(cfg)
 
 	fmt.Printf("Number of providers in config: %d\n", len(cfg.LLM.Providers))
 
@@ -575,29 +576,34 @@ func initProviders(cfg *config.Config) *provider.ProviderManager {
 		// 复制配置，避免循环变量重用问题
 		cfgCopy := providerConfig
 
-		// 根据 api_format 选择提供商实现
-		var p provider.Provider
-		apiFormat := cfgCopy.APIFormat
-		if apiFormat == "" {
-			apiFormat = "openai" // 默认使用 OpenAI 格式
+		// 通过工厂创建 provider（内部按 api_format 路由）
+		p, err := factory.CreateProvider(name, &cfgCopy)
+		if err != nil {
+			logger.Warn("Failed to create provider",
+				logger.String("name", name),
+				logger.String("error", err.Error()),
+			)
+			continue
 		}
-
-		switch apiFormat {
-		case "anthropic":
-			p = provider.NewAnthropicProvider(name, &cfgCopy)
-			logger.Info("Provider registered (Anthropic format)", logger.String("name", name))
-		case "openai":
-			fallthrough
-		default:
-			p = provider.NewGenericProvider(name, &cfgCopy)
-			logger.Info("Provider registered (OpenAI format)", logger.String("name", name))
-		}
+		logger.Info("Provider registered", logger.String("name", name), logger.String("api_format", cfgCopy.APIFormat))
 
 		providerMgr.RegisterProvider(name, p)
 
 		// 如果是默认提供商或还没设置默认提供商，设置为默认
 		if defaultProvider == nil || name == cfg.LLM.DefaultProvider {
 			defaultProvider = p
+		}
+	}
+
+	// 如果配置了 fallback 模型，用 FallbackProvider 包装默认提供商
+	if defaultProvider != nil {
+		fallbackConfigs := factory.BuildFallbackConfigs()
+		if len(fallbackConfigs) > 0 {
+			logger.Info("Wrapping default provider with fallback",
+				logger.String("provider", defaultProvider.Name()),
+				logger.Int("fallback_count", len(fallbackConfigs)),
+			)
+			defaultProvider = factory.CreateFallbackProvider(defaultProvider, fallbackConfigs)
 		}
 	}
 

@@ -5,11 +5,10 @@ import (
 	"strings"
 
 	"neoray/internal/config"
-	"neoray/internal/logger"
 )
 
-// ProviderFactoryFunc 从配置创建 provider
-type ProviderFactoryFunc func(cfg *config.ProviderConfig) (Provider, error)
+// ProviderFactoryFunc 从配置创建 provider，name 为配置中的 provider 名称
+type ProviderFactoryFunc func(name string, cfg *config.ProviderConfig) (Provider, error)
 
 // DefaultProviderFactory 默认的 provider 工厂
 type DefaultProviderFactory struct {
@@ -37,114 +36,56 @@ func (f *DefaultProviderFactory) RegisterFactory(name string, factory ProviderFa
 	f.factories[name] = factory
 }
 
-// CreateProvider 创建 provider
-func (f *DefaultProviderFactory) CreateProvider(name string, cfg *config.ProviderConfig) (Provider, error) {
-	// 尝试找到合适的工厂
-	var factory ProviderFactoryFunc
-	var ok bool
-
-	// 首先尝试精确匹配
-	if factory, ok = f.factories[name]; ok {
-		return factory(cfg)
+// CreateProvider 创建 provider。匹配顺序：cfg.APIFormat 精确匹配 → model name 启发式 → 默认 openai_compat
+func (f *DefaultProviderFactory) CreateProvider(providerName string, cfg *config.ProviderConfig) (Provider, error) {
+	// 优先按 api_format 显式匹配
+	apiFormat := cfg.APIFormat
+	if apiFormat == "" {
+		apiFormat = "openai" // 默认使用 OpenAI 格式
+	}
+	if factory, ok := f.factories[apiFormat]; ok {
+		return factory(providerName, cfg)
 	}
 
-	// 尝试根据模型名称猜测
+	// 尝试根据模型名称启发式匹配
 	if cfg.Model != "" {
 		if containsAny(cfg.Model, "claude") {
-			if factory, ok = f.factories["anthropic"]; ok {
-				return factory(cfg)
+			if factory, ok := f.factories["anthropic"]; ok {
+				return factory(providerName, cfg)
 			}
 		}
 		if containsAny(cfg.Model, "gpt", "openai") {
-			if factory, ok = f.factories["openai"]; ok {
-				return factory(cfg)
+			if factory, ok := f.factories["openai"]; ok {
+				return factory(providerName, cfg)
 			}
 		}
 	}
 
 	// 默认使用 OpenAI 兼容
-	if factory, ok = f.factories["openai_compat"]; ok {
-		return factory(cfg)
+	if factory, ok := f.factories["openai_compat"]; ok {
+		return factory(providerName, cfg)
 	}
 
-	return nil, fmt.Errorf("no provider factory found for %s", name)
+	return nil, fmt.Errorf("no provider factory found for %s (api_format=%s)", providerName, apiFormat)
 }
 
-// CreateProviderFromConfig 从全局配置创建 provider
-func (f *DefaultProviderFactory) CreateProviderFromConfig() (Provider, error) {
+// BuildFallbackConfigs 将配置中的 FallbackModelConfig 转换为 FallbackConfig 列表
+func (f *DefaultProviderFactory) BuildFallbackConfigs() []FallbackConfig {
 	llmCfg := f.config.LLM
-
-	// 获取默认 provider 名称
-	defaultProviderName := llmCfg.DefaultProvider
-	if defaultProviderName == "" {
-		defaultProviderName = "anthropic" // 默认
+	if len(llmCfg.FallbackModels) == 0 {
+		return nil
 	}
-
-	// 查找默认 provider 配置
-	var primaryProvider Provider
-	var primaryProviderName string
-
-	// 先尝试找 anthropic 配置，否则找第一个可用的
-	for name, cfg := range llmCfg.Providers {
-		if cfg.APIKey != "" || cfg.APIURL != "" {
-			if name == defaultProviderName || (defaultProviderName == "" && name == "anthropic") {
-				provider, err := f.CreateProvider(name, &cfg)
-				if err != nil {
-					logger.Warn("Failed to create provider", logger.String("name", name), logger.String("error", err.Error()))
-					continue
-				}
-				primaryProvider = provider
-				primaryProviderName = name
-				logger.Info("Created primary provider", logger.String("name", name), logger.String("model", cfg.Model))
-				break
-			}
-		}
+	configs := make([]FallbackConfig, 0, len(llmCfg.FallbackModels))
+	for _, fb := range llmCfg.FallbackModels {
+		configs = append(configs, FallbackConfig{
+			Model:            fb.Model,
+			Provider:         fb.Provider,
+			MaxTokens:        fb.MaxTokens,
+			Temperature:      fb.Temperature,
+			ReasoningEffort: fb.ReasoningEffort,
+		})
 	}
-
-	// 如果还没有找到，尝试找任何一个有 API Key 的
-	if primaryProvider == nil {
-		for name, cfg := range llmCfg.Providers {
-			if cfg.APIKey != "" {
-				provider, err := f.CreateProvider(name, &cfg)
-				if err == nil {
-					primaryProvider = provider
-					primaryProviderName = name
-					logger.Info("Created primary provider (fallback)", logger.String("name", name), logger.String("model", cfg.Model))
-					break
-				}
-			}
-		}
-	}
-
-	if primaryProvider == nil {
-		return nil, fmt.Errorf("no valid provider configuration found")
-	}
-
-	// 处理 fallback 配置
-	if len(llmCfg.FallbackModels) > 0 {
-		fallbackConfigs := make([]FallbackConfig, 0, len(llmCfg.FallbackModels))
-		for _, fb := range llmCfg.FallbackModels {
-			fallbackConfigs = append(fallbackConfigs, FallbackConfig{
-				Model:            fb.Model,
-				Provider:         fb.Provider,
-				MaxTokens:        fb.MaxTokens,
-				Temperature:      fb.Temperature,
-				ReasoningEffort: fb.ReasoningEffort,
-			})
-		}
-
-		if len(fallbackConfigs) > 0 {
-			logger.Info("Creating fallback provider", logger.Int("fallback_count", len(fallbackConfigs)))
-			return NewFallbackProvider(
-				primaryProviderName+"_with_fallback",
-				primaryProvider,
-				fallbackConfigs,
-				f.CreateFallbackProviderFromConfig,
-			), nil
-		}
-	}
-
-	return primaryProvider, nil
+	return configs
 }
 
 // CreateFallbackProvider 创建带 fallback 的 provider
@@ -153,16 +94,15 @@ func (f *DefaultProviderFactory) CreateFallbackProvider(
 	fallbackConfigs []FallbackConfig,
 ) Provider {
 	return NewFallbackProvider(
-		"fallback_wrapper",
+		primary.Name()+"_with_fallback",
 		primary,
 		fallbackConfigs,
-		f.CreateFallbackProviderFromConfig,
+		f.createFallbackProviderFromConfig,
 	)
 }
 
-// ProviderFactoryFunc 实现 - 从 FallbackConfig 创建 provider
-func (f *DefaultProviderFactory) CreateFallbackProviderFromConfig(fbConfig FallbackConfig) (Provider, error) {
-	// 查找或创建 provider 配置
+// createFallbackProviderFromConfig 从 FallbackConfig 创建 provider
+func (f *DefaultProviderFactory) createFallbackProviderFromConfig(fbConfig FallbackConfig) (Provider, error) {
 	var cfg *config.ProviderConfig
 
 	// 先从全局配置中查找
@@ -194,15 +134,15 @@ func (f *DefaultProviderFactory) CreateFallbackProviderFromConfig(fbConfig Fallb
 }
 
 // NewAnthropicProviderFromConfig 从配置创建 Anthropic provider
-func NewAnthropicProviderFromConfig(cfg *config.ProviderConfig) (Provider, error) {
-	provider := NewAnthropicProvider("anthropic", cfg)
-	return provider, nil
+func NewAnthropicProviderFromConfig(name string, cfg *config.ProviderConfig) (Provider, error) {
+	p := NewAnthropicProvider(name, cfg)
+	return p, nil
 }
 
 // NewOpenAICompatProviderFromConfig 从配置创建 OpenAI 兼容 provider
-func NewOpenAICompatProviderFromConfig(cfg *config.ProviderConfig) (Provider, error) {
-	provider := NewGenericProvider("openai_compat", cfg)
-	return provider, nil
+func NewOpenAICompatProviderFromConfig(name string, cfg *config.ProviderConfig) (Provider, error) {
+	p := NewGenericProvider(name, cfg)
+	return p, nil
 }
 
 // containsAny checks if s contains any of the substrings (case-insensitive).

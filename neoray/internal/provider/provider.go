@@ -149,15 +149,6 @@ type FallbackConfig struct {
 	ReasoningEffort string
 }
 
-// ProviderFactory 提供商工厂函数类型
-type ProviderFactory func(config FallbackConfig) (Provider, error)
-
-// FactoryProvider 提供商工厂
-type FactoryProvider interface {
-	CreateAnthropic() Provider
-	CreateOpenAI() Provider
-}
-
 // ProviderManager 提供商管理器
 type ProviderManager struct {
 	defaultProvider Provider
