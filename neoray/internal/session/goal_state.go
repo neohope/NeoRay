@@ -48,6 +48,11 @@ func (m *GoalManager) GetGoalState(session *Session) (*GoalState, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	return m.getGoalStateLocked(session)
+}
+
+// getGoalStateLocked 获取当前的 goal state（调用者必须持有 m.mu 读锁或写锁）
+func (m *GoalManager) getGoalStateLocked(session *Session) (*GoalState, error) {
 	if session == nil {
 		return nil, fmt.Errorf("session is nil")
 	}
@@ -96,6 +101,11 @@ func (m *GoalManager) SetGoalState(session *Session, state *GoalState) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	return m.setGoalStateLocked(session, state)
+}
+
+// setGoalStateLocked 设置 goal state（调用者必须持有 m.mu 写锁）
+func (m *GoalManager) setGoalStateLocked(session *Session, state *GoalState) error {
 	if session == nil {
 		return fmt.Errorf("session is nil")
 	}
@@ -128,7 +138,7 @@ func (m *GoalManager) StartGoal(session *Session, objective string, uiSummary st
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	existingState, _ := m.GetGoalState(session)
+	existingState, _ := m.getGoalStateLocked(session)
 	if existingState != nil && existingState.Status == GoalStatusActive {
 		return nil, fmt.Errorf("a goal is already active: %s", existingState.Objective)
 	}
@@ -141,7 +151,7 @@ func (m *GoalManager) StartGoal(session *Session, objective string, uiSummary st
 		StartedAt: now,
 	}
 
-	if err := m.SetGoalState(session, state); err != nil {
+	if err := m.setGoalStateLocked(session, state); err != nil {
 		return nil, err
 	}
 
@@ -153,7 +163,7 @@ func (m *GoalManager) CompleteGoal(session *Session, recap string) (*GoalState, 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	state, _ := m.GetGoalState(session)
+	state, _ := m.getGoalStateLocked(session)
 	if state == nil || state.Status != GoalStatusActive {
 		return nil, fmt.Errorf("no active goal to complete")
 	}
@@ -162,7 +172,7 @@ func (m *GoalManager) CompleteGoal(session *Session, recap string) (*GoalState, 
 	state.EndedAt = time.Now().UTC().Format(time.RFC3339)
 	state.Recap = recap
 
-	if err := m.SetGoalState(session, state); err != nil {
+	if err := m.setGoalStateLocked(session, state); err != nil {
 		return nil, err
 	}
 

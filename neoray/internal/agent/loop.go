@@ -176,6 +176,9 @@ type AgentLoop struct {
 	pendingQueues   map[string]chan *bus.InboundMessage
 	concurrencyGate chan struct{}
 
+	// 工具绑定锁 — 保护 wireToolsForSession + 工具执行的原子性
+	toolWireMu sync.Mutex
+
 	mu             sync.RWMutex
 	currentSession *session.Session
 }
@@ -742,8 +745,12 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 	return StateEventOK, nil
 }
 
-// wireToolsForSession 将 FileStateStore 和 ExecSessionManager 绑定到当前会话
+// wireToolsForSession 将 FileStateStore 和 ExecSessionManager 绑定到当前会话。
+// 使用 toolWireMu 保证绑定的原子性，防止不同 session 并发修改共享工具状态。
 func (al *AgentLoop) wireToolsForSession(sessionID string) {
+	al.toolWireMu.Lock()
+	defer al.toolWireMu.Unlock()
+
 	if al.fileStateStore != nil {
 		fileStates := al.fileStateStore.ForSession(sessionID)
 		if tool, ok := al.toolRegistry.Get("filesystem"); ok {
@@ -1201,6 +1208,11 @@ func (al *AgentLoop) finishChat(ctx context.Context, sess *session.Session, user
 func (al *AgentLoop) ChatStream(ctx context.Context, sess *session.Session, userInput string) (<-chan StreamChunk, error) {
 	resultChan := make(chan StreamChunk, defaultStreamChanSize)
 
+	// 获取 session 锁，保证整个流式处理期间 session 状态的一致性
+	sessionKey := sess.ID
+	lock := al.getSessionLock(sessionKey)
+	lock.mu.Lock()
+
 	// 设置当前会话
 	al.mu.Lock()
 	al.currentSession = sess
@@ -1213,6 +1225,8 @@ func (al *AgentLoop) ChatStream(ctx context.Context, sess *session.Session, user
 	if al.cmdManager != nil {
 		if resp, isCmd, err := al.cmdManager.Process(ctx, sess, userInput); isCmd {
 			go func() {
+				defer lock.mu.Unlock()
+				defer al.releaseSessionLock(sessionKey)
 				defer close(resultChan)
 				var assistantMsg session.Message
 				if err != nil {
@@ -1249,6 +1263,8 @@ func (al *AgentLoop) ChatStream(ctx context.Context, sess *session.Session, user
 
 	go func() {
 		defer close(resultChan)
+		defer lock.mu.Unlock()
+		defer al.releaseSessionLock(sessionKey)
 		// 清理活跃会话跟踪，防止内存泄漏
 		if al.memoryManager != nil {
 			defer al.memoryManager.UntrackSession(sess.ID)

@@ -291,9 +291,13 @@ func (cs *CronScheduler) executeJob(job *CronJob) {
 	startMS := nowMS()
 	logger.Info("Executing cron job", logger.String("name", job.Name), logger.String("id", job.ID))
 
+	cs.mu.RLock()
+	onJob := cs.onJob
+	cs.mu.RUnlock()
+
 	var err error
-	if cs.onJob != nil {
-		err = cs.onJob(cs.ctx, job)
+	if onJob != nil {
+		err = onJob(cs.ctx, job)
 	}
 
 	endMS := nowMS()

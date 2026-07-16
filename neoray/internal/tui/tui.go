@@ -139,6 +139,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if err != nil {
 						return errMsg(err)
 					}
+					if result.Message == nil {
+						return responseMsg("(no response)")
+					}
 					return responseMsg(result.Message.Content)
 				}
 			}

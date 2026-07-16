@@ -588,7 +588,10 @@ func (m *Manager) announceError(
 	errMsg string,
 	origin *SubagentOrigin,
 ) {
-	if status, ok := m.taskStatuses[taskID]; ok {
+	m.mu.RLock()
+	status, ok := m.taskStatuses[taskID]
+	m.mu.RUnlock()
+	if ok {
 		status.SetError(errMsg)
 	}
 	m.announceResult(taskID, label, task, errMsg, origin, "error")

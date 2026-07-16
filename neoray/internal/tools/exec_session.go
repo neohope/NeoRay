@@ -554,15 +554,11 @@ func spawnCommand(ctx context.Context, command string, cwd string, cfg *config.C
 
 	switch runtime.GOOS {
 	case "windows":
-		if bytes.Contains([]byte(command), []byte("\n")) {
-			shellCmd = "powershell"
-			// 使用 EncodedCommand 避免命令注入（复用 shell.go 的 encodePowerShellCommand）
-			encodedCmd := encodePowerShellCommand(command)
-			shellArgs = []string{"-NoProfile", "-EncodedCommand", encodedCmd}
-		} else {
-			shellCmd = "cmd.exe"
-			shellArgs = []string{"/c", command}
-		}
+		// 统一使用 PowerShell -EncodedCommand 避免命令注入：
+		// cmd.exe /c 会解释 shell 元字符（|, &, >, ^, % 等），存在注入风险
+		shellCmd = "powershell"
+		encodedCmd := encodePowerShellCommand(command)
+		shellArgs = []string{"-NoProfile", "-EncodedCommand", encodedCmd}
 	default:
 		shellCmd = "bash"
 		shellArgs = []string{"-c", command}

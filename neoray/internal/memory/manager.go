@@ -541,5 +541,48 @@ func mapToSession(data interface{}) (*session.Session, error) {
 		sess.UpdatedAt = updatedAt
 	}
 
+	// 恢复消息列表
+	if rawMessages, ok := m["messages"].([]interface{}); ok {
+		messages := make([]session.Message, 0, len(rawMessages))
+		for _, rawMsg := range rawMessages {
+			msgMap, ok := rawMsg.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			msg := session.Message{
+				Role:    getString(msgMap, "role"),
+				Content: getString(msgMap, "content"),
+			}
+			if ts, ok := msgMap["created_at"].(time.Time); ok {
+				msg.Timestamp = ts
+			}
+			if rawToolCalls, ok := msgMap["tool_calls"].([]interface{}); ok {
+				toolCalls := make([]session.ToolCall, 0, len(rawToolCalls))
+				for _, rawTC := range rawToolCalls {
+					tcMap, ok := rawTC.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					toolCalls = append(toolCalls, session.ToolCall{
+						ID:        getString(tcMap, "id"),
+						Name:      getString(tcMap, "name"),
+						Arguments: getString(tcMap, "arguments"),
+					})
+				}
+				msg.ToolCalls = toolCalls
+			}
+			messages = append(messages, msg)
+		}
+		sess.Messages = messages
+	}
+
 	return sess, nil
+}
+
+// getString safely extracts a string value from a map.
+func getString(m map[string]interface{}, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
 }

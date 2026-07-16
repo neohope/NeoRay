@@ -132,8 +132,11 @@ func NewToolMessage(channelID, userID, sessionID, content string) Message {
 	}
 }
 
-// AddMessage 添加消息
+// AddMessage 添加消息（线程安全）
 func (s *Session) AddMessage(msg Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	// 确保消息的频道和用户与会话一致
 	msg.ChannelID = s.ChannelID
 	msg.UserID = s.UserID
@@ -148,16 +151,24 @@ func (s *Session) AddMessage(msg Message) {
 	}
 }
 
-// LastMessage 获取最后一条消息
+// LastMessage 获取最后一条消息（线程安全）
 func (s *Session) LastMessage() *Message {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if len(s.Messages) == 0 {
 		return nil
 	}
-	return &s.Messages[len(s.Messages)-1]
+	// 返回副本而非指针，避免外部修改内部数据
+	last := s.Messages[len(s.Messages)-1]
+	return &last
 }
 
-// Clear 清空会话消息
+// Clear 清空会话消息（线程安全）
 func (s *Session) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.Messages = make([]Message, 0)
 	s.Title = "New Session"
 	s.UpdatedAt = time.Now()

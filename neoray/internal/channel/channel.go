@@ -59,8 +59,8 @@ func (m *Manager) RegisterChannel(ch Channel) {
 
 // StartAll 启动所有频道并订阅消息总线
 func (m *Manager) StartAll() error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	for name, ch := range m.channels {
 		logger.Info("Starting channel", logger.String("name", name))

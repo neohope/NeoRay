@@ -1120,8 +1120,13 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 		"root_id":    msgEvent.Event.Message.RootID,
 	}
 
+	replyContent := ""
+	if result.Message != nil {
+		replyContent = result.Message.Content
+	}
+
 	if f.cfg.Streaming {
-		if err := f.SendDelta(ctx, replyChatID, result.Message.Content, map[string]interface{}{
+		if err := f.SendDelta(ctx, replyChatID, replyContent, map[string]interface{}{
 			"_stream_end": true,
 			"message_id":  messageID,
 			"chat_type":   chatType,
@@ -1130,7 +1135,7 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 			logger.Error("Failed to send Feishu streaming reply, falling back to regular reply", logger.String("message_id", messageID), logger.String("chat_id", replyChatID), logger.ErrorField(err))
 			outMsg := bus.OutboundMessage{
 				ChatID:   replyChatID,
-				Content:  result.Message.Content,
+				Content:  replyContent,
 				Media:    []string{},
 				Metadata: metadata,
 			}
@@ -1141,7 +1146,7 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 	} else {
 		outMsg := bus.OutboundMessage{
 			ChatID:   replyChatID,
-			Content:  result.Message.Content,
+			Content:  replyContent,
 			Media:    []string{},
 			Metadata: metadata,
 		}
@@ -2251,16 +2256,21 @@ func (f *FeishuChannel) streamBufCleanupLoop() {
 	ticker := time.NewTicker(cleanupInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		f.mu.Lock()
-		now := time.Now()
-		for key, buf := range f.streamBufs {
-			if !buf.createdAt.IsZero() && now.Sub(buf.createdAt) > maxBufAge {
-				delete(f.streamBufs, key)
-				logger.Debug("Cleaned up stale streamBuf", logger.String("key", key))
+	for {
+		select {
+		case <-ticker.C:
+			f.mu.Lock()
+			now := time.Now()
+			for key, buf := range f.streamBufs {
+				if !buf.createdAt.IsZero() && now.Sub(buf.createdAt) > maxBufAge {
+					delete(f.streamBufs, key)
+					logger.Debug("Cleaned up stale streamBuf", logger.String("key", key))
+				}
 			}
+			f.mu.Unlock()
+		case <-f.stopChan:
+			return
 		}
-		f.mu.Unlock()
 	}
 }
 

@@ -119,10 +119,8 @@ func (b *MessageBus) Stop() error {
 	// 等待所有协程退出
 	b.wg.Wait()
 
-	// 关闭队列
-	close(b.inboundQueue)
-	close(b.outboundQueue)
-
+	// NOTE: 不关闭 inboundQueue/outboundQueue，避免 publish 协程在 select 中
+	// 向已关闭的 channel 发送导致 panic。队列会被 GC 自动回收。
 	return nil
 }
 

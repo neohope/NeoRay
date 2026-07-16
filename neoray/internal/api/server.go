@@ -225,10 +225,12 @@ func (s *Server) Start() error {
 
 	addr := fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.Port)
 	s.httpServer = &http.Server{
-		Addr:         addr,
-		Handler:      mux,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		Addr:        addr,
+		Handler:     mux,
+		ReadTimeout: 15 * time.Second,
+		// WriteTimeout 设置为 0，由各 handler 的 context 超时控制（SSE 流式最长 5 分钟）。
+		// 原来的 15s 会截断所有 SSE 流。
+		WriteTimeout: 0,
 		IdleTimeout:  60 * time.Second,
 	}
 

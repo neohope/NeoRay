@@ -108,7 +108,9 @@ func (c *Client) handleChat(payload interface{}) {
 	// 发送最终响应
 	response := map[string]interface{}{
 		"session_id": sess.ID,
-		"content":    result.Message.Content,
+	}
+	if result.Message != nil {
+		response["content"] = result.Message.Content
 	}
 	if result.TokenUsage != nil {
 		response["token_usage"] = result.TokenUsage
@@ -579,8 +581,9 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			response := map[string]interface{}{
-				"content": result.Message.Content,
+			response := map[string]interface{}{}
+			if result.Message != nil {
+				response["content"] = result.Message.Content
 			}
 			if result.TokenUsage != nil {
 				response["token_usage"] = result.TokenUsage

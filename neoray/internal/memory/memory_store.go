@@ -370,10 +370,8 @@ func (ms *MemoryStore) nextCursor() int {
 
 // nextCursorFromTail reads only the last portion of the history file
 // to find the max cursor, avoiding loading the entire file into memory.
+// NOTE: Caller must hold ms.mu (read or write lock).
 func (ms *MemoryStore) nextCursorFromTail() int {
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-
 	// 先尝试读取缓存的 cursor
 	if data, err := os.ReadFile(ms.cursorFile); err == nil {
 		var cursor int

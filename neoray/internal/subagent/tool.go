@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"neoray/internal/config"
 	"neoray/internal/logger"
@@ -21,6 +22,8 @@ type SpawnTool struct {
 	name         string
 	description  string
 	manager      *Manager
+
+	mu           sync.RWMutex
 	originChanID string
 	originChatID string
 	sessionKey   string
@@ -36,8 +39,10 @@ func NewSpawnTool(manager *Manager) *SpawnTool {
 	}
 }
 
-// SetOriginContext 设置来源上下文
+// SetOriginContext 设置来源上下文（线程安全）
 func (t *SpawnTool) SetOriginContext(channelID, chatID, sessionKey, messageID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.originChanID = channelID
 	t.originChatID = chatID
 	t.sessionKey = sessionKey
@@ -93,12 +98,14 @@ func (t *SpawnTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 	}
 
 	// 构建来源信息
+	t.mu.RLock()
 	origin := &SubagentOrigin{
 		ChannelID:  t.originChanID,
 		ChatID:     t.originChatID,
 		SessionKey: t.sessionKey,
 		MessageID:  t.messageID,
 	}
+	t.mu.RUnlock()
 
 	// 设置默认工作区
 	origin.WorkspacePath = config.GetWorkspace()
