@@ -28,6 +28,13 @@ func writeJSONError(w http.ResponseWriter, statusCode int, errMsg string) {
 	_, _ = w.Write(resp)
 }
 
+// writeJSON encodes v as JSON into the response writer. Logs errors instead of silently ignoring them.
+func writeJSON(w http.ResponseWriter, v interface{}) {
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		logger.Warn("Failed to encode JSON response", logger.ErrorField(err))
+	}
+}
+
 // parseAndPrepareChat 解析聊天 payload，设置客户端身份，获取或创建会话
 func (c *Client) parseAndPrepareChat(payload interface{}) (*ChatPayload, *session.Session, bool) {
 	var chatPayload ChatPayload
@@ -227,7 +234,9 @@ func (c *Client) handleCreateSession(payload interface{}) {
 	}
 	if title != "New Session" {
 		sess.Title = title
-		_ = c.Server.sessionMgr.SaveSession(sess)
+		if err := c.Server.sessionMgr.SaveSession(sess); err != nil {
+			logger.Warn("Failed to save session title", logger.ErrorField(err))
+		}
 	}
 	c.SetSessionID(sess.ID)
 
@@ -377,7 +386,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		writeJSON(w,map[string]interface{}{
 			"sessions": sessionList,
 		})
 
@@ -420,7 +429,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		writeJSON(w,map[string]interface{}{
 			"id":         sess.ID,
 			"channel_id": sess.ChannelID,
 			"user_id":    sess.UserID,
@@ -476,7 +485,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		json.NewEncoder(w).Encode(sess)
+		writeJSON(w,sess)
 
 	case http.MethodPost:
 		// 发送聊天消息 — 限制请求体大小防止 DoS
@@ -592,7 +601,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 				response["tool_calls"] = result.ToolCalls
 			}
 
-			json.NewEncoder(w).Encode(response)
+			writeJSON(w,response)
 		}
 
 	case http.MethodDelete:
@@ -616,7 +625,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 // handleHealth 健康检查
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w,map[string]interface{}{
 		"status": "ok",
 		"time":   time.Now().UTC(),
 	})
@@ -722,7 +731,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		// 返回当前配置（敏感字段已掩码）
-		json.NewEncoder(w).Encode(s.buildConfigResponse())
+		writeJSON(w,s.buildConfigResponse())
 
 	case http.MethodPut:
 		// 更新配置需要管理员权限 — 防止普通 API Key 修改 LLM provider 指向恶意服务器
@@ -822,11 +831,8 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// 审计日志：记录配置变更详情
+		// 审计日志：使用 RemoteAddr 防止 X-Forwarded-For 伪造
 		clientIP := r.RemoteAddr
-		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-			clientIP = fwd
-		}
 		if len(changedFields) > 0 {
 			logger.Info("Config updated via API",
 				logger.String("client_ip", clientIP),
@@ -840,7 +846,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// 返回更新后的配置
-		json.NewEncoder(w).Encode(s.buildConfigResponse())
+		writeJSON(w,s.buildConfigResponse())
 
 	default:
 		writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")

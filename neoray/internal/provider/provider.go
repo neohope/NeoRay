@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"time"
 )
 
@@ -340,5 +341,5 @@ func ShouldFallbackError(resp *ChatResponse) bool {
 }
 
 func containsToken(s, token string) bool {
-	return len(s) >= len(token) && (s == token || len(s) > len(token) && (s[:len(token)] == token || s[len(s)-len(token):] == token))
+	return len(s) >= len(token) && strings.Contains(s, token)
 }

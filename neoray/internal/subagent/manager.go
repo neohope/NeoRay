@@ -2,6 +2,8 @@ package subagent
 
 import (
 	"context"
+	crypto_rand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -118,7 +120,9 @@ func (m *Manager) WithMaxToolResultChars(n int) *Manager {
 
 // GenerateTaskID 生成任务ID
 func (m *Manager) GenerateTaskID() string {
-	return fmt.Sprintf("sub_%d", time.Now().UnixNano())
+	b := make([]byte, 8)
+	_, _ = crypto_rand.Read(b)
+	return "sub_" + hex.EncodeToString(b)
 }
 
 // Spawn 启动一个子代理

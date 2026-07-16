@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 
 	"neoray/internal/config"
 	"neoray/internal/logger"
@@ -17,6 +18,9 @@ type GenericProvider struct {
 	name      string
 	cfg       *config.ProviderConfig
 	client    *http.Client
+	streamClient *http.Client // 无超时，用于 SSE 流式请求
+
+	mu         sync.RWMutex
 	generation GenerationSettings
 }
 
@@ -28,9 +32,13 @@ func NewGenericProvider(name string, cfg *config.ProviderConfig) *GenericProvide
 		client: &http.Client{
 			Timeout: cfg.Timeout,
 		},
+		// 流式客户端无超时，依赖 context 取消控制生命周期
+		streamClient: &http.Client{
+			Timeout: 0,
+		},
 		generation: GenerationSettings{
-			Temperature:      cfg.Temperature,
-			MaxTokens:        cfg.MaxTokens,
+			Temperature:     cfg.Temperature,
+			MaxTokens:       cfg.MaxTokens,
 			ReasoningEffort: cfg.ReasoningEffort,
 		},
 	}
@@ -43,12 +51,23 @@ func (p *GenericProvider) Name() string {
 
 // GetGenerationSettings 获取生成设置
 func (p *GenericProvider) GetGenerationSettings() GenerationSettings {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return p.generation
 }
 
 // SetGenerationSettings 设置生成设置
 func (p *GenericProvider) SetGenerationSettings(settings GenerationSettings) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.generation = settings
+}
+
+// getGenerationCopy 返回 generation 的副本
+func (p *GenericProvider) getGenerationCopy() GenerationSettings {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.generation
 }
 
 // GetDefaultModel 获取默认模型
@@ -221,20 +240,21 @@ func (p *GenericProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 		ReasoningEffort: req.ReasoningEffort,
 	}
 
+	gen := p.getGenerationCopy()
 	if apiReq.MaxTokens == 0 {
-		apiReq.MaxTokens = p.generation.MaxTokens
+		apiReq.MaxTokens = gen.MaxTokens
 		if apiReq.MaxTokens == 0 {
 			apiReq.MaxTokens = p.cfg.MaxTokens
 		}
 	}
 	if apiReq.Temperature == 0 {
-		apiReq.Temperature = p.generation.Temperature
+		apiReq.Temperature = gen.Temperature
 		if apiReq.Temperature == 0 {
 			apiReq.Temperature = p.cfg.Temperature
 		}
 	}
 	if apiReq.ReasoningEffort == "" {
-		apiReq.ReasoningEffort = p.generation.ReasoningEffort
+		apiReq.ReasoningEffort = gen.ReasoningEffort
 	}
 
 	body, err := json.Marshal(apiReq)
@@ -397,14 +417,15 @@ func (p *GenericProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 		Stream:      true,
 	}
 
+	gen := p.getGenerationCopy()
 	if apiReq.MaxTokens == 0 {
-		apiReq.MaxTokens = p.generation.MaxTokens
+		apiReq.MaxTokens = gen.MaxTokens
 		if apiReq.MaxTokens == 0 {
 			apiReq.MaxTokens = p.cfg.MaxTokens
 		}
 	}
 	if apiReq.Temperature == 0 {
-		apiReq.Temperature = p.generation.Temperature
+		apiReq.Temperature = gen.Temperature
 		if apiReq.Temperature == 0 {
 			apiReq.Temperature = p.cfg.Temperature
 		}
@@ -422,7 +443,7 @@ func (p *GenericProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
 
-	resp, err := p.client.Do(httpReq)
+	resp, err := p.streamClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("do request: %w", err)
 	}

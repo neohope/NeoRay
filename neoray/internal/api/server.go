@@ -302,7 +302,7 @@ func (s *Server) subscribeToBus() {
 				s.clientsMu.RLock()
 				var targetClients []*Client
 				for _, client := range s.clients {
-					if msg.SessionID == "" || msg.SessionID == client.SessionID {
+					if msg.SessionID == "" || msg.SessionID == client.GetSessionID() {
 						targetClients = append(targetClients, client)
 					}
 				}
@@ -334,6 +334,11 @@ func (s *Server) Stop(ctx context.Context) error {
 	// Stop rate limiter cleanup goroutine
 	if s.rateLimiter != nil {
 		s.rateLimiter.stop()
+	}
+
+	// 取消消息总线订阅（关闭 outChan 让 subscribeToBus goroutine 退出）
+	if s.msgBus != nil {
+		s.msgBus.UnsubscribeOutbound("api_server")
 	}
 
 	// 关闭所有客户端连接
@@ -512,6 +517,10 @@ func (c *Client) readPump() {
 		return nil
 	})
 
+	// Per-connection rate limiter: max 30 messages per minute
+	msgTokens := 30
+	lastRefill := time.Now()
+
 	for {
 		_, message, err := c.Conn.ReadMessage()
 		if err != nil {
@@ -520,6 +529,20 @@ func (c *Client) readPump() {
 			}
 			break
 		}
+
+		// Refill tokens
+		now := time.Now()
+		elapsed := now.Sub(lastRefill)
+		lastRefill = now
+		msgTokens += int(elapsed.Seconds() * 30 / 60) // 30 per minute
+		if msgTokens > 30 {
+			msgTokens = 30
+		}
+		if msgTokens <= 0 {
+			c.sendError("rate_limit", "Too many messages. Please slow down.")
+			continue
+		}
+		msgTokens--
 
 		logger.Debug("Received WebSocket message",
 			logger.String("client_id", c.ID),

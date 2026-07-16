@@ -57,7 +57,9 @@ func (m *GoalManager) getGoalStateLocked(session *Session) (*GoalState, error) {
 		return nil, fmt.Errorf("session is nil")
 	}
 
+	session.RLock()
 	meta := session.Metadata
+	session.RUnlock()
 	if meta == nil {
 		return nil, nil
 	}

@@ -2,6 +2,8 @@ package cron
 
 import (
 	"context"
+	crypto_rand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -516,23 +518,30 @@ func (cs *CronScheduler) RegisterSystemJob(job CronJob) *CronJob {
 
 // appendAction 追加操作日志
 func (cs *CronScheduler) appendAction(action string, params any) {
-	_ = os.MkdirAll(filepath.Dir(cs.actionPath), 0755)
+	if err := os.MkdirAll(filepath.Dir(cs.actionPath), 0755); err != nil {
+		logger.Warn("Failed to create action log directory", logger.ErrorField(err))
+		return
+	}
 
 	data, err := json.Marshal(map[string]any{
 		"action": action,
 		"params": params,
 	})
 	if err != nil {
+		logger.Warn("Failed to marshal action log", logger.ErrorField(err))
 		return
 	}
 	data = append(data, '\n')
 
 	f, err := os.OpenFile(cs.actionPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
+		logger.Warn("Failed to open action log file", logger.ErrorField(err))
 		return
 	}
 	defer f.Close()
-	_, _ = f.Write(data)
+	if _, err := f.Write(data); err != nil {
+		logger.Warn("Failed to write action log", logger.ErrorField(err))
+	}
 }
 
 // RemoveJob 删除任务
@@ -731,9 +740,14 @@ func (cs *CronScheduler) RunJob(jobID string, force bool) bool {
 	// 执行
 	cs.executeJob(job)
 
-	// 恢复状态
+	// 恢复状态 — 重新查找 job，因为 executeJob 可能替换了 slice（一次性任务）
 	cs.mu.Lock()
-	job.Enabled = oldEnabled
+	for i := range cs.store.Jobs {
+		if cs.store.Jobs[i].ID == jobID {
+			cs.store.Jobs[i].Enabled = oldEnabled
+			break
+		}
+	}
 	if err := cs.saveStore(); err != nil {
 		logger.Warn("Failed to save cron store", logger.ErrorField(err))
 	}
@@ -811,11 +825,13 @@ func (cs *CronScheduler) loadStore() error {
 	}
 
 	var store CronStore
-	if err := json.Unmarshal(data, &store); err != nil {
+	if unmarshalErr := json.Unmarshal(data, &store); unmarshalErr != nil {
 		// 解析失败，备份损坏文件
 		backupPath := fmt.Sprintf("%s.corrupt-%d", cs.storePath, nowMS())
-		if err := os.Rename(cs.storePath, backupPath); err == nil {
-			logger.Error("Cron store corrupt, backed up", logger.String("path", backupPath), logger.ErrorField(err))
+		if renameErr := os.Rename(cs.storePath, backupPath); renameErr == nil {
+			logger.Error("Cron store corrupt, backed up",
+				logger.String("path", backupPath),
+				logger.ErrorField(unmarshalErr))
 		}
 		// 如果已有内存中的store，继续使用
 		if cs.store != nil {
@@ -934,7 +950,9 @@ func (cs *CronScheduler) mergeAction() error {
 		// 如果正在运行，清空操作日志并保存
 		if cs.running {
 			os.WriteFile(cs.actionPath, []byte{}, 0644)
-			cs.saveStore()
+			if err := cs.saveStore(); err != nil {
+				logger.Warn("Failed to save cron store after merging actions", logger.ErrorField(err))
+			}
 		}
 	}
 
@@ -961,10 +979,11 @@ func (cs *CronScheduler) recomputeNextRuns() {
 
 // ========== 工具函数 ==========
 
-// generateShortID 生成短ID
+// generateShortID 生成短ID（8 字节随机 hex，16 字符）
 func generateShortID() string {
-	// 使用时间戳 + 随机数
-	return fmt.Sprintf("%x", nowMS()%0xFFFFFF)
+	b := make([]byte, 8)
+	_, _ = crypto_rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // splitLines 分割行

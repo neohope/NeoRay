@@ -363,7 +363,6 @@ If nothing noteworthy happened, output: (nothing)`
 	}
 
 	messages := []interface{}{
-		map[string]string{"role": "system", "content": systemPrompt},
 		map[string]string{"role": "user", "content": text},
 	}
 
@@ -380,11 +379,14 @@ func (c *Consolidator) formatMessages(messages []interface{}) string {
 			if ts == "" {
 				ts = time.Now().Format("2006-01-02 15:04")
 			}
+			if len(ts) > 16 {
+				ts = ts[:16]
+			}
 
 			if sb.Len() > 0 {
 				sb.WriteString("\n")
 			}
-			sb.WriteString(fmt.Sprintf("[%s] %s: %s", ts[:16], strings.ToUpper(role), content))
+			sb.WriteString(fmt.Sprintf("[%s] %s: %s", ts, strings.ToUpper(role), content))
 		}
 	}
 	return sb.String()

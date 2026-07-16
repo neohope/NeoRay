@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,7 +43,8 @@ func (w *DailyWriter) Write(p []byte) (n int, err error) {
 	if w.file != nil {
 		return w.file.Write(p)
 	}
-	return 0, nil
+	// 返回错误而非静默丢弃，让调用者知道日志写入失败
+	return 0, fmt.Errorf("daily writer: log file is nil (rotation may have failed)")
 }
 
 // Sync 刷新

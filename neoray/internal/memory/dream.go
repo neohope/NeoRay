@@ -253,9 +253,10 @@ func (d *Dream) phase2Edit(ctx context.Context, prompt string) (bool, error) {
 	}
 
 	// 简单检测是否有变更
-	hasChanges := len(response) > 0 && strings.Contains(strings.ToLower(response), "update") ||
-		strings.Contains(strings.ToLower(response), "write") ||
-		strings.Contains(strings.ToLower(response), "edit")
+	lowerResp := strings.ToLower(response)
+	hasChanges := len(response) > 0 && (strings.Contains(lowerResp, "update") ||
+		strings.Contains(lowerResp, "write") ||
+		strings.Contains(lowerResp, "edit"))
 
 	return hasChanges, nil
 }

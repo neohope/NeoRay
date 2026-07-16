@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -461,7 +462,11 @@ func (al *AgentLoop) handleInboundMessage(ctx context.Context, msg *bus.InboundM
 	if hasPending && al.cmdManager != nil {
 		raw := msg.Content
 		if al.cmdManager.IsDispatchableCommand(raw) {
-			return al.dispatchCommandInline(ctx, msg, sessionKey, raw)
+			lock.mu.Lock()
+			err := al.dispatchCommandInline(ctx, msg, sessionKey, raw)
+			lock.mu.Unlock()
+			al.releaseSessionLock(sessionKey)
+			return err
 		}
 	}
 
@@ -651,6 +656,9 @@ func (al *AgentLoop) stateCompact(ctx context.Context, turnCtx *TurnContext) (St
 	// 如果消息数量超过阈值，触发后台压缩
 	if al.memoryManager != nil && al.memoryManager.Store() != nil && len(turnCtx.Session.Messages) > compactThresholdMessages {
 		go func() {
+			compactCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			_ = compactCtx // CompactHistory uses its own internal context; this goroutine is bounded by the operation
 			if err := al.memoryManager.Store().CompactHistory(); err != nil {
 				logger.Warn("Background compaction failed", logger.ErrorField(err))
 			}
@@ -954,7 +962,11 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 		// 有工具调用，继续执行
 		totalToolCalls += len(resp.ToolCalls)
 		toolResponses := al.executeToolCalls(ctx, resp.ToolCalls, trace)
-		toolRespJSON, _ := json.Marshal(toolResponses)
+		toolRespJSON, err := json.Marshal(toolResponses)
+		if err != nil {
+			logger.Warn("Failed to marshal tool responses", logger.ErrorField(err))
+			toolRespJSON = []byte("{}")
+		}
 		toolMsg := session.NewToolMessage("", "", "", string(toolRespJSON))
 		turnCtx.Session.AddMessage(toolMsg)
 	}
@@ -1037,7 +1049,7 @@ func (al *AgentLoop) stateRespond(ctx context.Context, turnCtx *TurnContext) (St
 	return StateEventOK, nil
 }
 
-// dispatchCommandInline 内联分发命令
+// dispatchCommandInline 内联分发命令（调用者必须已持有 sessionLock）
 func (al *AgentLoop) dispatchCommandInline(
 	ctx context.Context,
 	msg *bus.InboundMessage,
@@ -1381,7 +1393,7 @@ func (al *AgentLoop) handleNativeStreamTool(
 		return false, err
 	}
 
-	var fullContent string
+	var fullContent strings.Builder
 	var currentToolCalls []provider.ToolCall
 	var toolCallInProgress bool
 	var finishReason string
@@ -1398,7 +1410,7 @@ func (al *AgentLoop) handleNativeStreamTool(
 		}
 
 		if chunk.Content != "" {
-			fullContent += chunk.Content
+			fullContent.WriteString(chunk.Content)
 			if !sendChunk(ctx, resultChan, StreamChunk{Type: "text", Content: chunk.Content}) {
 				return true, ctx.Err()
 			}
@@ -1422,7 +1434,7 @@ func (al *AgentLoop) handleNativeStreamTool(
 	}
 
 	if len(currentToolCalls) > 0 {
-		assistantMsg := session.NewAssistantMessage("", "", "", fullContent)
+		assistantMsg := session.NewAssistantMessage("", "", "", fullContent.String())
 		assistantMsg.ToolCalls = make([]session.ToolCall, 0, len(currentToolCalls))
 		for _, tc := range currentToolCalls {
 			assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, session.ToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments})
@@ -1434,19 +1446,25 @@ func (al *AgentLoop) handleNativeStreamTool(
 			return true, ctx.Err()
 		}
 
-		toolRespJSON, _ := json.Marshal(toolResponses)
+		toolRespJSON, marshalErr := json.Marshal(toolResponses)
+		if marshalErr != nil {
+			logger.Warn("Failed to marshal tool responses", logger.ErrorField(marshalErr))
+			toolRespJSON = []byte("{}")
+		}
 		toolMsg := session.NewToolMessage("", "", "", string(toolRespJSON))
 		sess.AddMessage(toolMsg)
 		return false, nil
 	}
 
-	if fullContent != "" {
-		assistantMsg := session.NewAssistantMessage("", "", "", fullContent)
+	if fullContent.Len() > 0 {
+		assistantMsg := session.NewAssistantMessage("", "", "", fullContent.String())
 		sess.AddMessage(assistantMsg)
 
 		if al.continuationMgr.IsTruncated(finishReason) {
 			al.streamContinuation(ctx, p, sess, providerTools, resultChan)
-			assistantMsg = sess.Messages[len(sess.Messages)-1]
+			if len(sess.Messages) > 0 {
+				assistantMsg = sess.Messages[len(sess.Messages)-1]
+			}
 		}
 
 		if err := al.sessionMgr.SaveSession(sess); err != nil {
@@ -1512,7 +1530,11 @@ func (al *AgentLoop) handleFallbackStream(
 			return true, ctx.Err()
 		}
 
-		toolRespJSON, _ := json.Marshal(toolResponses)
+		toolRespJSON, marshalErr := json.Marshal(toolResponses)
+		if marshalErr != nil {
+			logger.Warn("Failed to marshal tool responses", logger.ErrorField(marshalErr))
+			toolRespJSON = []byte("{}")
+		}
 		toolMsg := session.NewToolMessage("", "", "", string(toolRespJSON))
 		sess.AddMessage(toolMsg)
 		return false, nil

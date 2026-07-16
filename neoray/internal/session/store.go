@@ -117,10 +117,12 @@ func (s *MemoryStore) Save(sess *Session) error {
 		s.evictOldestLocked()
 	}
 
-	// 限制消息数量
+	// 限制消息数量 — 创建新切片避免修改调用者持有的原始 slice
 	if s.maxMessagesPerSession > 0 && len(sess.Messages) > s.maxMessagesPerSession {
 		excess := len(sess.Messages) - s.maxMessagesPerSession
-		sess.Messages = sess.Messages[excess:]
+		truncated := make([]Message, s.maxMessagesPerSession)
+		copy(truncated, sess.Messages[excess:])
+		sess.Messages = truncated
 	}
 
 	s.sessions[sess.ID] = sess

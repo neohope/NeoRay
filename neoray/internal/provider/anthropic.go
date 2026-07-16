@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"neoray/internal/config"
@@ -23,6 +24,8 @@ type AnthropicProvider struct {
 	cfg          *config.ProviderConfig
 	client       *http.Client       // 带超时，用于非流式请求
 	streamClient *http.Client       // 无超时，用于 SSE 流式请求（依赖 context 取消）
+
+	mu           sync.RWMutex
 	generation   GenerationSettings
 	extraHeaders map[string]string
 }
@@ -55,11 +58,15 @@ func (p *AnthropicProvider) Name() string {
 
 // GetGenerationSettings 获取生成设置
 func (p *AnthropicProvider) GetGenerationSettings() GenerationSettings {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return p.generation
 }
 
 // SetGenerationSettings 设置生成设置
 func (p *AnthropicProvider) SetGenerationSettings(settings GenerationSettings) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.generation = settings
 }
 
@@ -70,7 +77,27 @@ func (p *AnthropicProvider) GetDefaultModel() string {
 
 // SetExtraHeader 设置额外的请求头
 func (p *AnthropicProvider) SetExtraHeader(key, value string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.extraHeaders[key] = value
+}
+
+// getExtraHeadersCopy 返回 extraHeaders 的副本（调用者不持锁）
+func (p *AnthropicProvider) getExtraHeadersCopy() map[string]string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	cp := make(map[string]string, len(p.extraHeaders))
+	for k, v := range p.extraHeaders {
+		cp[k] = v
+	}
+	return cp
+}
+
+// getGenerationCopy 返回 generation 的副本（调用者不持锁）
+func (p *AnthropicProvider) getGenerationCopy() GenerationSettings {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.generation
 }
 
 // anthropicRequest Anthropic API 请求
@@ -241,7 +268,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatRe
 		httpReq.Header.Set("anthropic-beta", strings.Join(betaFeatures, ","))
 	}
 	// 添加额外的请求头
-	for k, v := range p.extraHeaders {
+	for k, v := range p.getExtraHeadersCopy() {
 		httpReq.Header.Set(k, v)
 	}
 
@@ -332,7 +359,7 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req *ChatRequest) (<
 		httpReq.Header.Set("anthropic-beta", strings.Join(betaFeatures, ","))
 	}
 	// 添加额外的请求头
-	for k, v := range p.extraHeaders {
+	for k, v := range p.getExtraHeadersCopy() {
 		httpReq.Header.Set(k, v)
 	}
 
@@ -491,9 +518,11 @@ func (p *AnthropicProvider) buildRequest(req *ChatRequest) (*anthropicRequest, e
 	}
 
 	// 构建请求
+	gen := p.getGenerationCopy()
+
 	maxTokens := req.MaxTokens
 	if maxTokens == 0 {
-		maxTokens = p.generation.MaxTokens
+		maxTokens = gen.MaxTokens
 		if maxTokens == 0 {
 			maxTokens = p.cfg.MaxTokens
 		}
@@ -501,7 +530,7 @@ func (p *AnthropicProvider) buildRequest(req *ChatRequest) (*anthropicRequest, e
 
 	temperature := req.Temperature
 	if temperature == 0 {
-		temperature = p.generation.Temperature
+		temperature = gen.Temperature
 		if temperature == 0 {
 			temperature = p.cfg.Temperature
 		}
@@ -509,7 +538,7 @@ func (p *AnthropicProvider) buildRequest(req *ChatRequest) (*anthropicRequest, e
 
 	reasoningEffort := req.ReasoningEffort
 	if reasoningEffort == "" {
-		reasoningEffort = p.generation.ReasoningEffort
+		reasoningEffort = gen.ReasoningEffort
 	}
 
 	apiReq := &anthropicRequest{

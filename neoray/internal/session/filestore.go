@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -139,11 +140,13 @@ func (s *FileStore) loadAll() error {
 		filePath := filepath.Join(s.baseDir, entry.Name())
 		data, err := os.ReadFile(filePath)
 		if err != nil {
+			log.Printf("[WARN] Failed to read session file %s: %v", filePath, err)
 			continue
 		}
 
 		var sess Session
 		if err := json.Unmarshal(data, &sess); err != nil {
+			log.Printf("[WARN] Failed to parse session file %s: %v", filePath, err)
 			continue
 		}
 
