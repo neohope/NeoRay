@@ -300,47 +300,6 @@ func (fss *FileStateStore) Clear() {
 	fss.statesByKey = make(map[string]*fileStateEntry)
 }
 
-// 全局默认实例（向后兼容）
-var defaultFileStates = NewFileStates()
-
-// RecordRead 全局版本的 RecordRead（向后兼容）
-func RecordRead(path string, offset int, limit *int) {
-	defaultFileStates.RecordRead(path, offset, limit)
-}
-
-// RecordWrite 全局版本的 RecordWrite（向后兼容）
-func RecordWrite(path string) {
-	defaultFileStates.RecordWrite(path)
-}
-
-// CheckRead 全局版本的 CheckRead（向后兼容）
-func CheckRead(path string) string {
-	return defaultFileStates.CheckRead(path)
-}
-
-// IsUnchanged 全局版本的 IsUnchanged（向后兼容）
-func IsUnchanged(path string, offset int, limit *int) bool {
-	return defaultFileStates.IsUnchanged(path, offset, limit)
-}
-
-// Clear 全局版本的 Clear（向后兼容）
-func Clear() {
-	defaultFileStates.Clear()
-}
-
-// 用于上下文传递的键类型
-type fileStateKey struct{}
-
-// FileStateContextKey 用于在上下文中存储/获取 FileStates 的键
-var FileStateContextKey = fileStateKey{}
-
-// GetFileStatesFromContext 从上下文中获取 FileStates，如果不存在则返回默认实例
-func GetFileStatesFromContext(ctx interface{}) *FileStates {
-	// 这里 ctx 可以是任何类型，我们先简单返回默认实例
-	// 在实际使用中，应该通过 context.Context 传递
-	return defaultFileStates
-}
-
 // FormatLimit 格式化 limit 用于显示
 func FormatLimit(limit *int) string {
 	if limit == nil {

@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"errors"
-	"io"
 	"strings"
 	"time"
 )
@@ -131,15 +130,6 @@ type StreamToolProvider interface {
 	ChatStreamWithTools(ctx context.Context, req *ChatRequest) (<-chan StreamChatResponse, error)
 }
 
-// RetryProvider 支持重试的提供商
-type RetryProvider interface {
-	Provider
-	// ChatWithRetry 带重试的聊天
-	ChatWithRetry(ctx context.Context, req *ChatRequest, retryMode string, onRetryWait func(string)) (*ChatResponse, error)
-	// ChatStreamWithRetry 带重试的流式聊天
-	ChatStreamWithRetry(ctx context.Context, req *ChatRequest, retryMode string, onRetryWait func(string)) (<-chan StreamChatResponse, error)
-}
-
 // FallbackConfig Fallback 配置
 type FallbackConfig struct {
 	Model            string
@@ -212,73 +202,7 @@ func (m *ProviderManager) ListProviders() []string {
 	return names
 }
 
-// StreamReader 流读取器
-type StreamReader interface {
-	io.ReadCloser
-	ReadResponse() (*StreamChatResponse, error)
-}
-
-// Error helper functions
-func IsTransientError(resp *ChatResponse) bool {
-	if resp == nil {
-		return false
-	}
-	if resp.ErrorShouldRetry {
-		return true
-	}
-	if resp.ErrorStatusCode >= 500 && resp.ErrorStatusCode < 600 {
-		return true
-	}
-	if resp.ErrorStatusCode == 408 || resp.ErrorStatusCode == 409 || resp.ErrorStatusCode == 429 {
-		if !IsNonRetryable429(resp) {
-			return true
-		}
-	}
-	transientTypes := map[string]bool{
-		"timeout": true,
-		"connection": true,
-		"server_error": true,
-		"rate_limit": true,
-		"overloaded": true,
-	}
-	if transientTypes[resp.ErrorType] {
-		return true
-	}
-	return false
-}
-
-func IsNonRetryable429(resp *ChatResponse) bool {
-	if resp == nil {
-		return false
-	}
-	nonRetryableTokens := []string{
-		"insufficient_quota",
-		"quota_exceeded",
-		"quota_exhausted",
-		"billing_hard_limit_reached",
-		"insufficient_balance",
-		"credit_balance_too_low",
-		"billing_not_active",
-		"payment_required",
-	}
-	for _, token := range nonRetryableTokens {
-		if resp.ErrorType == token || resp.ErrorCode == token {
-			return true
-		}
-	}
-	return false
-}
-
-func IsArrearageError(resp *ChatResponse) bool {
-	if resp == nil {
-		return false
-	}
-	if resp.ErrorStatusCode == 402 {
-		return true
-	}
-	return IsNonRetryable429(resp)
-}
-
+// ShouldFallbackError 判断是否应触发 fallback
 func ShouldFallbackError(resp *ChatResponse) bool {
 	if resp == nil {
 		return false

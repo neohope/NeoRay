@@ -253,15 +253,39 @@ func main() {
 	}
 	logger.Info("Tool registry initialized", logger.Int("tool_count", len(toolRegistry.List())))
 
-	// 初始化会话存储和管理器（使用文件存储）
+	// 初始化会话存储和管理器（根据配置选择存储类型）
 	sessionDir := cfg.ResolvePath("sessions")
 	var sessionStore session.Store
-	fileStore, err := session.NewFileStore(sessionDir)
-	if err != nil {
-		logger.Warn("Failed to create file store, falling back to memory store", logger.ErrorField(err))
-		sessionStore = session.NewMemoryStore()
-	} else {
-		sessionStore = fileStore
+	storageType := cfg.Session.Storage.Type
+
+	switch storageType {
+	case "memory":
+		var memOpts []session.MemoryStoreOption
+		if cfg.Session.Storage.MaxSessions > 0 {
+			memOpts = append(memOpts, session.WithMaxSessions(cfg.Session.Storage.MaxSessions))
+		}
+		if cfg.Session.Storage.MaxMessagesPerSession > 0 {
+			memOpts = append(memOpts, session.WithMaxMessagesPerSession(cfg.Session.Storage.MaxMessagesPerSession))
+		}
+		sessionStore = session.NewMemoryStore(memOpts...)
+		logger.Info("Using memory session store")
+	case "file", "":
+		fileStore, fileErr := session.NewFileStore(sessionDir)
+		if fileErr != nil {
+			logger.Warn("Failed to create file store, falling back to memory store", logger.ErrorField(fileErr))
+			sessionStore = session.NewMemoryStore()
+		} else {
+			sessionStore = fileStore
+		}
+	default:
+		logger.Warn("Unknown session storage type, using file store", logger.String("type", storageType))
+		fileStore, fileErr := session.NewFileStore(sessionDir)
+		if fileErr != nil {
+			logger.Warn("Failed to create file store, falling back to memory store", logger.ErrorField(fileErr))
+			sessionStore = session.NewMemoryStore()
+		} else {
+			sessionStore = fileStore
+		}
 	}
 	fmt.Println("Creating session manager...")
 	sessionMgr := session.NewManager(cfg, sessionStore)
