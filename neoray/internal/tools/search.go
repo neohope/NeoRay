@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"neoray/internal/config"
+	"neoray/internal/security"
 )
 
 var typeGlobMap = map[string][]string{
@@ -164,6 +165,13 @@ func (t *FindFilesTool) Execute(ctx context.Context, args json.RawMessage) (json
 			return nil
 		}
 
+		// 跳过符号链接目录，防止遍历工作区外的文件
+		if info.IsDir() && info.Mode()&os.ModeSymlink != 0 {
+			if candidate != target {
+				return filepath.SkipDir
+			}
+		}
+
 		if info.IsDir() {
 			name := info.Name()
 			if ignoreDirs[name] && candidate != target {
@@ -281,10 +289,17 @@ func (t *FindFilesTool) Execute(ctx context.Context, args json.RawMessage) (json
 }
 
 func (t *FindFilesTool) resolvePath(path string) string {
+	var resolved string
 	if !filepath.IsAbs(path) {
-		return filepath.Join(t.workspace, path)
+		resolved = filepath.Join(t.workspace, path)
+	} else {
+		resolved = path
 	}
-	return path
+	// 防止路径遍历到工作区外
+	if !security.IsPathWithin(resolved, t.workspace) {
+		return t.workspace
+	}
+	return resolved
 }
 
 // ======================================
@@ -662,10 +677,17 @@ func (t *GrepTool) Execute(ctx context.Context, args json.RawMessage) (json.RawM
 }
 
 func (t *GrepTool) resolvePath(path string) string {
+	var resolved string
 	if !filepath.IsAbs(path) {
-		return filepath.Join(t.workspace, path)
+		resolved = filepath.Join(t.workspace, path)
+	} else {
+		resolved = path
 	}
-	return path
+	// 防止路径遍历到工作区外
+	if !security.IsPathWithin(resolved, t.workspace) {
+		return t.workspace
+	}
+	return resolved
 }
 
 // ======================================

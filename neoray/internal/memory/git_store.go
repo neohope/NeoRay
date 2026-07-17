@@ -248,8 +248,12 @@ func (gs *GitStore) Revert(commitSHA string) string {
 func (gs *GitStore) runGitCommand(args ...string) error {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = gs.workspace
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git %s: %w", strings.Join(args, " "), errors.New(stderr.String()))
+	}
+	return nil
 }
 
 func (gs *GitStore) runGitCommandOutput(args ...string) (string, error) {

@@ -56,12 +56,30 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	// 加载本地覆盖配置 (可选)
+	// 注意: config.local 可覆盖大部分配置，但安全相关配置在 MergeInConfig 后会被重置
 	v.SetConfigName("config.local")
+
+	// 记录合并前的安全配置
+	securityAuthEnabled := v.GetBool("security.auth.enabled")
+	securityAuthKey := v.GetString("security.auth.secret_key")
+	securityRestrictWS := v.GetBool("security.restrict_to_workspace")
+
 	if err := v.MergeInConfig(); err != nil {
 		// config.local 是可选的，仅在文件存在但解析失败时警告
 		if _, statErr := os.Stat(filepath.Join(filepath.Dir(v.ConfigFileUsed()), "config.local.toml")); statErr == nil {
 			fmt.Printf("⚠️  Warning: config.local.toml exists but failed to merge: %v\n", err)
 		}
+	}
+
+	// 恢复安全配置，防止 config.local 覆盖
+	if v.IsSet("security.auth.enabled") {
+		v.Set("security.auth.enabled", securityAuthEnabled)
+	}
+	if securityAuthKey != "" {
+		v.Set("security.auth.secret_key", securityAuthKey)
+	}
+	if v.IsSet("security.restrict_to_workspace") {
+		v.Set("security.restrict_to_workspace", securityRestrictWS)
 	}
 
 	// 环境变量覆盖

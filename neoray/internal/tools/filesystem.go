@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"neoray/internal/config"
@@ -157,6 +158,17 @@ func (t *FileSystemTool) readFile(path string) (json.RawMessage, error) {
 		return json.Marshal(result)
 	}
 
+	// 检查文件大小限制，防止 OOM
+	if t.cfg.Tools.Filesystem.MaxFileSize > 0 {
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, fmt.Errorf("stat file: %w", err)
+		}
+		if info.Size() > t.cfg.Tools.Filesystem.MaxFileSize {
+			return nil, fmt.Errorf("file size %d bytes exceeds max allowed %d bytes", info.Size(), t.cfg.Tools.Filesystem.MaxFileSize)
+		}
+	}
+
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
@@ -176,6 +188,33 @@ func (t *FileSystemTool) readFile(path string) (json.RawMessage, error) {
 }
 
 func (t *FileSystemTool) writeFile(path string, content string, overwrite bool) (json.RawMessage, error) {
+	// 检查文件扩展名
+	ext := strings.ToLower(filepath.Ext(path))
+	if len(t.cfg.Tools.Filesystem.BlockedExtensions) > 0 {
+		for _, blocked := range t.cfg.Tools.Filesystem.BlockedExtensions {
+			if ext == blocked {
+				return nil, fmt.Errorf("file extension %s is blocked", ext)
+			}
+		}
+	}
+	if len(t.cfg.Tools.Filesystem.AllowedExtensions) > 0 {
+		allowed := false
+		for _, a := range t.cfg.Tools.Filesystem.AllowedExtensions {
+			if ext == a {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return nil, fmt.Errorf("file extension %s is not in allowed list", ext)
+		}
+	}
+
+	// 检查内容大小限制
+	if t.cfg.Tools.Filesystem.MaxFileSize > 0 && int64(len(content)) > t.cfg.Tools.Filesystem.MaxFileSize {
+		return nil, fmt.Errorf("content size %d bytes exceeds max allowed %d bytes", len(content), t.cfg.Tools.Filesystem.MaxFileSize)
+	}
+
 	// 检查文件是否存在
 	if _, err := os.Stat(path); err == nil && !overwrite {
 		return nil, fmt.Errorf("file already exists: %s (use overwrite=true)", path)

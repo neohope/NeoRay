@@ -143,65 +143,73 @@ func (fs *FileStates) CheckRead(path string) string {
 
 // IsUnchanged 检查文件是否之前用相同的参数读取过且内容未变
 func (fs *FileStates) IsUnchanged(path string, offset int, limit *int) bool {
-	fs.mu.RLock()
-	defer fs.mu.RUnlock()
-
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		absPath = path
 	}
 
+	// 先用读锁检查元数据
+	fs.mu.RLock()
 	entry, exists := fs.state[absPath]
 	if !exists {
+		fs.mu.RUnlock()
 		return false
 	}
 
 	if !entry.CanDedup {
+		fs.mu.RUnlock()
 		return false
 	}
 
 	if entry.Offset != offset {
+		fs.mu.RUnlock()
 		return false
 	}
 
 	if (entry.Limit == nil && limit != nil) || (entry.Limit != nil && limit == nil) {
+		fs.mu.RUnlock()
 		return false
 	}
 
 	if entry.Limit != nil && limit != nil && *entry.Limit != *limit {
+		fs.mu.RUnlock()
 		return false
 	}
 
+	savedMtime := entry.Mtime
+	savedHash := entry.ContentHash
+	fs.mu.RUnlock()
+
+	// I/O 操作在锁外执行，避免持锁期间阻塞其他 goroutine
 	info, err := os.Stat(absPath)
 	if err != nil {
 		return false
 	}
 
-	if !info.ModTime().Equal(entry.Mtime) {
+	if !info.ModTime().Equal(savedMtime) {
 		// 修改时间改变 - 检查内容是否也改变了
 		currentHash, err := hashFile(absPath)
-		if err != nil || currentHash != entry.ContentHash {
+		if err != nil || currentHash != savedHash {
 			// 内容实际上改变了 - 不去重
-			fs.mu.RUnlock()
-			fs.mu.Lock()
-			if s, ok := fs.state[absPath]; ok {
-				s.CanDedup = false
-			}
-			fs.mu.Unlock()
+			fs.invalidateDedup(absPath)
 			return false
 		}
 		// 内容相同尽管修改时间改变（例如 touch）- 标记为不可去重以强制下次完整读取
-		fs.mu.RUnlock()
-		fs.mu.Lock()
-		if s, ok := fs.state[absPath]; ok {
-			s.CanDedup = false
-		}
-		fs.mu.Unlock()
+		fs.invalidateDedup(absPath)
 		return true
 	}
 
 	// 修改时间未变 - 内容必须相同
 	return true
+}
+
+// invalidateDedup 将指定路径标记为不可去重
+func (fs *FileStates) invalidateDedup(absPath string) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if s, ok := fs.state[absPath]; ok {
+		s.CanDedup = false
+	}
 }
 
 // Get 获取路径的原始 ReadState 条目，如果不存在则返回 nil

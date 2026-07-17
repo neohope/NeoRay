@@ -149,6 +149,11 @@ func (l *SkillsLoader) ListSkills(filterUnavailable bool) ([]SkillInfo, error) {
 
 // LoadSkill 按名称加载 skill
 func (l *SkillsLoader) LoadSkill(name string) (*Skill, error) {
+	// 防止路径遍历：名称不能包含路径分隔符或 ..
+	if strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
+		return nil, fmt.Errorf("invalid skill name: %s", name)
+	}
+
 	// 首先检查 workspace
 	path := filepath.Join(l.workspaceDir, name, "SKILL.md")
 	if _, err := os.Stat(path); err == nil {

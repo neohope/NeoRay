@@ -129,6 +129,24 @@ func (tm *TraceManager) GetOrCreateSession(sessionID string) *TraceSession {
 	if ts, ok := tm.sessions[sessionID]; ok {
 		return ts
 	}
+
+	// 限制最大 session 数量，防止内存泄漏
+	const maxTraceSessions = 100
+	if len(tm.sessions) >= maxTraceSessions {
+		// 淘汰最早的 session
+		var oldestID string
+		var oldestTime time.Time
+		for id, s := range tm.sessions {
+			if oldestID == "" || s.StartTime.Before(oldestTime) {
+				oldestID = id
+				oldestTime = s.StartTime
+			}
+		}
+		if oldestID != "" {
+			delete(tm.sessions, oldestID)
+		}
+	}
+
 	ts := NewTraceSession(sessionID)
 	tm.sessions[sessionID] = ts
 	return ts

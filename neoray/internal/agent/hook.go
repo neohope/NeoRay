@@ -28,7 +28,12 @@ func NewCompositeHook(hooks ...AgentHook) *CompositeHook {
 }
 
 // AddHook 添加 Hook
-func (ch *CompositeHook) AddHook(hook AgentHook) { ch.hooks = append(ch.hooks, hook) }
+func (ch *CompositeHook) AddHook(hook AgentHook) {
+	if hook == nil {
+		return
+	}
+	ch.hooks = append(ch.hooks, hook)
+}
 
 // Hooks 返回所有 Hook
 func (ch *CompositeHook) Hooks() []AgentHook { return ch.hooks }

@@ -274,7 +274,9 @@ func ContainsPathTraversal(command string) bool {
 }
 
 // shellMetaChars lists shell metacharacters that can chain or subvert commands.
-const shellMetaChars = "|&;$`\\(){}!<>*?[]~\"\n"
+// NOTE: 反斜杠 \ 不在此列表中，因为 Windows 路径使用 \ 作为分隔符。
+// Windows 下 shell 工具使用 PowerShell -EncodedCommand，反斜杠不会被解释为转义字符。
+const shellMetaChars = "|&;$`(){}!<>*?[]~\"\n"
 
 // containsShellMeta returns true if the command contains shell metacharacters
 // that could be used to bypass path safety checks.

@@ -160,6 +160,11 @@ func (tl *TemplateLoader) processIncludes(content string) string {
 			includePart := strings.TrimPrefix(trimmed, "{% include")
 			includePart = strings.TrimSuffix(includePart, "%}")
 			includePath := strings.Trim(strings.TrimSpace(includePart), "'\"")
+			// 防止路径遍历
+			if strings.Contains(includePath, "..") || strings.HasPrefix(includePath, "/") {
+				result = append(result, fmt.Sprintf("[include blocked: path traversal detected: %s]", includePath))
+				continue
+			}
 			if includedContent, ok := tl.GetTemplate(includePath); ok {
 				result = append(result, includedContent)
 			}
