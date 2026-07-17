@@ -204,15 +204,19 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 		workspace := t.workspace
 		mediaDir := t.cfg.Tools.Shell.MediaDir
 		registry := GetSandboxRegistry(mediaDir)
-		var err error
 		// Wrap the already filtered command
 		wrappedCmd, err := registry.WrapCommand(t.cfg.Tools.Shell.Sandbox, finalCommand, workspace, workspace)
 		if err != nil {
-			logger.Debug("Sandbox wrap failed, using filtered command directly", logger.ErrorField(err))
-			// If sandbox fails, still use the filtered command - NEVER revert to unfiltered params.Command
-		} else {
-			finalCommand = wrappedCmd
+			// P1-6: 沙盒配置为必需时，失败应拒绝执行而非回退到非沙盒模式。
+			// 回退会静默降低安全保护级别。
+			result := map[string]interface{}{
+				"success": false,
+				"error":   fmt.Sprintf("Sandbox '%s' is configured but failed to initialize: %v. Refusing to execute without sandbox.", t.cfg.Tools.Shell.Sandbox, err),
+			}
+			res, _ := json.Marshal(result)
+			return res, nil
 		}
+		finalCommand = wrappedCmd
 	}
 
 	logger.Debug("Shell command",
@@ -232,8 +236,12 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 		encodedCmd := encodePowerShellCommand(finalCommand)
 		shellArgs = []string{"-NoProfile", "-EncodedCommand", encodedCmd}
 	default:
+		// P0-5: 使用 base64 编码传递命令，避免 bash -c 的命令注入风险。
+		// 直接传递给 bash -c 时，特殊字符（$()、反引号、分号等）会被解释。
+		// 编码后通过管道解码执行，确保原始命令不被 shell 二次解析。
 		shellCmd = "bash"
-		shellArgs = []string{"-c", finalCommand}
+		encodedCmd := encodeBashCommand(finalCommand)
+		shellArgs = []string{"-c", encodedCmd}
 	}
 
 	// 创建命令
@@ -278,6 +286,14 @@ func encodePowerShellCommand(cmd string) string {
 		binary.LittleEndian.PutUint16(buf[i*2:], r)
 	}
 	return base64.StdEncoding.EncodeToString(buf)
+}
+
+// encodeBashCommand 将命令编码为 bash -c 安全执行的形式。
+// 使用 base64 管道解码，避免命令中的特殊字符被 shell 二次解释，
+// 与 Windows 的 encodePowerShellCommand 提供等效的注入防护。
+func encodeBashCommand(cmd string) string {
+	encoded := base64.StdEncoding.EncodeToString([]byte(cmd))
+	return fmt.Sprintf("echo '%s' | base64 -d | bash", encoded)
 }
 
 // checkBlockedCommands 检查命令是否匹配 blocked_commands 列表

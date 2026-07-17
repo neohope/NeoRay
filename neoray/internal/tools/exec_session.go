@@ -329,9 +329,9 @@ func NewExecSessionManager() *ExecSessionManager {
 	}
 }
 
-// generateSessionID generates a random session ID
+// generateSessionID generates a random session ID (P1-10: 128-bit entropy)
 func generateSessionID() string {
-	b := make([]byte, 6)
+	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
 }

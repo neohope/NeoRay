@@ -569,6 +569,17 @@ func (t *WebFetchTool) Execute(ctx context.Context, args json.RawMessage) (json.
 }
 
 func (t *WebFetchTool) fetchJina(ctx context.Context, urlStr string, maxChars int) *WebFetchResult {
+	// Defense-in-depth: validate the original URL's DNS resolution before sending it to Jina,
+	// to prevent SSRF even if the caller skips validation.
+	allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(ctx, t.allowLocalService)
+	valid, errMsg, _ := security.ValidateURLTarget(urlStr, allowLoopback)
+	if !valid {
+		return &WebFetchResult{
+			URL:   urlStr,
+			Error: fmt.Sprintf("URL validation failed: %s", errMsg),
+		}
+	}
+
 	client := &http.Client{Timeout: jinaFetchTimeout}
 	req, err := http.NewRequest("GET", fmt.Sprintf("https://r.jina.ai/%s", urlStr), nil)
 	if err != nil {
@@ -608,8 +619,8 @@ func (t *WebFetchTool) fetchJina(ctx context.Context, urlStr string, maxChars in
 	}
 
 	// 验证 Jina 返回的 finalURL，防止 SSRF 绕过
-	allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(ctx, t.allowLocalService)
-	valid, errMsg, _ := security.ValidateURLTarget(finalURL, allowLoopback)
+	allowLoopback = t.allowLocalService && security.CurrentScopeAllowsLoopback(ctx, t.allowLocalService)
+	valid, errMsg, _ = security.ValidateURLTarget(finalURL, allowLoopback)
 	if !valid {
 		return &WebFetchResult{
 			URL:      urlStr,

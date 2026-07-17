@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -158,9 +159,26 @@ func (t *FileSystemTool) readFile(path string) (json.RawMessage, error) {
 		return json.Marshal(result)
 	}
 
+	// P0-4: 先打开文件句柄，再验证路径，消除 TOCTOU 竞态窗口。
+	// 使用 os.Open 获取文件句柄后，通过重新 EvalSymlinks 验证路径未被篡改。
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open file: %w", err)
+	}
+	defer f.Close()
+
+	// 打开后再次验证路径，确保符号链接未在检查和打开之间被篡改
+	recheckPath := path
+	if resolved, resolveErr := filepath.EvalSymlinks(path); resolveErr == nil {
+		recheckPath = resolved
+	}
+	if !security.IsPathWithin(recheckPath, t.workspace) {
+		return nil, fmt.Errorf("path outside workspace (post-open verification failed): %s", path)
+	}
+
 	// 检查文件大小限制，防止 OOM
 	if t.cfg.Tools.Filesystem.MaxFileSize > 0 {
-		info, err := os.Stat(path)
+		info, err := f.Stat()
 		if err != nil {
 			return nil, fmt.Errorf("stat file: %w", err)
 		}
@@ -169,7 +187,7 @@ func (t *FileSystemTool) readFile(path string) (json.RawMessage, error) {
 		}
 	}
 
-	content, err := os.ReadFile(path)
+	content, err := io.ReadAll(f)
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
 	}
@@ -222,11 +240,11 @@ func (t *FileSystemTool) writeFile(path string, content string, overwrite bool) 
 
 	// 确保目录存在
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("create directory: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		return nil, fmt.Errorf("write file: %w", err)
 	}
 

@@ -13,7 +13,8 @@ import (
 )
 
 var (
-	urlRe = regexp.MustCompile(`(?i)https?://[^\s"'` + "`|<>\\[\\]]+")
+	// P1-4: 支持 IPv6 URL（如 http://[::1]:8080/），同时防止 SSRF 绕过
+	urlRe = regexp.MustCompile(`(?i)https?://(?:\[[\da-fA-F:]+\]|[^\s"'` + "`|<>\\[\\]]+)")
 
 	blockedNetworks []netip.Prefix
 	allowedNetworks []netip.Prefix
@@ -195,8 +196,9 @@ func ValidateURLTarget(urlStr string, allowLoopback bool) (bool, string, []netip
 	return true, "", addrs
 }
 
-// ValidateResolvedURL validates an already-fetched URL (e.g., after redirect)
-func ValidateResolvedURL(urlStr string) (bool, string) {
+// ValidateResolvedURL validates an already-fetched URL (e.g., after redirect).
+// P1-5: added allowLoopback parameter to enforce loopback policy consistently with ValidateURLTarget.
+func ValidateResolvedURL(urlStr string, allowLoopback bool) (bool, string) {
 	u, err := url.Parse(urlStr)
 	if err != nil {
 		return false, fmt.Sprintf("Redirect target URL is malformed: %v", err)
@@ -207,20 +209,19 @@ func ValidateResolvedURL(urlStr string) (bool, string) {
 		return false, "Redirect target URL has no hostname"
 	}
 
-	addr, err := netip.ParseAddr(hostname)
-	if err == nil {
-		if isPrivate(addr) {
-			return false, fmt.Sprintf("Redirect target is a private address: %s", addr)
-		}
-	} else {
-		addrs, err := resolveHost(hostname)
-		if err != nil {
-			return false, fmt.Sprintf("Failed to resolve redirect target hostname %q: %v", hostname, err)
-		}
-		for _, a := range addrs {
-			if isPrivate(a) {
-				return false, fmt.Sprintf("Redirect target %s resolves to private address %s", hostname, a)
-			}
+	addrs, err := resolveHost(hostname)
+	if err != nil {
+		return false, fmt.Sprintf("Failed to resolve redirect target hostname %q: %v", hostname, err)
+	}
+
+	// P1-5: 检查 loopback 策略，与 ValidateURLTarget 保持一致
+	if allowLoopback && isAllowedLoopbackTarget(hostname, addrs) {
+		return true, ""
+	}
+
+	for _, a := range addrs {
+		if isPrivate(a) {
+			return false, fmt.Sprintf("Redirect target %s resolves to private address %s", hostname, a)
 		}
 	}
 

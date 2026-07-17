@@ -180,6 +180,10 @@ type AgentLoop struct {
 	// 工具绑定锁 — 保护 wireToolsForSession + 工具执行的原子性
 	toolWireMu sync.Mutex
 
+	// P1-14: 全局取消 context，Stop() 时取消所有后台 goroutine
+	globalCtx    context.Context
+	globalCancel context.CancelFunc
+
 	mu             sync.RWMutex
 	currentSession *session.Session
 }
@@ -250,6 +254,7 @@ func NewAgentLoop(
 	toolRegistry *tools.Registry,
 	opts ...AgentLoopOption,
 ) *AgentLoop {
+	globalCtx, globalCancel := context.WithCancel(context.Background())
 	al := &AgentLoop{
 		cfg:           cfg,
 		providerMgr:   providerMgr,
@@ -257,6 +262,8 @@ func NewAgentLoop(
 		toolRegistry:  toolRegistry,
 		sessionLocks:  make(map[string]*sessionLockEntry),
 		pendingQueues: make(map[string]chan *bus.InboundMessage),
+		globalCtx:     globalCtx,
+		globalCancel:  globalCancel,
 	}
 
 	// 创建指令管理器
@@ -410,6 +417,10 @@ func (al *AgentLoop) Stop() {
 	}
 
 	al.running = false
+	// P1-14: 取消所有后台 goroutine
+	if al.globalCancel != nil {
+		al.globalCancel()
+	}
 	logger.Info("Agent loop stopping")
 }
 
@@ -511,9 +522,9 @@ func (al *AgentLoop) handleInboundMessage(ctx context.Context, msg *bus.InboundM
 			}
 		}()
 
-		// Derive a background context so the goroutine survives the caller's scope.
-		// Preserve logger/provider values but drop the caller's cancellation.
-		goroutineCtx := context.WithoutCancel(ctx)
+		// P1-14: 使用全局 context，Stop() 时可取消所有后台 goroutine。
+		// 保留 logger/provider 值，但使用全局取消信号。
+		goroutineCtx := al.globalCtx
 		var cancel context.CancelFunc
 		goroutineCtx, cancel = context.WithTimeout(goroutineCtx, goroutineTimeout)
 		defer cancel()
@@ -656,9 +667,6 @@ func (al *AgentLoop) stateCompact(ctx context.Context, turnCtx *TurnContext) (St
 	// 如果消息数量超过阈值，触发后台压缩
 	if al.memoryManager != nil && al.memoryManager.Store() != nil && len(turnCtx.Session.Messages) > compactThresholdMessages {
 		go func() {
-			compactCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			defer cancel()
-			_ = compactCtx // CompactHistory uses its own internal context; this goroutine is bounded by the operation
 			if err := al.memoryManager.Store().CompactHistory(); err != nil {
 				logger.Warn("Background compaction failed", logger.ErrorField(err))
 			}
@@ -758,7 +766,11 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 func (al *AgentLoop) wireToolsForSession(sessionID string) {
 	al.toolWireMu.Lock()
 	defer al.toolWireMu.Unlock()
+	al.wireToolsForSessionLocked(sessionID)
+}
 
+// wireToolsForSessionLocked 内部方法，调用者必须持有 toolWireMu。
+func (al *AgentLoop) wireToolsForSessionLocked(sessionID string) {
 	if al.fileStateStore != nil {
 		fileStates := al.fileStateStore.ForSession(sessionID)
 		if tool, ok := al.toolRegistry.Get("filesystem"); ok {
@@ -792,6 +804,21 @@ func (al *AgentLoop) wireToolsForSession(sessionID string) {
 	}
 }
 
+// wireAndExecuteToolCalls 原子地绑定工具到 session 并执行工具调用。
+// 持有 toolWireMu 贯穿整个绑定+执行过程，防止并发 session 的状态串扰。
+func (al *AgentLoop) wireAndExecuteToolCalls(
+	ctx context.Context,
+	sessionID string,
+	toolCalls []provider.ToolCall,
+	trace *TraceSession,
+) []map[string]interface{} {
+	al.toolWireMu.Lock()
+	defer al.toolWireMu.Unlock()
+
+	al.wireToolsForSessionLocked(sessionID)
+	return al.executeToolCallsLocked(ctx, toolCalls, trace)
+}
+
 // stateRun 运行 LLM
 func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateEvent, error) {
 	logger.Debug("State: Run", logger.String("session_key", turnCtx.SessionKey))
@@ -806,11 +833,10 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 		turnCtx.VisibleRunStartedAt = &now
 	}
 
-	// Per-session 工具接线
+	// 设置当前会话
 	al.mu.Lock()
 	al.currentSession = turnCtx.Session
 	al.mu.Unlock()
-	al.wireToolsForSession(turnCtx.Session.ID)
 
 	// 创建 Trace
 	var trace *TraceSession
@@ -959,9 +985,9 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 			return StateEventOK, nil
 		}
 
-		// 有工具调用，继续执行
+		// 有工具调用，继续执行（原子绑定+执行，防止并发 session 状态串扰）
 		totalToolCalls += len(resp.ToolCalls)
-		toolResponses := al.executeToolCalls(ctx, resp.ToolCalls, trace)
+		toolResponses := al.wireAndExecuteToolCalls(ctx, turnCtx.Session.ID, resp.ToolCalls, trace)
 		toolRespJSON, err := json.Marshal(toolResponses)
 		if err != nil {
 			logger.Warn("Failed to marshal tool responses", logger.ErrorField(err))
@@ -1230,9 +1256,6 @@ func (al *AgentLoop) ChatStream(ctx context.Context, sess *session.Session, user
 	al.currentSession = sess
 	al.mu.Unlock()
 
-	// Per-session 工具接线
-	al.wireToolsForSession(sess.ID)
-
 	// 先检查是否是指令
 	if al.cmdManager != nil {
 		if resp, isCmd, err := al.cmdManager.Process(ctx, sess, userInput); isCmd {
@@ -1394,8 +1417,9 @@ func (al *AgentLoop) handleNativeStreamTool(
 	}
 
 	var fullContent strings.Builder
-	var currentToolCalls []provider.ToolCall
-	var toolCallInProgress bool
+	// 按 Index 累积流式工具调用 delta，支持多 chunk 传输 arguments
+	toolCallMap := make(map[int]*provider.ToolCall)
+	var toolCallStarted bool
 	var finishReason string
 
 	for chunk := range stream {
@@ -1419,18 +1443,55 @@ func (al *AgentLoop) handleNativeStreamTool(
 			}
 		}
 
-		if len(chunk.ToolCalls) > 0 && !toolCallInProgress {
-			toolCallInProgress = true
-			currentToolCalls = append(currentToolCalls, chunk.ToolCalls...)
-			if !sendChunk(ctx, resultChan, StreamChunk{Type: "tool_start", ToolCalls: chunk.ToolCalls}) {
-				return true, ctx.Err()
+		// 累积所有工具调用 delta（按 index 合并 id/name/arguments）
+		if len(chunk.ToolCalls) > 0 {
+			if !toolCallStarted {
+				toolCallStarted = true
+				if !sendChunk(ctx, resultChan, StreamChunk{Type: "tool_start", ToolCalls: chunk.ToolCalls}) {
+					return true, ctx.Err()
+				}
+			}
+			for _, tc := range chunk.ToolCalls {
+				// 使用 tc.ID 作为 index 的备选（当 Index 未设置时用 ID 区分）
+				key := len(toolCallMap) // 默认按追加顺序
+				if tc.ID != "" {
+					// 检查是否已有同 ID 的条目
+					for k, existing := range toolCallMap {
+						if existing.ID == tc.ID {
+							key = k
+							break
+						}
+					}
+				}
+				existing, ok := toolCallMap[key]
+				if !ok {
+					tcCopy := tc
+					toolCallMap[key] = &tcCopy
+				} else {
+					if tc.ID != "" {
+						existing.ID = tc.ID
+					}
+					if tc.Name != "" {
+						existing.Name = tc.Name
+					}
+					if tc.Arguments != "" {
+						existing.Arguments += tc.Arguments
+					}
+				}
 			}
 		}
 
 		if chunk.FinishReason != "" {
 			finishReason = chunk.FinishReason
-			break
+			// 继续处理当前 chunk 中可能存在的剩余 choice 数据
+			// 不立即 break，等循环自然结束
 		}
+	}
+
+	// 从 map 中提取完整的工具调用列表
+	var currentToolCalls []provider.ToolCall
+	for _, tc := range toolCallMap {
+		currentToolCalls = append(currentToolCalls, *tc)
 	}
 
 	if len(currentToolCalls) > 0 {
@@ -1441,7 +1502,7 @@ func (al *AgentLoop) handleNativeStreamTool(
 		}
 		sess.AddMessage(assistantMsg)
 
-		toolResponses := al.executeToolCalls(ctx, currentToolCalls, trace)
+		toolResponses := al.wireAndExecuteToolCalls(ctx, sess.ID, currentToolCalls, trace)
 		if !sendChunk(ctx, resultChan, StreamChunk{Type: "tool_result", ToolResults: toolResponses}) {
 			return true, ctx.Err()
 		}
@@ -1525,7 +1586,7 @@ func (al *AgentLoop) handleFallbackStream(
 		}
 		sess.AddMessage(assistantMsg)
 
-		toolResponses := al.executeToolCalls(ctx, resp.ToolCalls, trace)
+		toolResponses := al.wireAndExecuteToolCalls(ctx, sess.ID, resp.ToolCalls, trace)
 		if !sendChunk(ctx, resultChan, StreamChunk{Type: "tool_result", ToolResults: toolResponses}) {
 			return true, ctx.Err()
 		}
@@ -1679,8 +1740,9 @@ func (al *AgentLoop) callLLMWithRetry(
 	return nil, fmt.Errorf("LLM call failed after %d attempts: %w", maxRetries, lastErr)
 }
 
-// executeToolCalls 执行工具调用（带并发限制）
-func (al *AgentLoop) executeToolCalls(
+// executeToolCallsLocked 执行工具调用（带并发限制和 panic 恢复）。
+// 调用者必须持有 toolWireMu。外部调用请使用 wireAndExecuteToolCalls。
+func (al *AgentLoop) executeToolCallsLocked(
 	ctx context.Context,
 	toolCalls []provider.ToolCall,
 	trace *TraceSession,
@@ -1694,6 +1756,21 @@ func (al *AgentLoop) executeToolCalls(
 		wg.Add(1)
 		go func(idx int, tc provider.ToolCall) {
 			defer wg.Done()
+			// P1-13: panic 恢复 — 单个工具 panic 不应终止整个 agent
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Error("Tool execution panicked",
+						logger.String("tool", tc.Name),
+						logger.String("panic", fmt.Sprintf("%v", r)))
+					mu.Lock()
+					toolResponses[idx] = map[string]interface{}{
+						"tool_use_id": tc.ID,
+						"content":     fmt.Sprintf("Tool panicked: %v", r),
+						"is_error":    true,
+					}
+					mu.Unlock()
+				}
+			}()
 
 			// 获取并发许可，限制同时运行的工具调用数量
 			if err := sem.Acquire(ctx, 1); err != nil {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 
 	"neoray/internal/config"
@@ -478,11 +479,22 @@ func (p *GenericProvider) streamSSE(ctx context.Context, body io.Reader, ch chan
 	buf := make([]byte, 0, 4096)
 	tmp := make([]byte, 1024)
 	currentData := ""
+	const maxBufSize = 1 * 1024 * 1024 // 1 MB buffer limit
+
+	// sendSSE 安全地发送到 channel，检查 context 取消防止 goroutine 泄漏
+	sendSSE := func(resp StreamChatResponse) bool {
+		select {
+		case ch <- resp:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			ch <- StreamChatResponse{Error: ctx.Err()}
+			sendSSE(StreamChatResponse{Error: ctx.Err()})
 			return
 		default:
 		}
@@ -490,6 +502,12 @@ func (p *GenericProvider) streamSSE(ctx context.Context, body io.Reader, ch chan
 		n, err := body.Read(tmp)
 		if n > 0 {
 			buf = append(buf, tmp[:n]...)
+		}
+
+		// P0-8: 防止缓冲区无限增长
+		if len(buf) > maxBufSize {
+			sendSSE(StreamChatResponse{Error: fmt.Errorf("SSE buffer exceeded %d bytes, aborting", maxBufSize)})
+			return
 		}
 
 		// Process complete lines
@@ -508,10 +526,11 @@ func (p *GenericProvider) streamSSE(ctx context.Context, body io.Reader, ch chan
 
 			lineStr := string(line)
 
-			if len(lineStr) > 6 && lineStr[:6] == "data: " {
-				data := lineStr[6:]
+			// P1-8: 支持 "data:" 和 "data: " 两种格式
+			if strings.HasPrefix(lineStr, "data:") {
+				data := strings.TrimSpace(lineStr[5:])
 				if data == "[DONE]" {
-					ch <- StreamChatResponse{FinishReason: "stop"}
+					sendSSE(StreamChatResponse{FinishReason: "stop"})
 					return
 				}
 				currentData = data
@@ -524,7 +543,7 @@ func (p *GenericProvider) streamSSE(ctx context.Context, body io.Reader, ch chan
 
 		if err != nil {
 			if err != io.EOF {
-				ch <- StreamChatResponse{Error: err}
+				sendSSE(StreamChatResponse{Error: err})
 			}
 			// Process any remaining data
 			if currentData != "" {

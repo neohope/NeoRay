@@ -26,6 +26,7 @@ import (
 // Server API 服务器
 type Server struct {
 	cfg         *config.Config
+	cfgMu       sync.RWMutex // 保护 cfg 的并发读写（P0-3 修复）
 	agent       agent.AgentInterface
 	sessionMgr  *session.Manager
 	channelMgr  *channel.Manager
@@ -183,7 +184,12 @@ func NewServer(cfg *config.Config, aiAgent agent.AgentInterface, sessionMgr *ses
 			CheckOrigin: func(r *http.Request) bool {
 				origin := r.Header.Get("Origin")
 				if origin == "" {
-					return true // Same-origin or non-browser client
+					// P1-2: 仅在开发模式下允许空 Origin（非浏览器客户端）
+					// 生产环境拒绝空 Origin，防止绕过 CORS 保护
+					if cfg.App.Env == "development" || cfg.App.Env == "dev" {
+						return true
+					}
+					return false
 				}
 				allowedOrigins := cfg.Server.CORS.AllowedOrigins
 				if len(allowedOrigins) == 0 {
@@ -213,8 +219,8 @@ func NewServer(cfg *config.Config, aiAgent agent.AgentInterface, sessionMgr *ses
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
-	// WebSocket 端点
-	mux.HandleFunc("/ws", s.handleWebSocket)
+	// WebSocket 端点 — P1-1: 也通过 wrapMiddleware 添加速率限制
+	mux.HandleFunc("/ws", s.wrapMiddleware(s.handleWebSocket))
 
 	// REST API 端点
 	mux.HandleFunc("/api/sessions", s.wrapMiddleware(s.handleSessions))
@@ -327,6 +333,13 @@ func (s *Server) publishToBus(msg *bus.InboundMessage) error {
 	return s.msgBus.PublishInbound(msg)
 }
 
+// getConfig 返回当前配置的安全副本引用（读锁保护）
+func (s *Server) getConfig() *config.Config {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cfg
+}
+
 // Stop 停止服务器
 func (s *Server) Stop(ctx context.Context) error {
 	logger.Info("API server stopping")
@@ -414,7 +427,8 @@ func (s *Server) corsMiddleware(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allowedOrigins := s.cfg.Server.CORS.AllowedOrigins
+	cfg := s.getConfig()
+	allowedOrigins := cfg.Server.CORS.AllowedOrigins
 	allowed := false
 	for _, o := range allowedOrigins {
 		if origin == o {
@@ -429,7 +443,7 @@ func (s *Server) corsMiddleware(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
-	if s.cfg.Server.CORS.AllowCredentials {
+	if cfg.Server.CORS.AllowCredentials {
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 	}
 	w.Header().Set("Access-Control-Max-Age", "86400")
@@ -438,10 +452,11 @@ func (s *Server) corsMiddleware(w http.ResponseWriter, r *http.Request) {
 // authenticateRequest checks the API key if auth is enabled.
 // Returns true if authentication succeeds or is disabled.
 func (s *Server) authenticateRequest(r *http.Request) bool {
-	if !s.cfg.Security.Auth.Enabled {
+	cfg := s.getConfig()
+	if !cfg.Security.Auth.Enabled {
 		return true
 	}
-	expectedKey := s.cfg.Security.Auth.SecretKey
+	expectedKey := cfg.Security.Auth.SecretKey
 	if expectedKey == "" {
 		// Auth 启用但密钥为空 — 拒绝所有请求，防止开发模式下无认证保护
 		logger.Warn("Request rejected: auth enabled but SecretKey is empty",
@@ -470,13 +485,7 @@ func (s *Server) authenticateRequest(r *http.Request) bool {
 
 // handleWebSocket WebSocket 处理
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// 认证检查
-	if !s.authenticateRequest(r) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":"Unauthorized: invalid or missing API key"}`))
-		return
-	}
+	// 认证检查已由 wrapMiddleware 处理
 
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {

@@ -167,7 +167,7 @@ func (s *FileStore) saveToFile(sess *Session) error {
 
 	// 写入临时文件然后重命名，确保原子性
 	tempPath := filePath + ".tmp"
-	if err := os.WriteFile(tempPath, data, 0644); err != nil {
+	if err := os.WriteFile(tempPath, data, 0600); err != nil {
 		return err
 	}
 

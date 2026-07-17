@@ -5,11 +5,13 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
 
 	"neoray/internal/logger"
+	"neoray/internal/security"
 	"neoray/internal/session"
 )
 
@@ -641,7 +643,7 @@ func maskAPIKey(key string) string {
 
 // buildConfigResponse 构建配置响应（掩码敏感字段）
 func (s *Server) buildConfigResponse() map[string]interface{} {
-	cfg := s.cfg
+	cfg := s.getConfig()
 
 	// 构建 providers 列表，掩码 API Key
 	providers := make(map[string]interface{})
@@ -709,7 +711,7 @@ func (s *Server) buildConfigResponse() map[string]interface{} {
 // isAdminRequest 检查请求是否具有管理员权限
 // 需要通过 X-Admin-Token 头提供管理员令牌，该令牌与 API Key 不同
 func (s *Server) isAdminRequest(r *http.Request) bool {
-	adminToken := s.cfg.Security.Auth.AdminToken
+	adminToken := s.getConfig().Security.Auth.AdminToken
 	if adminToken == "" {
 		// 如果未配置 AdminToken，拒绝所有配置修改请求
 		logger.Warn("Config update rejected: admin_token not configured")
@@ -751,6 +753,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		// 审计日志：记录变更的字段
 		var changedFields []string
 
+		// P0-3: 获取写锁保护配置并发修改
+		s.cfgMu.Lock()
+		defer s.cfgMu.Unlock()
+
 		// 更新 LLM 配置
 		if llm, ok := req["llm"].(map[string]interface{}); ok {
 			if dp, ok := llm["default_provider"].(string); ok {
@@ -765,9 +771,18 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 							existing.APIKey = v
 							changedFields = append(changedFields, "llm.providers."+name+".api_key")
 						}
-						if v, ok := pc["api_url"].(string); ok {
-							existing.APIURL = v
-							changedFields = append(changedFields, "llm.providers."+name+".api_url")
+						if v, ok := pc["api_url"].(string); ok && v != "" {
+							// P1-3: 验证 api_url 不指向私有/内部地址，防止配置被篡改为恶意代理
+							if parsedURL, parseErr := url.Parse(v); parseErr == nil {
+								if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+									logger.Warn("Rejected api_url with invalid scheme", logger.String("url", v))
+								} else if ok, _, _ := security.ValidateURLTarget(v, false); !ok {
+									logger.Warn("Rejected api_url targeting private/internal address", logger.String("url", v))
+								} else {
+									existing.APIURL = v
+									changedFields = append(changedFields, "llm.providers."+name+".api_url")
+								}
+							}
 						}
 						if v, ok := pc["model"].(string); ok {
 							existing.Model = v
