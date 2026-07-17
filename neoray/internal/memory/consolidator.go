@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"neoray/internal/logger"
 	"neoray/internal/templates"
 )
 
@@ -238,7 +239,10 @@ func (c *Consolidator) MaybeConsolidateByTokens(ctx context.Context, session int
 		if err != nil {
 			// 即使失败也要推进 cursor，避免重复处理
 			c.setLastConsolidated(session, boundary)
-			_ = c.saveSession(session)
+			if saveErr := c.saveSession(session); saveErr != nil {
+				logger.Warn("Failed to save session after archive failure",
+					logger.ErrorField(saveErr))
+			}
 			break
 		}
 
@@ -247,7 +251,10 @@ func (c *Consolidator) MaybeConsolidateByTokens(ctx context.Context, session int
 		}
 
 		c.setLastConsolidated(session, boundary)
-		_ = c.saveSession(session)
+		if saveErr := c.saveSession(session); saveErr != nil {
+			logger.Warn("Failed to save session during consolidation",
+				logger.ErrorField(saveErr))
+		}
 
 		estimated, _ = c.estimateSessionPromptTokens(session)
 	}
@@ -274,7 +281,11 @@ func (c *Consolidator) CompactIdleSession(ctx context.Context, sessionKey string
 	messages := c.getUnconsolidatedMessages(session)
 	if len(messages) == 0 {
 		c.updateSessionTimestamp(session)
-		_ = c.saveSession(session)
+		if saveErr := c.saveSession(session); saveErr != nil {
+			logger.Warn("Failed to save session during idle compact",
+				logger.String("session_key", sessionKey),
+				logger.ErrorField(saveErr))
+		}
 		return "", nil
 	}
 
@@ -286,7 +297,11 @@ func (c *Consolidator) CompactIdleSession(ctx context.Context, sessionKey string
 
 	if len(messages) <= keepCount {
 		c.updateSessionTimestamp(session)
-		_ = c.saveSession(session)
+		if saveErr := c.saveSession(session); saveErr != nil {
+			logger.Warn("Failed to save session during idle compact",
+				logger.String("session_key", sessionKey),
+				logger.ErrorField(saveErr))
+		}
 		return "", nil
 	}
 
@@ -296,7 +311,11 @@ func (c *Consolidator) CompactIdleSession(ctx context.Context, sessionKey string
 
 	if cut <= 0 {
 		c.updateSessionTimestamp(session)
-		_ = c.saveSession(session)
+		if saveErr := c.saveSession(session); saveErr != nil {
+			logger.Warn("Failed to save session during idle compact",
+				logger.String("session_key", sessionKey),
+				logger.ErrorField(saveErr))
+		}
 		return "", nil
 	}
 
@@ -319,7 +338,11 @@ func (c *Consolidator) CompactIdleSession(ctx context.Context, sessionKey string
 		c.persistLastSummary(session, summary)
 	}
 
-	_ = c.saveSession(session)
+	if saveErr := c.saveSession(session); saveErr != nil {
+		logger.Warn("Failed to save session after idle compact",
+			logger.String("session_key", sessionKey),
+			logger.ErrorField(saveErr))
+	}
 
 	return summary, nil
 }

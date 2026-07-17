@@ -77,6 +77,7 @@ type ExecSession struct {
 	timedOut        bool
 	returnCode      *int
 	wg              sync.WaitGroup
+	tempScriptPath  string // P0-fix: 临时脚本文件路径，进程退出后清理
 }
 
 // newExecSession creates a new ExecSession
@@ -87,6 +88,7 @@ func newExecSession(
 	cwd string,
 	timeout time.Duration,
 	ownerSessionKey string,
+	tempScriptPath string,
 ) (*ExecSession, error) {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -119,6 +121,7 @@ func newExecSession(
 		outputCh:        make(chan string, 100),
 		doneCh:          make(chan struct{}),
 		chunks:          make([]string, 0),
+		tempScriptPath:  tempScriptPath,
 	}
 
 	if timeout > 0 {
@@ -161,6 +164,11 @@ func (s *ExecSession) start() error {
 			s.returnCode = &code
 		}
 		s.mu.Unlock()
+
+		// P0-fix: 清理临时脚本文件
+		if s.tempScriptPath != "" {
+			os.Remove(s.tempScriptPath)
+		}
 	}()
 
 	return nil
@@ -358,7 +366,7 @@ func (m *ExecSessionManager) Start(
 	}
 
 	// Spawn the process
-	cmd, err := spawnCommand(ctx, command, cwd, cfg, true)
+	cmd, tempScriptPath, err := spawnCommand(ctx, command, cwd, cfg, true)
 	if err != nil {
 		return "", nil, err
 	}
@@ -371,8 +379,12 @@ func (m *ExecSessionManager) Start(
 		cwd,
 		timeout,
 		ownerSessionKey,
+		tempScriptPath,
 	)
 	if err != nil {
+		if tempScriptPath != "" {
+			os.Remove(tempScriptPath)
+		}
 		return "", nil, err
 	}
 
@@ -511,8 +523,9 @@ func (m *ExecSessionManager) cleanupLocked() {
 	}
 }
 
-// spawnCommand spawns a command (similar to ShellTool)
-func spawnCommand(ctx context.Context, command string, cwd string, cfg *config.Config, withStdin bool) (*exec.Cmd, error) {
+// spawnCommand spawns a command (similar to ShellTool).
+// Returns the command and an optional temp file path that the caller must clean up.
+func spawnCommand(ctx context.Context, command string, cwd string, cfg *config.Config, withStdin bool) (*exec.Cmd, string, error) {
 	workspace := cfg.ResolvePath(cfg.Tools.Shell.WorkingDir)
 	if workspace == "" {
 		workspace = cwd
@@ -520,7 +533,7 @@ func spawnCommand(ctx context.Context, command string, cwd string, cfg *config.C
 
 	// 检查 blocked_commands
 	if err := checkBlockedCommands(command, cfg.Tools.Shell.BlockedCommands); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// 应用安全检查
@@ -528,12 +541,12 @@ func spawnCommand(ctx context.Context, command string, cwd string, cfg *config.C
 		var err error
 		command, err = security.FilterCommandForPathSafety(command, workspace)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 
 		allowLoopback := cfg.Security.WebUIAllowLocalServiceAccess && security.CurrentScopeAllowsLoopback(ctx, cfg.Security.WebUIAllowLocalServiceAccess)
 		if security.ContainsInternalURL(command, allowLoopback) {
-			return nil, fmt.Errorf("command contains URL targeting internal/private address")
+			return nil, "", fmt.Errorf("command contains URL targeting internal/private address")
 		}
 	}
 
@@ -551,6 +564,7 @@ func spawnCommand(ctx context.Context, command string, cwd string, cfg *config.C
 
 	var shellCmd string
 	var shellArgs []string
+	var tempScriptPath string
 
 	switch runtime.GOOS {
 	case "windows":
@@ -560,8 +574,22 @@ func spawnCommand(ctx context.Context, command string, cwd string, cfg *config.C
 		encodedCmd := encodePowerShellCommand(command)
 		shellArgs = []string{"-NoProfile", "-EncodedCommand", encodedCmd}
 	default:
+		// P0-fix: 将命令写入临时文件并用 bash 执行，避免 bash -c 的命令注入风险。
+		// 临时文件路径通过参数传递，不经过 shell 解释。
+		tmpFile, err := os.CreateTemp("", "neoray-cmd-*.sh")
+		if err != nil {
+			return nil, "", fmt.Errorf("create temp script: %w", err)
+		}
+		if _, err := tmpFile.WriteString(command); err != nil {
+			tmpFile.Close()
+			os.Remove(tmpFile.Name())
+			return nil, "", fmt.Errorf("write temp script: %w", err)
+		}
+		tmpFile.Close()
+		tempScriptPath = tmpFile.Name()
+
 		shellCmd = "bash"
-		shellArgs = []string{"-c", command}
+		shellArgs = []string{tempScriptPath}
 	}
 
 	cmd := exec.CommandContext(ctx, shellCmd, shellArgs...)
@@ -570,7 +598,7 @@ func spawnCommand(ctx context.Context, command string, cwd string, cfg *config.C
 	// Environment
 	cmd.Env = buildEnv()
 
-	return cmd, nil
+	return cmd, tempScriptPath, nil
 }
 
 // buildEnv builds environment variables for subprocess.

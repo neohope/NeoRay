@@ -134,7 +134,9 @@ func (o *orderedMap) add(key string) {
 	if o.order.Len() >= o.cap {
 		oldest := o.order.Front()
 		if oldest != nil {
-			delete(o.data, oldest.Value.(string))
+			if key, ok := oldest.Value.(string); ok {
+				delete(o.data, key)
+			}
 			o.order.Remove(oldest)
 		}
 	}
@@ -2342,7 +2344,10 @@ func (f *FeishuChannel) doAPIRequest(ctx context.Context, method, url string, bo
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
 
 	var apiResp feishuAPIResponse
-	_ = json.Unmarshal(respBody, &apiResp)
+	if err := json.Unmarshal(respBody, &apiResp); err != nil {
+		return fmt.Errorf("unmarshal feishu api response: %w (status: %d, body: %s)",
+			err, resp.StatusCode, truncateString(string(respBody), 500))
+	}
 
 	if resp.StatusCode != http.StatusOK || apiResp.Code != 0 {
 		return fmt.Errorf("feishu api error: %s (code: %d, status: %d, body: %s)",

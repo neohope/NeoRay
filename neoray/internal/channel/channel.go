@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"sync"
+	"time"
 
 	"neoray/internal/agent"
 	"neoray/internal/bus"
@@ -106,12 +107,15 @@ func (m *Manager) subscribeToBus() {
 		go func() {
 			for msg := range outChan {
 				if msg.ChannelID == "" || msg.ChannelID == chName {
-					ctx := context.Background()
+					// P1-fix: 添加超时 context，防止消息发送阻塞无限期。
+					// outChan 关闭时 goroutine 自动退出（range 循环结束）。
+					ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 					if err := channel.Send(ctx, *msg); err != nil {
 						logger.Error("Channel failed to send message",
 							logger.String("channel", chName),
 							logger.ErrorField(err))
 					}
+					cancel()
 				}
 			}
 		}()

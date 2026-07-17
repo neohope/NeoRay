@@ -236,18 +236,21 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 		encodedCmd := encodePowerShellCommand(finalCommand)
 		shellArgs = []string{"-NoProfile", "-EncodedCommand", encodedCmd}
 	default:
-		// P0-5: 使用 base64 编码传递命令，避免 bash -c 的命令注入风险。
-		// 直接传递给 bash -c 时，特殊字符（$()、反引号、分号等）会被解释。
-		// 编码后通过管道解码执行，确保原始命令不被 shell 二次解析。
+		// P0-fix: 使用 bash -s 从 stdin 读取命令，避免 bash -c 的命令注入风险。
+		// 命令通过 Stdin 管道传递，不经过 shell 解释，确保原始命令不被二次解析。
 		shellCmd = "bash"
-		encodedCmd := encodeBashCommand(finalCommand)
-		shellArgs = []string{"-c", encodedCmd}
+		shellArgs = []string{"-s"}
 	}
 
 	// 创建命令
 	cmd := exec.CommandContext(execCtx, shellCmd, shellArgs...)
 	cmd.Dir = t.workspace
 	cmd.Env = buildEnv()
+
+	// Unix: 通过 stdin 传递命令（bash -s 从 stdin 读取）
+	if runtime.GOOS != "windows" {
+		cmd.Stdin = strings.NewReader(finalCommand)
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -286,14 +289,6 @@ func encodePowerShellCommand(cmd string) string {
 		binary.LittleEndian.PutUint16(buf[i*2:], r)
 	}
 	return base64.StdEncoding.EncodeToString(buf)
-}
-
-// encodeBashCommand 将命令编码为 bash -c 安全执行的形式。
-// 使用 base64 管道解码，避免命令中的特殊字符被 shell 二次解释，
-// 与 Windows 的 encodePowerShellCommand 提供等效的注入防护。
-func encodeBashCommand(cmd string) string {
-	encoded := base64.StdEncoding.EncodeToString([]byte(cmd))
-	return fmt.Sprintf("echo '%s' | base64 -d | bash", encoded)
 }
 
 // checkBlockedCommands 检查命令是否匹配 blocked_commands 列表

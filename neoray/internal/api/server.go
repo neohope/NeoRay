@@ -562,7 +562,7 @@ func (c *Client) readPump() {
 		handleCtx, handleCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		done := make(chan struct{})
 		go func() {
-			c.handleMessage(message)
+			c.handleMessage(handleCtx, message)
 			close(done)
 		}()
 
@@ -623,7 +623,7 @@ func (c *Client) writePump() {
 }
 
 // handleMessage 处理客户端消息
-func (c *Client) handleMessage(data []byte) {
+func (c *Client) handleMessage(ctx context.Context, data []byte) {
 	var msg WebSocketMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
 		c.sendError("invalid_message", "Failed to parse message")
