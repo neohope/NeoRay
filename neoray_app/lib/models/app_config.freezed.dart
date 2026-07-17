@@ -22,6 +22,9 @@ AppConfig _$AppConfigFromJson(Map<String, dynamic> json) {
 mixin _$AppConfig {
   String get serverUrl => throw _privateConstructorUsedError;
   String get themeMode => throw _privateConstructorUsedError;
+  String get userId => throw _privateConstructorUsedError;
+  String get channelId => throw _privateConstructorUsedError;
+  String get apiKey => throw _privateConstructorUsedError;
 
   Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
   @JsonKey(ignore: true)
@@ -34,7 +37,12 @@ abstract class $AppConfigCopyWith<$Res> {
   factory $AppConfigCopyWith(AppConfig value, $Res Function(AppConfig) then) =
       _$AppConfigCopyWithImpl<$Res, AppConfig>;
   @useResult
-  $Res call({String serverUrl, String themeMode});
+  $Res call(
+      {String serverUrl,
+      String themeMode,
+      String userId,
+      String channelId,
+      String apiKey});
 }
 
 /// @nodoc
@@ -52,6 +60,9 @@ class _$AppConfigCopyWithImpl<$Res, $Val extends AppConfig>
   $Res call({
     Object? serverUrl = null,
     Object? themeMode = null,
+    Object? userId = null,
+    Object? channelId = null,
+    Object? apiKey = null,
   }) {
     return _then(_value.copyWith(
       serverUrl: null == serverUrl
@@ -61,6 +72,18 @@ class _$AppConfigCopyWithImpl<$Res, $Val extends AppConfig>
       themeMode: null == themeMode
           ? _value.themeMode
           : themeMode // ignore: cast_nullable_to_non_nullable
+              as String,
+      userId: null == userId
+          ? _value.userId
+          : userId // ignore: cast_nullable_to_non_nullable
+              as String,
+      channelId: null == channelId
+          ? _value.channelId
+          : channelId // ignore: cast_nullable_to_non_nullable
+              as String,
+      apiKey: null == apiKey
+          ? _value.apiKey
+          : apiKey // ignore: cast_nullable_to_non_nullable
               as String,
     ) as $Val);
   }
@@ -74,7 +97,12 @@ abstract class _$$AppConfigImplCopyWith<$Res>
       __$$AppConfigImplCopyWithImpl<$Res>;
   @override
   @useResult
-  $Res call({String serverUrl, String themeMode});
+  $Res call(
+      {String serverUrl,
+      String themeMode,
+      String userId,
+      String channelId,
+      String apiKey});
 }
 
 /// @nodoc
@@ -90,6 +118,9 @@ class __$$AppConfigImplCopyWithImpl<$Res>
   $Res call({
     Object? serverUrl = null,
     Object? themeMode = null,
+    Object? userId = null,
+    Object? channelId = null,
+    Object? apiKey = null,
   }) {
     return _then(_$AppConfigImpl(
       serverUrl: null == serverUrl
@@ -100,6 +131,18 @@ class __$$AppConfigImplCopyWithImpl<$Res>
           ? _value.themeMode
           : themeMode // ignore: cast_nullable_to_non_nullable
               as String,
+      userId: null == userId
+          ? _value.userId
+          : userId // ignore: cast_nullable_to_non_nullable
+              as String,
+      channelId: null == channelId
+          ? _value.channelId
+          : channelId // ignore: cast_nullable_to_non_nullable
+              as String,
+      apiKey: null == apiKey
+          ? _value.apiKey
+          : apiKey // ignore: cast_nullable_to_non_nullable
+              as String,
     ));
   }
 }
@@ -109,7 +152,10 @@ class __$$AppConfigImplCopyWithImpl<$Res>
 class _$AppConfigImpl implements _AppConfig {
   const _$AppConfigImpl(
       {this.serverUrl = AppDefaults.defaultServerUrl,
-      this.themeMode = AppDefaults.defaultThemeMode});
+      this.themeMode = AppDefaults.defaultThemeMode,
+      this.userId = '',
+      this.channelId = '',
+      this.apiKey = ''});
 
   factory _$AppConfigImpl.fromJson(Map<String, dynamic> json) =>
       _$$AppConfigImplFromJson(json);
@@ -120,10 +166,19 @@ class _$AppConfigImpl implements _AppConfig {
   @override
   @JsonKey()
   final String themeMode;
+  @override
+  @JsonKey()
+  final String userId;
+  @override
+  @JsonKey()
+  final String channelId;
+  @override
+  @JsonKey()
+  final String apiKey;
 
   @override
   String toString() {
-    return 'AppConfig(serverUrl: $serverUrl, themeMode: $themeMode)';
+    return 'AppConfig(serverUrl: $serverUrl, themeMode: $themeMode, userId: $userId, channelId: $channelId, apiKey: $apiKey)';
   }
 
   @override
@@ -134,12 +189,17 @@ class _$AppConfigImpl implements _AppConfig {
             (identical(other.serverUrl, serverUrl) ||
                 other.serverUrl == serverUrl) &&
             (identical(other.themeMode, themeMode) ||
-                other.themeMode == themeMode));
+                other.themeMode == themeMode) &&
+            (identical(other.userId, userId) || other.userId == userId) &&
+            (identical(other.channelId, channelId) ||
+                other.channelId == channelId) &&
+            (identical(other.apiKey, apiKey) || other.apiKey == apiKey));
   }
 
   @JsonKey(ignore: true)
   @override
-  int get hashCode => Object.hash(runtimeType, serverUrl, themeMode);
+  int get hashCode =>
+      Object.hash(runtimeType, serverUrl, themeMode, userId, channelId, apiKey);
 
   @JsonKey(ignore: true)
   @override
@@ -156,8 +216,12 @@ class _$AppConfigImpl implements _AppConfig {
 }
 
 abstract class _AppConfig implements AppConfig {
-  const factory _AppConfig({final String serverUrl, final String themeMode}) =
-      _$AppConfigImpl;
+  const factory _AppConfig(
+      {final String serverUrl,
+      final String themeMode,
+      final String userId,
+      final String channelId,
+      final String apiKey}) = _$AppConfigImpl;
 
   factory _AppConfig.fromJson(Map<String, dynamic> json) =
       _$AppConfigImpl.fromJson;
@@ -166,6 +230,12 @@ abstract class _AppConfig implements AppConfig {
   String get serverUrl;
   @override
   String get themeMode;
+  @override
+  String get userId;
+  @override
+  String get channelId;
+  @override
+  String get apiKey;
   @override
   @JsonKey(ignore: true)
   _$$AppConfigImplCopyWith<_$AppConfigImpl> get copyWith =>

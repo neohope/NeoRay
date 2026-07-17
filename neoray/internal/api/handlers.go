@@ -246,7 +246,7 @@ func (c *Client) handleCreateSession(payload interface{}) {
 		"session_id": sess.ID,
 		"channel_id": sess.ChannelID,
 		"user_id":    sess.UserID,
-		"name":       sess.Title,
+		"title":      sess.Title,
 		"created_at": sess.CreatedAt,
 	})
 }
@@ -290,7 +290,7 @@ func (c *Client) handleJoinSession(payload interface{}) {
 		"session_id": sess.ID,
 		"channel_id": sess.ChannelID,
 		"user_id":    sess.UserID,
-		"name":       sess.Title,
+		"title":      sess.Title,
 		"messages":   sess.Messages,
 	})
 }
@@ -381,7 +381,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 				"id":            sess.ID,
 				"channel_id":    sess.ChannelID,
 				"user_id":       sess.UserID,
-				"name":          sess.Title,
+				"title":         sess.Title,
 				"created_at":    sess.CreatedAt,
 				"updated_at":    sess.UpdatedAt,
 				"message_count": len(sess.Messages),
@@ -435,7 +435,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			"id":         sess.ID,
 			"channel_id": sess.ChannelID,
 			"user_id":    sess.UserID,
-			"name":       sess.Title,
+			"title":      sess.Title,
 			"created_at": sess.CreatedAt,
 		})
 
@@ -524,7 +524,8 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		// 使用请求 context 以便检测客户端断开连接
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 		defer cancel()
 
 		if req.Stream {
@@ -543,6 +544,14 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			flusher, ok := w.(http.Flusher)
 			if ok {
 				for chunk := range streamChan {
+					// 检测客户端是否已断开
+					select {
+					case <-ctx.Done():
+						logger.Info("SSE client disconnected, stopping stream",
+							logger.String("session_id", sessionID))
+						return
+					default:
+					}
 					var eventData []byte
 					var marshalErr error
 					switch chunk.Type {

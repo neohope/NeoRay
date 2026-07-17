@@ -23,23 +23,32 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
   late TextEditingController _timeoutController;
   late TextEditingController _appIdController;
   late TextEditingController _appSecretController;
+  late TextEditingController _serverUrlController;
+  late TextEditingController _clientApiKeyController;
 
   // 当前选中的 provider 名称
   String _selectedProvider = AppDefaults.defaultLLMProvider;
 
+  // 当前 temperature 值（滑块需要状态变量才能保存）
+  double _temperature = AppDefaults.defaultTemperature;
+
+  // 标记是否已从服务端同步过，避免 build 中重复覆盖用户输入
+  bool _synced = false;
+
   @override
   void initState() {
     super.initState();
-    // 用空值初始化，等服务端配置加载后再填充
     _apiKeyController = TextEditingController();
     _apiUrlController = TextEditingController();
     _maxTokensController = TextEditingController();
     _timeoutController = TextEditingController();
     _appIdController = TextEditingController();
     _appSecretController = TextEditingController();
+    _serverUrlController = TextEditingController();
+    _clientApiKeyController = TextEditingController();
   }
 
-  /// 从服务端配置填充控制器
+  /// 从服务端配置填充控制器（仅首次或切换 provider 时调用）
   void _syncControllersFromServer(ServerConfig config) {
     final provider = config.llm.providers[_selectedProvider];
     if (provider != null) {
@@ -47,9 +56,11 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
       _apiUrlController.text = provider.apiUrl;
       _maxTokensController.text = provider.maxTokens.toString();
       _timeoutController.text = provider.timeout.toString();
+      _temperature = provider.temperature;
     }
     _appIdController.text = config.channels.feishu.appId;
     _appSecretController.text = config.channels.feishu.appSecret;
+    _synced = true;
   }
 
   @override
@@ -60,6 +71,8 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
     _timeoutController.dispose();
     _appIdController.dispose();
     _appSecretController.dispose();
+    _serverUrlController.dispose();
+    _clientApiKeyController.dispose();
     super.dispose();
   }
 
@@ -90,7 +103,13 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
                 ),
               ),
               data: (config) {
-                _syncControllersFromServer(config);
+                if (!_synced) {
+                  _syncControllersFromServer(config);
+                  // 同步客户端配置
+                  final appConfig = ref.read(appConfigProvider);
+                  _serverUrlController.text = appConfig.serverUrl;
+                  _clientApiKeyController.text = appConfig.apiKey;
+                }
                 return _buildContent(context, config);
               },
             ),
@@ -253,6 +272,8 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  _buildConnectionSection(context),
+                  const SizedBox(height: AppDimensions.spacing2Xl),
                   _buildLLMSection(context, config),
                   const SizedBox(height: AppDimensions.spacing2Xl),
                   _buildChannelSection(context, config),
@@ -287,12 +308,43 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
     );
   }
 
+  Widget _buildConnectionSection(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppDimensions.cardPadding),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '连接配置',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: AppDimensions.spacingLg),
+            _buildTextField(
+              label: '服务器地址',
+              controller: _serverUrlController,
+              onChanged: (value) {},
+            ),
+            const SizedBox(height: AppDimensions.spacingLg),
+            _buildTextField(
+              label: 'API Key (认证密钥)',
+              controller: _clientApiKeyController,
+              obscureText: true,
+              onChanged: (value) {},
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildLLMSection(BuildContext context, ServerConfig config) {
     final providerNames = config.llm.providers.keys.toList();
     if (!providerNames.contains(_selectedProvider) && providerNames.isNotEmpty) {
       _selectedProvider = providerNames.first;
     }
-    final currentProvider = config.llm.providers[_selectedProvider];
 
     return Card(
       child: Padding(
@@ -322,6 +374,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
                       _apiUrlController.text = p.apiUrl;
                       _maxTokensController.text = p.maxTokens.toString();
                       _timeoutController.text = p.timeout.toString();
+                      _temperature = p.temperature;
                     }
                   });
                 }
@@ -349,9 +402,11 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
             const SizedBox(height: AppDimensions.spacingLg),
             _buildSliderField(
               label: AppStrings.configTemperature,
-              value: currentProvider?.temperature ?? AppDefaults.defaultTemperature,
+              value: _temperature,
               onChanged: (value) {
-                // 保存时统一提交
+                setState(() {
+                  _temperature = value;
+                });
               },
             ),
             const SizedBox(height: AppDimensions.spacingLg),
@@ -469,6 +524,11 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
           child: ElevatedButton(
             onPressed: () async {
               try {
+                // 保存客户端配置（服务器地址 + API Key）
+                final configNotifier = ref.read(appConfigProvider.notifier);
+                configNotifier.updateServerUrl(_serverUrlController.text.trim());
+                configNotifier.updateApiKey(_clientApiKeyController.text.trim());
+
                 // 收集当前编辑的 LLM 配置
                 final maxTokens = int.tryParse(_maxTokensController.text) ?? AppDefaults.defaultMaxTokens;
                 final timeout = double.tryParse(_timeoutController.text) ?? AppDefaults.defaultTimeoutSec.toDouble();
@@ -480,6 +540,7 @@ class _ConfigPageState extends ConsumerState<ConfigPage> {
                     'api_url': _apiUrlController.text,
                     'max_tokens': maxTokens,
                     'timeout': timeout,
+                    'temperature': _temperature,
                   },
                 );
 

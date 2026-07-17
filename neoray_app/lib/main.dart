@@ -72,6 +72,9 @@ class _MyAppState extends ConsumerState<MyApp> {
         currentSession.completeStreaming();
         isStreaming.state = false;
         streamingContent.state = '';
+        // 统一清理 reasoning 状态（reasoningEnd 不再重置，以便流式期间保留显示）
+        isReasoning.state = false;
+        reasoningContent.state = '';
         break;
 
       case WebSocketMessageType.reasoningStart:
@@ -86,18 +89,20 @@ class _MyAppState extends ConsumerState<MyApp> {
         break;
 
       case WebSocketMessageType.reasoningEnd:
-        isReasoning.state = false;
-        reasoningContent.state = '';
+        // reasoning 结束但不重置 UI 状态 — 等 chatEnd 统一清理，
+        // 这样 content 流式期间仍能看到 reasoning 内容
         currentSession.completeReasoning();
         break;
 
       case WebSocketMessageType.error:
         isStreaming.state = false;
+        isReasoning.state = false;
         final errorMsg = event.data['message'] as String? ??
             event.data['error'] as String? ??
             'An unknown error occurred';
         logger.e('Server error: $errorMsg');
         streamingContent.state = '';
+        reasoningContent.state = '';
         ref.read(globalErrorProvider.notifier).state = errorMsg;
         break;
 

@@ -10,12 +10,18 @@ _$AppConfigImpl _$$AppConfigImplFromJson(Map<String, dynamic> json) =>
     _$AppConfigImpl(
       serverUrl: json['serverUrl'] as String? ?? AppDefaults.defaultServerUrl,
       themeMode: json['themeMode'] as String? ?? AppDefaults.defaultThemeMode,
+      userId: json['userId'] as String? ?? '',
+      channelId: json['channelId'] as String? ?? '',
+      apiKey: json['apiKey'] as String? ?? '',
     );
 
 Map<String, dynamic> _$$AppConfigImplToJson(_$AppConfigImpl instance) =>
     <String, dynamic>{
       'serverUrl': instance.serverUrl,
       'themeMode': instance.themeMode,
+      'userId': instance.userId,
+      'channelId': instance.channelId,
+      'apiKey': instance.apiKey,
     };
 
 _$ServerConfigImpl _$$ServerConfigImplFromJson(Map<String, dynamic> json) =>

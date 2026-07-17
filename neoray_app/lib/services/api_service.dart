@@ -15,14 +15,27 @@ class ApiService {
   final Duration timeout;
   final String channelId;
   final String userId;
+  final String apiKey;
 
   ApiService({
     required this.baseUrl,
     required this.channelId,
     required this.userId,
+    this.apiKey = '',
     http.Client? httpClient,
     this.timeout = const Duration(seconds: AppTimings.apiTimeoutSec),
   }) : _httpClient = httpClient ?? http.Client();
+
+  /// 构建请求头，包含认证信息
+  Map<String, String> get _authHeaders {
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+    if (apiKey.isNotEmpty) {
+      headers['X-Api-Key'] = apiKey;
+    }
+    return headers;
+  }
 
   Uri _buildUri(String path, [Map<String, String>? queryParams]) {
     return Uri.parse('$baseUrl$path').replace(queryParameters: queryParams);
@@ -102,7 +115,7 @@ class ApiService {
       final response = await _httpClient
           .post(
             _buildUri('/api/sessions'),
-            headers: {'Content-Type': 'application/json'},
+            headers: _authHeaders,
             body: jsonEncode({
               'channel_id': channelId ?? this.channelId,
               'user_id': userId ?? this.userId,
@@ -139,7 +152,7 @@ class ApiService {
       final response = await _httpClient
           .post(
             _buildUri('/api/sessions/$sessionId'),
-            headers: {'Content-Type': 'application/json'},
+            headers: _authHeaders,
             body: jsonEncode({
               'channel_id': channelId ?? this.channelId,
               'user_id': userId ?? this.userId,
@@ -182,7 +195,7 @@ class ApiService {
       final response = await _httpClient
           .put(
             _buildUri('/api/config'),
-            headers: {'Content-Type': 'application/json'},
+            headers: _authHeaders,
             body: jsonEncode(updates),
           )
           .timeout(timeout, onTimeout: () => throw TimeoutException('请求超时'));

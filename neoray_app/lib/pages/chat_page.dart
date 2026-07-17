@@ -94,8 +94,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _createNewChat() async {
     try {
-      await ref.read(sessionListProvider.notifier).createSession();
-      ref.read(currentSessionProvider.notifier).newSession();
+      final session = await ref.read(sessionListProvider.notifier).createSession();
+      if (session != null) {
+        ref.read(currentSessionProvider.notifier).setSession(session);
+      } else {
+        // Fallback: 服务端未返回 session 时创建本地 session
+        ref.read(currentSessionProvider.notifier).newSession();
+      }
       _messageController.clear();
     } catch (e) {
       logger.e('创建会话失败', error: e);
@@ -273,7 +278,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               session.channelId,
               session.userId,
               session.id,
-              isReasoning ? reasoningContent : null,
+              reasoningContent.isNotEmpty ? reasoningContent : null,
               false,
             ),
             isStreaming: isStreaming,

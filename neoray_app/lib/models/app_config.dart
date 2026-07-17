@@ -11,6 +11,9 @@ class AppConfig with _$AppConfig {
   const factory AppConfig({
     @Default(AppDefaults.defaultServerUrl) String serverUrl,
     @Default(AppDefaults.defaultThemeMode) String themeMode,
+    @Default('') String userId,
+    @Default('') String channelId,
+    @Default('') String apiKey,
   }) = _AppConfig;
 
   factory AppConfig.fromJson(Map<String, dynamic> json) =>

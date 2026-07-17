@@ -9,16 +9,21 @@ import '../models/message.dart';
 import '../models/app_config.dart';
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
-import '../constants/constants.dart';
 import '../utils/logger.dart';
 
 const _uuid = Uuid();
 
-// Channel ID Provider - 运行时生成唯一 ID，生产环境应替换为认证系统提供的标识
-final channelIdProvider = StateProvider<String>((ref) => _uuid.v4());
+// Channel ID Provider - 从配置持久化，首次启动时生成
+final channelIdProvider = StateProvider<String>((ref) {
+  final config = ref.watch(appConfigProvider);
+  return config.channelId.isNotEmpty ? config.channelId : _uuid.v4();
+});
 
-// User ID Provider - 运行时生成唯一 ID，生产环境应替换为认证系统提供的标识
-final userIdProvider = StateProvider<String>((ref) => _uuid.v4());
+// User ID Provider - 从配置持久化，首次启动时生成
+final userIdProvider = StateProvider<String>((ref) {
+  final config = ref.watch(appConfigProvider);
+  return config.userId.isNotEmpty ? config.userId : _uuid.v4();
+});
 
 // API Service Provider - 首先获取配置中的服务器地址
 final apiServiceProvider = Provider<ApiService>((ref) {
@@ -29,6 +34,7 @@ final apiServiceProvider = Provider<ApiService>((ref) {
     baseUrl: config.serverUrl,
     channelId: channelId,
     userId: userId,
+    apiKey: config.apiKey,
   );
 });
 
@@ -71,6 +77,14 @@ class AppConfigNotifier extends StateNotifier<AppConfig> {
         final map = TomlDocument.parse(tomlStr).toMap();
         state = AppConfig.fromJson(map);
       }
+      // 首次启动或配置中无 userId/channelId 时生成并持久化
+      if (state.userId.isEmpty || state.channelId.isEmpty) {
+        state = state.copyWith(
+          userId: state.userId.isEmpty ? _uuid.v4() : state.userId,
+          channelId: state.channelId.isEmpty ? _uuid.v4() : state.channelId,
+        );
+        persist();
+      }
     } catch (e) {
       logger.e('加载配置失败', error: e);
     } finally {
@@ -90,10 +104,16 @@ class AppConfigNotifier extends StateNotifier<AppConfig> {
 
   void updateServerUrl(String url) {
     state = state.copyWith(serverUrl: url);
+    persist();
   }
 
   void updateThemeMode(String mode) {
     state = state.copyWith(themeMode: mode);
+    persist();
+  }
+
+  void updateApiKey(String key) {
+    state = state.copyWith(apiKey: key);
     persist();
   }
 }
@@ -189,14 +209,16 @@ class SessionListNotifier extends StateNotifier<AsyncValue<List<Session>>> {
     }
   }
 
-  Future<void> createSession({String? title}) async {
+  Future<Session?> createSession({String? title}) async {
     try {
       final channelId = _ref.read(channelIdProvider);
       final userId = _ref.read(userIdProvider);
-      await _apiService.createSession(channelId: channelId, userId: userId, title: title);
+      final session = await _apiService.createSession(channelId: channelId, userId: userId, title: title);
       await loadSessions();
+      return session;
     } catch (e, stackTrace) {
       state = AsyncValue.error(e, stackTrace);
+      return null;
     }
   }
 
@@ -296,22 +318,22 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
   // 仅在流式结束时一次性追加最终消息，避免每 chunk 都 O(n) 拷贝列表
   final StringBuffer _streamBuffer = StringBuffer();
   final StringBuffer _reasoningBuffer = StringBuffer();
+  // reasoning 先于 content 到达，暂存直到 content 流结束时合并为一条消息
+  String _completedReasoningContent = '';
 
   void addStreamingChunk(String content) {
     final session = state;
     if (session == null) return;
-    // 仅缓冲内容，不更新 messages 列表 — O(1)
     _streamBuffer.write(content);
   }
 
   void addReasoningChunk(String content) {
     final session = state;
     if (session == null) return;
-    // 仅缓冲内容，不更新 messages 列表 — O(1)
     _reasoningBuffer.write(content);
   }
 
-  /// 流式结束时将最终消息追加到列表 — 仅调用一次，O(n) 但 n=1
+  /// 流式结束时将最终消息追加到列表（包含 reasoning + content）
   void completeStreaming() {
     final session = state;
     if (session == null) return;
@@ -319,29 +341,26 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
     final content = _streamBuffer.toString();
     _streamBuffer.clear();
 
-    if (content.isNotEmpty) {
+    final reasoning = _completedReasoningContent;
+    _completedReasoningContent = '';
+
+    if (content.isNotEmpty || reasoning.isNotEmpty) {
       final channelId = _ref.read(channelIdProvider);
       final userId = _ref.read(userIdProvider);
       state = session.copyWith(
-        messages: [...session.messages, Message.assistant(content, null, channelId, userId, session.id)],
+        messages: [...session.messages, Message.assistant(
+          content, null, channelId, userId, session.id,
+          reasoning.isNotEmpty ? reasoning : null,
+          reasoning.isNotEmpty,
+        )],
       );
     }
   }
 
+  /// reasoning 流结束 — 暂存内容，不创建消息（等 completeStreaming 合并）
   void completeReasoning() {
-    final session = state;
-    if (session == null) return;
-
-    final reasoningContent = _reasoningBuffer.toString();
+    _completedReasoningContent = _reasoningBuffer.toString();
     _reasoningBuffer.clear();
-
-    if (reasoningContent.isNotEmpty) {
-      final channelId = _ref.read(channelIdProvider);
-      final userId = _ref.read(userIdProvider);
-      state = session.copyWith(
-        messages: [...session.messages, Message.assistant('', null, channelId, userId, session.id, reasoningContent, true)],
-      );
-    }
   }
 
   void addMessage(Message message) {
@@ -351,6 +370,11 @@ class CurrentSessionNotifier extends StateNotifier<Session?> {
 
   void clearSession() {
     state = null;
+  }
+
+  /// 直接设置当前会话（用于新建会话后绑定服务端返回的 session）
+  void setSession(Session session) {
+    state = session;
   }
 
   void renameTitle(String newTitle) {
