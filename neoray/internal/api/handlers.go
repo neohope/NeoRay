@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"neoray/internal/config"
 	"neoray/internal/logger"
 	"neoray/internal/security"
 	"neoray/internal/session"
@@ -740,7 +741,9 @@ func (s *Server) isAdminRequest(r *http.Request) bool {
 	return subtle.ConstantTimeCompare([]byte(token), []byte(adminToken)) == 1
 }
 
-// handleConfig 处理配置读取和更新
+// handleConfig 处理配置读取和更新。
+// 注意：PUT 修改仅影响运行时内存配置，不会持久化到配置文件。
+// 进程重启后所有通过 API 修改的配置将恢复为文件中的值。
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -767,20 +770,29 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		// 审计日志：记录变更的字段
 		var changedFields []string
 
-		// P0-3: 获取写锁保护配置并发修改
-		s.cfgMu.Lock()
-		defer s.cfgMu.Unlock()
+		// Copy-on-write：读取当前配置快照，修改副本，最后原子替换指针。
+		// 避免原地修改 s.cfg 导致与并发读取方的 data race。
+		s.cfgMu.RLock()
+		newCfg := *s.cfg
+		s.cfgMu.RUnlock()
+
+		// 深拷贝 Providers map，防止写入共享 map
+		newProviders := make(map[string]config.ProviderConfig, len(newCfg.LLM.Providers))
+		for k, v := range newCfg.LLM.Providers {
+			newProviders[k] = v
+		}
+		newCfg.LLM.Providers = newProviders
 
 		// 更新 LLM 配置
 		if llm, ok := req["llm"].(map[string]interface{}); ok {
 			if dp, ok := llm["default_provider"].(string); ok {
 				changedFields = append(changedFields, "llm.default_provider")
-				s.cfg.LLM.DefaultProvider = dp
+				newCfg.LLM.DefaultProvider = dp
 			}
 			if providers, ok := llm["providers"].(map[string]interface{}); ok {
 				for name, p := range providers {
 					if pc, ok := p.(map[string]interface{}); ok {
-						existing := s.cfg.LLM.Providers[name]
+						existing := newCfg.LLM.Providers[name]
 						if v, ok := pc["api_key"].(string); ok && v != "" && !strings.HasPrefix(v, "***") {
 							existing.APIKey = v
 							changedFields = append(changedFields, "llm.providers."+name+".api_key")
@@ -814,7 +826,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 							existing.ReasoningEffort = v
 							changedFields = append(changedFields, "llm.providers."+name+".reasoning_effort")
 						}
-						s.cfg.LLM.Providers[name] = existing
+						newCfg.LLM.Providers[name] = existing
 					}
 				}
 			}
@@ -824,15 +836,15 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		if channels, ok := req["channels"].(map[string]interface{}); ok {
 			if feishu, ok := channels["feishu"].(map[string]interface{}); ok {
 				if v, ok := feishu["enabled"].(bool); ok {
-					s.cfg.Channels.Feishu.Enabled = v
+					newCfg.Channels.Feishu.Enabled = v
 					changedFields = append(changedFields, "channels.feishu.enabled")
 				}
 				if v, ok := feishu["app_id"].(string); ok {
-					s.cfg.Channels.Feishu.AppID = v
+					newCfg.Channels.Feishu.AppID = v
 					changedFields = append(changedFields, "channels.feishu.app_id")
 				}
 				if v, ok := feishu["app_secret"].(string); ok && v != "" && !strings.HasPrefix(v, "***") {
-					s.cfg.Channels.Feishu.AppSecret = v
+					newCfg.Channels.Feishu.AppSecret = v
 					changedFields = append(changedFields, "channels.feishu.app_secret")
 				}
 			}
@@ -842,19 +854,19 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		if tools, ok := req["tools"].(map[string]interface{}); ok {
 			if shell, ok := tools["shell"].(map[string]interface{}); ok {
 				if v, ok := shell["enabled"].(bool); ok {
-					s.cfg.Tools.Shell.Enabled = v
+					newCfg.Tools.Shell.Enabled = v
 					changedFields = append(changedFields, "tools.shell.enabled")
 				}
 			}
 			if web, ok := tools["web"].(map[string]interface{}); ok {
 				if v, ok := web["enabled"].(bool); ok {
-					s.cfg.Tools.Web.Enabled = v
+					newCfg.Tools.Web.Enabled = v
 					changedFields = append(changedFields, "tools.web.enabled")
 				}
 			}
 			if cron, ok := tools["cron"].(map[string]interface{}); ok {
 				if v, ok := cron["enabled"].(bool); ok {
-					s.cfg.Tools.Cron.Enabled = v
+					newCfg.Tools.Cron.Enabled = v
 					changedFields = append(changedFields, "tools.cron.enabled")
 				}
 			}
@@ -873,6 +885,11 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 				logger.String("client_ip", clientIP),
 			)
 		}
+
+		// 原子替换配置指针，读取方通过旧指针继续访问旧配置，无竞争
+		s.cfgMu.Lock()
+		s.cfg = &newCfg
+		s.cfgMu.Unlock()
 
 		// 返回更新后的配置
 		writeJSON(w,s.buildConfigResponse())

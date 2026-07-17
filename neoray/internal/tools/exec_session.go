@@ -30,7 +30,8 @@ const (
 	MaxMaxOutput       = 50000
 	MaxSessions        = 8
 	IdleTimeoutSeconds = 1800
-	MaxChunks          = 4096 // max chunks per exec session to prevent unbounded memory growth
+	MaxChunks          = 4096   // max chunks per exec session to prevent unbounded memory growth
+	MaxMergedChunkSize = 1 << 20 // 1 MiB — cap for merged chunk to prevent OOM
 )
 
 // SessionPoll represents a poll result from an exec session
@@ -194,9 +195,12 @@ func (s *ExecSession) readStream(stream io.ReadCloser, prefix string) {
 			output = line + "\n"
 		}
 		s.mu.Lock()
-		// 防止 chunks 无限增长：达到上限时合并为单个 chunk
+		// 防止 chunks 无限增长：达到上限时合并为单个 chunk，并截断到 MaxMergedChunkSize
 		if len(s.chunks) >= MaxChunks {
 			merged := stringsJoin(s.chunks, "")
+			if len(merged) > MaxMergedChunkSize {
+				merged = merged[len(merged)-MaxMergedChunkSize:]
+			}
 			s.chunks = []string{merged}
 		}
 		s.chunks = append(s.chunks, output)

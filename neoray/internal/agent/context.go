@@ -164,6 +164,9 @@ func (b *ContextBuilder) truncateWithSummary(messages []session.Message) []sessi
 
 	// 保留最早的系统上下文 + 最近的消息
 	keepCount := maxMessages - 2 // 留出 2 条空间给摘要
+	if keepCount < 1 {
+		keepCount = 1
+	}
 
 	// 取前 2 条（可能包含系统上下文介绍）
 	result := make([]session.Message, 0, maxMessages)

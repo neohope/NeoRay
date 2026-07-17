@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -300,6 +301,11 @@ func NewPreResolvedDialer(urlStr string, allowLoopback bool, timeout time.Durati
 		}
 	}
 
+	// Validate port early — fail fast instead of silently connecting to wrong port.
+	if _, err := parsePort(port); err != nil {
+		return nil, nil, fmt.Errorf("invalid port in URL: %w", err)
+	}
+
 	return addrs, &PreResolvedDialer{
 		addrs:   addrs,
 		port:    port,
@@ -316,14 +322,19 @@ type PreResolvedDialer struct {
 
 // DialContext implements a dialer that connects to pre-resolved IPs without re-resolving DNS.
 func (d *PreResolvedDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	port, err := parsePort(d.port)
+	if err != nil {
+		return nil, fmt.Errorf("invalid port in pre-resolved dialer: %w", err)
+	}
+
 	var dialer net.Dialer
 	if d.timeout > 0 {
 		dialer.Timeout = d.timeout
 	}
 
 	var lastErr error
-	for _, addr := range d.addrs {
-		tcpAddr := net.TCPAddrFromAddrPort(netip.AddrPortFrom(addr, mustParsePort(d.port)))
+	for _, a := range d.addrs {
+		tcpAddr := net.TCPAddrFromAddrPort(netip.AddrPortFrom(a, port))
 		conn, err := dialer.DialContext(ctx, "tcp", tcpAddr.String())
 		if err == nil {
 			return conn, nil
@@ -337,13 +348,15 @@ func (d *PreResolvedDialer) DialContext(ctx context.Context, network, addr strin
 	return nil, fmt.Errorf("no addresses to dial")
 }
 
-// mustParsePort parses a port string to uint16, panicking on failure.
-func mustParsePort(s string) uint16 {
-	var port uint16
-	for _, c := range s {
-		if c >= '0' && c <= '9' {
-			port = port*10 + uint16(c-'0')
-		}
+// parsePort parses a port string to uint16 with proper validation.
+// Returns an error for non-numeric, empty, or out-of-range values.
+func parsePort(s string) (uint16, error) {
+	if s == "" {
+		return 0, fmt.Errorf("empty port string")
 	}
-	return port
+	n, err := strconv.ParseUint(s, 10, 16)
+	if err != nil {
+		return 0, fmt.Errorf("invalid port %q: %w", s, err)
+	}
+	return uint16(n), nil
 }

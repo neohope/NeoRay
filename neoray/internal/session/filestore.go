@@ -90,16 +90,18 @@ func (s *FileStore) ListByChannelAndUser(channelID, userID string) ([]*Session, 
 	return list, nil
 }
 
-// Save 保存会话
+// Save 保存会话。保存深拷贝，防止调用方绕过锁直接修改内部状态。
 func (s *FileStore) Save(sess *Session) error {
+	cp := sess.DeepCopy()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// 更新内存中的会话
-	s.sessions[sess.ID] = sess
+	// 更新内存中的会话（深拷贝，外部修改不影响存储）
+	s.sessions[cp.ID] = cp
 
 	// 保存到文件
-	return s.saveToFile(sess)
+	return s.saveToFile(cp)
 }
 
 // Delete 删除会话

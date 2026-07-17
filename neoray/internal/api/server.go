@@ -336,7 +336,8 @@ func (s *Server) publishToBus(msg *bus.InboundMessage) error {
 	return s.msgBus.PublishInbound(msg)
 }
 
-// getConfig 返回当前配置的安全副本引用（读锁保护）
+// getConfig 返回当前配置指针。使用 copy-on-write 模式：
+// handleConfig 替换整个指针而非原地修改字段，因此读取方无需深拷贝。
 func (s *Server) getConfig() *config.Config {
 	s.cfgMu.RLock()
 	defer s.cfgMu.RUnlock()
