@@ -211,11 +211,11 @@ func (s *ExecSession) readStream(stream io.ReadCloser, prefix string) {
 // write writes to the session's stdin
 func (s *ExecSession) write(chars string) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.returnCode != nil {
-		s.mu.Unlock()
 		return fmt.Errorf("session has already exited")
 	}
-	s.mu.Unlock()
 
 	_, err := s.stdin.Write([]byte(chars))
 	if err != nil {
@@ -557,8 +557,9 @@ func spawnCommand(ctx context.Context, command string, cwd string, cfg *config.C
 		var err error
 		command, err = registry.WrapCommand(cfg.Tools.Shell.Sandbox, command, workspace, cwd)
 		if err != nil {
-			logger.Debug("Sandbox wrap failed, falling back to normal execution", logger.ErrorField(err))
-			// 沙盒失败时回退到正常执行
+			// P0-fix: 沙盒配置为必需时，失败应拒绝执行而非回退到非沙盒模式。
+			// 回退会静默降低安全保护级别。
+			return nil, "", fmt.Errorf("sandbox '%s' is configured but failed to initialize: %v. Refusing to execute without sandbox", cfg.Tools.Shell.Sandbox, err)
 		}
 	}
 

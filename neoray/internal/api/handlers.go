@@ -534,6 +534,11 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
 
+			// P1-fix: 延长 SSE 连接的写超时，防止 WriteTimeout 截断长流式响应。
+			// 写超时由 handler 的 context（5 分钟）控制。
+			rc := http.NewResponseController(w)
+			_ = rc.SetWriteDeadline(time.Now().Add(6 * time.Minute))
+
 			streamChan, err := s.agent.ChatStream(ctx, sess, req.Message)
 			if err != nil {
 				logger.Error("REST chat stream failed", logger.ErrorField(err))

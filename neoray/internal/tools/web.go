@@ -657,18 +657,34 @@ func (t *WebFetchTool) fetchJina(ctx context.Context, urlStr string, maxChars in
 }
 
 func (t *WebFetchTool) fetchReadability(ctx context.Context, urlStr string, extractMode string, maxChars int) *WebFetchResult {
-	// Create a client with redirect validation
+	allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(ctx, t.allowLocalService)
+
+	// P0-fix: Use pre-resolved dialer for the initial request to eliminate DNS rebinding TOCTOU.
+	// ValidateURLTarget resolves DNS once; PreResolvedDialer connects to those exact IPs.
+	_, initialDialer, err := security.NewPreResolvedDialer(urlStr, allowLoopback, readabilityTimeout)
+	if err != nil {
+		return &WebFetchResult{
+			URL:   urlStr,
+			Error: fmt.Sprintf("URL validation failed: %v", err),
+		}
+	}
+
+	// P0-fix: Create transport with pre-resolved dialer, then wire up redirect validation.
+	// The redirect callback updates the transport's dialer to the new pre-resolved IP
+	// before the HTTP client follows the redirect, preventing DNS rebinding.
+	safeTransport := &http.Transport{DialContext: initialDialer.DialContext}
 	client := &http.Client{
-		Timeout: readabilityTimeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Validate each redirect URL
-			allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(ctx, t.allowLocalService)
-			valid, errMsg, _ := security.ValidateURLTarget(req.URL.String(), allowLoopback)
-			if !valid {
-				return fmt.Errorf("redirect blocked: %s", errMsg)
-			}
-			return nil
-		},
+		Timeout:   readabilityTimeout,
+		Transport: safeTransport,
+	}
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(ctx, t.allowLocalService)
+		_, redirectDialer, dialErr := security.NewPreResolvedDialer(req.URL.String(), allowLoopback, readabilityTimeout)
+		if dialErr != nil {
+			return fmt.Errorf("redirect blocked: %v", dialErr)
+		}
+		safeTransport.DialContext = redirectDialer.DialContext
+		return nil
 	}
 
 	req, err := http.NewRequest("GET", urlStr, nil)
@@ -689,10 +705,9 @@ func (t *WebFetchTool) fetchReadability(ctx context.Context, urlStr string, extr
 	}
 	defer resp.Body.Close()
 
-	// Validate the final URL after all redirects
+	// Final validation of the resolved URL after all redirects
 	finalURL := resp.Request.URL.String()
 	if finalURL != urlStr {
-		allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(ctx, t.allowLocalService)
 		valid, errMsg, _ := security.ValidateURLTarget(finalURL, allowLoopback)
 		if !valid {
 			return &WebFetchResult{

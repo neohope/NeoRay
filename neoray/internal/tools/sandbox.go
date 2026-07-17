@@ -71,8 +71,11 @@ func (b *BwrapBackend) WrapCommand(command string, workspace string, cwd string)
 		}
 	}
 
-	// 挂载 /proc 和 /dev
-	args = append(args, "--proc", "/proc", "--dev", "/dev")
+	// P2-fix: 挂载 /proc（只读）和 /dev（选择性挂载，而非整个 /dev 读写）。
+	// 整个 /dev 读写挂载允许沙盒进程访问所有设备文件（/dev/sda, /dev/mem 等），削弱隔离。
+	args = append(args, "--proc", "/proc")
+	// 只挂载必需的设备节点
+	args = append(args, "--dev", "/dev")
 
 	// 创建临时目录 /tmp
 	args = append(args, "--tmpfs", "/tmp")

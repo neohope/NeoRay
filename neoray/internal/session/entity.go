@@ -174,6 +174,25 @@ func (s *Session) Clear() {
 	s.UpdatedAt = time.Now()
 }
 
+// DeepCopy 返回 Session 的深拷贝，防止调用方绕过锁直接修改内部状态。
+func (s *Session) DeepCopy() *Session {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	cp := *s
+	cp.Messages = make([]Message, len(s.Messages))
+	copy(cp.Messages, s.Messages)
+
+	if s.Metadata != nil {
+		cp.Metadata = make(map[string]any, len(s.Metadata))
+		for k, v := range s.Metadata {
+			cp.Metadata[k] = v
+		}
+	}
+
+	return &cp
+}
+
 // generateID 生成唯一 ID
 func generateID() string {
 	b := make([]byte, 16)

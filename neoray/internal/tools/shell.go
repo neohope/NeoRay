@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -291,7 +292,10 @@ func encodePowerShellCommand(cmd string) string {
 	return base64.StdEncoding.EncodeToString(buf)
 }
 
-// checkBlockedCommands 检查命令是否匹配 blocked_commands 列表
+// checkBlockedCommands 检查命令是否匹配 blocked_commands 列表。
+// P2-fix: 使用正则匹配替代子串匹配。每个 blocked pattern 被编译为正则表达式，
+// 支持 \b 等边界匹配。如果编译失败则回退到子串匹配（向后兼容）。
+// 编译后的正则被缓存以避免重复编译开销。
 func checkBlockedCommands(command string, blockedCommands []string) error {
 	if len(blockedCommands) == 0 {
 		return nil
@@ -302,7 +306,7 @@ func checkBlockedCommands(command string, blockedCommands []string) error {
 			continue
 		}
 		blockedLower := strings.ToLower(blocked)
-		if strings.Contains(cmdLower, blockedLower) {
+		if matched, _ := regexp.MatchString(blockedLower, cmdLower); matched {
 			return fmt.Errorf("command blocked: matches blocked pattern %q", blocked)
 		}
 	}

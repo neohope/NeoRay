@@ -100,10 +100,12 @@ func (rl *rateLimiter) allow(ip string) bool {
 		return true
 	}
 
-	// Refill tokens based on elapsed time
+	// Refill tokens based on elapsed time.
+	// P2-fix: use integer arithmetic to avoid float precision loss on small intervals.
 	elapsed := time.Since(v.lastSeen)
 	v.lastSeen = time.Now()
-	v.tokens += int(elapsed.Seconds() * float64(rl.rate) / rl.window.Seconds())
+	// elapsed.Milliseconds() * rate / (window in ms) — all integer, no float rounding
+	v.tokens += int(elapsed.Milliseconds() * int64(rl.rate) / rl.window.Milliseconds())
 	if v.tokens > rl.burst {
 		v.tokens = rl.burst
 	}
@@ -231,12 +233,13 @@ func (s *Server) Start() error {
 
 	addr := fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.Port)
 	s.httpServer = &http.Server{
-		Addr:        addr,
-		Handler:     mux,
-		ReadTimeout: 15 * time.Second,
-		// WriteTimeout 设置为 0，由各 handler 的 context 超时控制（SSE 流式最长 5 分钟）。
-		// 原来的 15s 会截断所有 SSE 流。
-		WriteTimeout: 0,
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  15 * time.Second,
+		// P1-fix: 使用合理的 WriteTimeout 替代 0。SSE handler 内部已有 context 超时控制，
+		// 但 WriteTimeout=0 会导致所有 HTTP 连接（不仅是 SSE）无写超时保护。
+		// SSE handler 通过 http.NewResponseController 动态延长写超时。
+		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 

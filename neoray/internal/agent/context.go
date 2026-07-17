@@ -66,8 +66,15 @@ func NewContextBuilder(cfg *config.Config, opts ...ContextBuilderOption) *Contex
 }
 
 // BuildMessages 构建 LLM 消息列表
+// P1-fix: 获取 Session 读锁保护 Messages 的并发访问，防止与 AddMessage 的数据竞争。
 func (b *ContextBuilder) BuildMessages(sess *session.Session) []provider.Message {
-	msgs := make([]provider.Message, 0, len(sess.Messages)+1)
+	// 在读锁下拷贝消息列表，避免长时间持锁
+	sess.RLock()
+	messagesCopy := make([]session.Message, len(sess.Messages))
+	copy(messagesCopy, sess.Messages)
+	sess.RUnlock()
+
+	msgs := make([]provider.Message, 0, len(messagesCopy)+1)
 
 	// 获取会话摘要（如果有）
 	var sessionSummary string
@@ -88,11 +95,11 @@ func (b *ContextBuilder) BuildMessages(sess *session.Session) []provider.Message
 	var historyMsgs []session.Message
 	switch b.strategy {
 	case StrategySummary:
-		historyMsgs = b.truncateWithSummary(sess.Messages)
+		historyMsgs = b.truncateWithSummary(messagesCopy)
 	case StrategyImportance:
-		historyMsgs = b.truncateByImportance(sess.Messages)
+		historyMsgs = b.truncateByImportance(messagesCopy)
 	default:
-		historyMsgs = b.truncateMessages(sess.Messages)
+		historyMsgs = b.truncateMessages(messagesCopy)
 	}
 
 	for _, msg := range historyMsgs {

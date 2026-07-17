@@ -40,7 +40,7 @@ func NewFileStore(baseDir string) (*FileStore, error) {
 	return store, nil
 }
 
-// Get 获取会话
+// Get 获取会话 — 返回深拷贝，防止调用方绕过锁直接修改内部状态。
 func (s *FileStore) Get(id string) (*Session, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -49,7 +49,7 @@ func (s *FileStore) Get(id string) (*Session, error) {
 	if !ok {
 		return nil, errors.New("session not found")
 	}
-	return sess, nil
+	return sess.DeepCopy(), nil
 }
 
 // List 获取所有会话列表（按更新时间倒序）

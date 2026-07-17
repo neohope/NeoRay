@@ -59,10 +59,12 @@ func Load(configPath string) (*Config, error) {
 	// 注意: config.local 可覆盖大部分配置，但安全相关配置在 MergeInConfig 后会被重置
 	v.SetConfigName("config.local")
 
-	// 记录合并前的安全配置
+	// 记录合并前的安全配置 — 无条件保存，无论主配置是否设置了这些值。
+	// config.local 不应覆盖安全相关配置，否则可绕过认证和工作区限制。
 	securityAuthEnabled := v.GetBool("security.auth.enabled")
 	securityAuthKey := v.GetString("security.auth.secret_key")
 	securityRestrictWS := v.GetBool("security.restrict_to_workspace")
+	securityAdminToken := v.GetString("security.auth.admin_token")
 
 	if err := v.MergeInConfig(); err != nil {
 		// config.local 是可选的，仅在文件存在但解析失败时警告
@@ -71,16 +73,12 @@ func Load(configPath string) (*Config, error) {
 		}
 	}
 
-	// 恢复安全配置，防止 config.local 覆盖
-	if v.IsSet("security.auth.enabled") {
-		v.Set("security.auth.enabled", securityAuthEnabled)
-	}
-	if securityAuthKey != "" {
-		v.Set("security.auth.secret_key", securityAuthKey)
-	}
-	if v.IsSet("security.restrict_to_workspace") {
-		v.Set("security.restrict_to_workspace", securityRestrictWS)
-	}
+	// 无条件恢复安全配置，防止 config.local 覆盖任何安全相关字段。
+	// 不依赖 v.IsSet() 或 != "" 判断 — 即使主配置未设置，也不允许 config.local 注入。
+	v.Set("security.auth.enabled", securityAuthEnabled)
+	v.Set("security.auth.secret_key", securityAuthKey)
+	v.Set("security.restrict_to_workspace", securityRestrictWS)
+	v.Set("security.auth.admin_token", securityAdminToken)
 
 	// 环境变量覆盖
 	v.SetEnvPrefix("NEORAY")

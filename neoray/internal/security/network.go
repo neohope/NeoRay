@@ -1,6 +1,7 @@
 package security
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/netip"
@@ -8,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"neoray/internal/logger"
 )
@@ -262,4 +264,86 @@ func GetAllowedNetworks() []string {
 		result = append(result, p.String())
 	}
 	return result
+}
+
+// NewPreResolvedDialer creates a net.Dialer that resolves DNS once via ValidateURLTarget
+// and connects directly to the pre-resolved IP address. This eliminates the TOCTOU window
+// between DNS validation and TCP connection (DNS rebinding attack).
+//
+// Usage:
+//
+//	addrs, dialer, err := security.NewPreResolvedDialer(urlStr, allowLoopback, 10*time.Second)
+//	if err != nil { return err }
+//	transport := &http.Transport{DialContext: dialer.DialContext}
+//	client := &http.Client{Transport: transport}
+func NewPreResolvedDialer(urlStr string, allowLoopback bool, timeout time.Duration) ([]netip.Addr, *PreResolvedDialer, error) {
+	valid, errMsg, addrs := ValidateURLTarget(urlStr, allowLoopback)
+	if !valid {
+		return nil, nil, fmt.Errorf("URL validation failed: %s", errMsg)
+	}
+	if len(addrs) == 0 {
+		return nil, nil, fmt.Errorf("no addresses resolved for %s", urlStr)
+	}
+
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse URL: %w", err)
+	}
+
+	port := u.Port()
+	if port == "" {
+		switch u.Scheme {
+		case "https":
+			port = "443"
+		default:
+			port = "80"
+		}
+	}
+
+	return addrs, &PreResolvedDialer{
+		addrs:   addrs,
+		port:    port,
+		timeout: timeout,
+	}, nil
+}
+
+// PreResolvedDialer dials using pre-resolved IP addresses, preventing DNS rebinding.
+type PreResolvedDialer struct {
+	addrs   []netip.Addr
+	port    string
+	timeout time.Duration
+}
+
+// DialContext implements a dialer that connects to pre-resolved IPs without re-resolving DNS.
+func (d *PreResolvedDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	var dialer net.Dialer
+	if d.timeout > 0 {
+		dialer.Timeout = d.timeout
+	}
+
+	var lastErr error
+	for _, addr := range d.addrs {
+		tcpAddr := net.TCPAddrFromAddrPort(netip.AddrPortFrom(addr, mustParsePort(d.port)))
+		conn, err := dialer.DialContext(ctx, "tcp", tcpAddr.String())
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("no addresses to dial")
+}
+
+// mustParsePort parses a port string to uint16, panicking on failure.
+func mustParsePort(s string) uint16 {
+	var port uint16
+	for _, c := range s {
+		if c >= '0' && c <= '9' {
+			port = port*10 + uint16(c-'0')
+		}
+	}
+	return port
 }
