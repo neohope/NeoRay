@@ -145,12 +145,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("database.sqlite.path", "data/neoray.db")
 
 	// LLM
-	v.SetDefault("llm.default_provider", "anthropic")
-	v.SetDefault("llm.anthropic.api_url", "https://api.anthropic.com")
-	v.SetDefault("llm.anthropic.model", "claude-3-sonnet-20240229")
-	v.SetDefault("llm.anthropic.max_tokens", 4096)
-	v.SetDefault("llm.anthropic.temperature", 0.7)
-	v.SetDefault("llm.anthropic.timeout", "120s")
+	// ⚠️  不要在这里设置具体 provider 的默认值！
+	// 因为 mapstructure:",remain" 会把所有 llm.* 键都放进 Providers map
+	// 导致即使没配置也会出现 anthropic/openai provider
+	v.SetDefault("llm.default_provider", "openai")
 
 	// Memory
 	v.SetDefault("memory.workspace", "")  // 空表示使用 ~/.neoray/workspace
@@ -385,7 +383,7 @@ output = ["stdout", "file"]
 driver = "sqlite"
 
 [llm]
-default_provider = "anthropic"
+default_provider = "openai"
 
 # Anthropic API 配置示例
 [llm.anthropic]
