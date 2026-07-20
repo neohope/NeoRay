@@ -271,6 +271,21 @@ func (p *GenericProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
 
+	// 调试日志：显示 API key 的前缀和长度（不显示完整 key）
+	keyLen := len(p.cfg.APIKey)
+	keyPrefix := ""
+	if keyLen > 6 {
+		keyPrefix = p.cfg.APIKey[:6] + "..."
+	} else if keyLen > 0 {
+		keyPrefix = "(short key)"
+	} else {
+		keyPrefix = "(empty)"
+	}
+	logger.Debug("API request",
+		logger.String("url", p.cfg.APIURL),
+		logger.String("key_prefix", keyPrefix),
+		logger.Int("key_length", keyLen))
+
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
 		return p.handleError(err), fmt.Errorf("do request: %w", err)
