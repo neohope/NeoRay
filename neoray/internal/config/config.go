@@ -62,19 +62,19 @@ type LoggerConfig struct {
 
 // LoggerFileConfig 日志文件配置
 type LoggerFileConfig struct {
-	Path       string `mapstructure:"path"`
-	MaxSize    int    `mapstructure:"max_size"`
-	MaxBackups int    `mapstructure:"max_backups"`
-	MaxAge     int    `mapstructure:"max_age"`
-	Compress   bool   `mapstructure:"compress"`
-	RotateDaily bool `mapstructure:"rotate_daily"`
+	Path        string `mapstructure:"path"`
+	MaxSize     int    `mapstructure:"max_size"`
+	MaxBackups  int    `mapstructure:"max_backups"`
+	MaxAge      int    `mapstructure:"max_age"`
+	Compress    bool   `mapstructure:"compress"`
+	RotateDaily bool   `mapstructure:"rotate_daily"`
 }
 
 // DatabaseConfig 数据库配置
 type DatabaseConfig struct {
-	Driver   string            `mapstructure:"driver"`
-	SQLite   SQLiteConfig      `mapstructure:"sqlite"`
-	Postgres PostgresConfig    `mapstructure:"postgres"`
+	Driver   string         `mapstructure:"driver"`
+	SQLite   SQLiteConfig   `mapstructure:"sqlite"`
+	Postgres PostgresConfig `mapstructure:"postgres"`
 }
 
 // SQLiteConfig SQLite 配置
@@ -94,31 +94,31 @@ type PostgresConfig struct {
 
 // LLMConfig LLM 配置
 type LLMConfig struct {
-	DefaultProvider string                 `mapstructure:"default_provider"`
+	DefaultProvider string                    `mapstructure:"default_provider"`
 	Providers       map[string]ProviderConfig `mapstructure:",remain"`
-	FallbackModels  []FallbackModelConfig `mapstructure:"fallback_models"`
+	FallbackModels  []FallbackModelConfig     `mapstructure:"fallback_models"`
 }
 
 // FallbackModelConfig Fallback 模型配置
 type FallbackModelConfig struct {
-	Model            string        `mapstructure:"model"`
-	Provider         string        `mapstructure:"provider"`
-	MaxTokens        int           `mapstructure:"max_tokens,omitempty"`
-	Temperature      float64       `mapstructure:"temperature,omitempty"`
-	ReasoningEffort string        `mapstructure:"reasoning_effort,omitempty"`
+	Model           string  `mapstructure:"model"`
+	Provider        string  `mapstructure:"provider"`
+	MaxTokens       int     `mapstructure:"max_tokens,omitempty"`
+	Temperature     float64 `mapstructure:"temperature,omitempty"`
+	ReasoningEffort string  `mapstructure:"reasoning_effort,omitempty"`
 }
 
 // ProviderConfig 通用提供商配置
 type ProviderConfig struct {
-	APIKey            string        `mapstructure:"api_key"`
-	APIURL            string        `mapstructure:"api_url"`
-	Model             string        `mapstructure:"model"`
-	MaxTokens         int           `mapstructure:"max_tokens"`
-	Temperature       float64       `mapstructure:"temperature"`
-	Timeout           time.Duration `mapstructure:"timeout"`
-	APIFormat         string        `mapstructure:"api_format"` // "openai" 或 "anthropic"，默认为 "openai"
-	ReasoningEffort   string        `mapstructure:"reasoning_effort,omitempty"` // "low", "medium", "high", "adaptive", "none"
-	PromptCacheEnabled bool         `mapstructure:"prompt_cache_enabled,omitempty"`
+	APIKey             string        `mapstructure:"api_key"`
+	APIURL             string        `mapstructure:"api_url"`
+	Model              string        `mapstructure:"model"`
+	MaxTokens          int           `mapstructure:"max_tokens"`
+	Temperature        float64       `mapstructure:"temperature"`
+	Timeout            time.Duration `mapstructure:"timeout"`
+	APIFormat          string        `mapstructure:"api_format"`                 // "openai" 或 "anthropic"，默认为 "openai"
+	ReasoningEffort    string        `mapstructure:"reasoning_effort,omitempty"` // "low", "medium", "high", "adaptive", "none"
+	PromptCacheEnabled bool          `mapstructure:"prompt_cache_enabled,omitempty"`
 }
 
 // MemoryConfig 记忆系统配置
@@ -143,32 +143,32 @@ type SessionConfig struct {
 
 // SessionStorageConfig 会话存储配置
 type SessionStorageConfig struct {
-	Type                 string `mapstructure:"type"`
-	MaxSessions          int    `mapstructure:"max_sessions"`
-	MaxMessagesPerSession int   `mapstructure:"max_messages_per_session"`
+	Type                  string `mapstructure:"type"`
+	MaxSessions           int    `mapstructure:"max_sessions"`
+	MaxMessagesPerSession int    `mapstructure:"max_messages_per_session"`
 }
 
 // SessionContextConfig 会话上下文配置
 type SessionContextConfig struct {
-	MaxTokens            int     `mapstructure:"max_tokens"`
-	CompressionStrategy  string  `mapstructure:"compression_strategy"`
-	AutoSummarize        bool    `mapstructure:"auto_summarize"`
-	SummarizeThreshold   float64 `mapstructure:"summarize_threshold"`
+	MaxTokens           int     `mapstructure:"max_tokens"`
+	CompressionStrategy string  `mapstructure:"compression_strategy"`
+	AutoSummarize       bool    `mapstructure:"auto_summarize"`
+	SummarizeThreshold  float64 `mapstructure:"summarize_threshold"`
 }
 
 // ToolsConfig 工具配置
 type ToolsConfig struct {
-	Workspace   WorkspaceConfig   `mapstructure:"workspace"`
-	Filesystem  FilesystemConfig  `mapstructure:"filesystem"`
-	Shell       ShellConfig       `mapstructure:"shell"`
-	Web         WebToolsConfig    `mapstructure:"web"`
-	Cron        CronConfig        `mapstructure:"cron"`
-	Subagent    SubagentConfig    `mapstructure:"subagent"`
-	FindFiles   GenericToolConfig `mapstructure:"find_files"`
-	Grep        GenericToolConfig `mapstructure:"grep"`
-	ApplyPatch  GenericToolConfig `mapstructure:"apply_patch"`
-	WebSearch   GenericToolConfig `mapstructure:"web_search"`
-	WebFetch    GenericToolConfig `mapstructure:"web_fetch"`
+	Workspace     WorkspaceConfig   `mapstructure:"workspace"`
+	Filesystem    FilesystemConfig  `mapstructure:"filesystem"`
+	Shell         ShellConfig       `mapstructure:"shell"`
+	Web           WebToolsConfig    `mapstructure:"web"`
+	Cron          CronConfig        `mapstructure:"cron"`
+	Subagent      SubagentConfig    `mapstructure:"subagent"`
+	FindFiles     GenericToolConfig `mapstructure:"find_files"`
+	Grep          GenericToolConfig `mapstructure:"grep"`
+	ApplyPatch    GenericToolConfig `mapstructure:"apply_patch"`
+	WebSearch     GenericToolConfig `mapstructure:"web_search"`
+	WebFetch      GenericToolConfig `mapstructure:"web_fetch"`
 	SandboxStatus GenericToolConfig `mapstructure:"sandbox_status"`
 }
 
@@ -179,10 +179,10 @@ type GenericToolConfig struct {
 
 // SubagentConfig 子代理配置
 type SubagentConfig struct {
-	Enabled           bool `mapstructure:"enabled"`
-	MaxConcurrent     int  `mapstructure:"max_concurrent"`
-	MaxIterations     int  `mapstructure:"max_iterations"`
-	MaxToolResultChars int `mapstructure:"max_tool_result_chars"`
+	Enabled            bool `mapstructure:"enabled"`
+	MaxConcurrent      int  `mapstructure:"max_concurrent"`
+	MaxIterations      int  `mapstructure:"max_iterations"`
+	MaxToolResultChars int  `mapstructure:"max_tool_result_chars"`
 }
 
 // WorkspaceConfig 工作区配置
@@ -233,39 +233,39 @@ type ChannelsConfig struct {
 
 // WebSocketChannelConfig WebSocket 频道配置
 type WebSocketChannelConfig struct {
-	Enabled         bool          `mapstructure:"enabled"`
-	Path            string        `mapstructure:"path"`
-	PingInterval    time.Duration `mapstructure:"ping_interval"`
-	WriteWait       time.Duration `mapstructure:"write_wait"`
-	PongWait        time.Duration `mapstructure:"pong_wait"`
-	MaxMessageSize  int64         `mapstructure:"max_message_size"`
+	Enabled        bool          `mapstructure:"enabled"`
+	Path           string        `mapstructure:"path"`
+	PingInterval   time.Duration `mapstructure:"ping_interval"`
+	WriteWait      time.Duration `mapstructure:"write_wait"`
+	PongWait       time.Duration `mapstructure:"pong_wait"`
+	MaxMessageSize int64         `mapstructure:"max_message_size"`
 }
 
 // FeishuChannelConfig 飞书频道配置
 type FeishuChannelConfig struct {
 	Enabled           bool   `mapstructure:"enabled"`
-	AppID            string `mapstructure:"app_id"`
-	AppSecret        string `mapstructure:"app_secret"`
+	AppID             string `mapstructure:"app_id"`
+	AppSecret         string `mapstructure:"app_secret"`
 	VerificationToken string `mapstructure:"verification_token"`
-	EncryptKey       string `mapstructure:"encrypt_key"`
-	Domain           string `mapstructure:"domain"`           // "feishu" 或 "lark"
-	GroupPolicy      string `mapstructure:"group_policy"`     // "mention" 或 "open"
-	ReplyToMessage   bool   `mapstructure:"reply_to_message"` // 是否引用原消息回复
-	TopicIsolation   bool   `mapstructure:"topic_isolation"`  // 是否话题隔离
-	ReactEmoji       string `mapstructure:"react_emoji"`      // 处理中的表情，默认 "THUMBSUP"
-	DoneEmoji        string `mapstructure:"done_emoji"`       // 完成时的表情
-	ToolHintPrefix   string `mapstructure:"tool_hint_prefix"` // 工具提示前缀，默认 "🔧"
-	Streaming        bool   `mapstructure:"streaming"`        // 是否启用流式响应
+	EncryptKey        string `mapstructure:"encrypt_key"`
+	Domain            string `mapstructure:"domain"`           // "feishu" 或 "lark"
+	GroupPolicy       string `mapstructure:"group_policy"`     // "mention" 或 "open"
+	ReplyToMessage    bool   `mapstructure:"reply_to_message"` // 是否引用原消息回复
+	TopicIsolation    bool   `mapstructure:"topic_isolation"`  // 是否话题隔离
+	ReactEmoji        string `mapstructure:"react_emoji"`      // 处理中的表情，默认 "THINKING"
+	DoneEmoji         string `mapstructure:"done_emoji"`       // 完成时的表情
+	ToolHintPrefix    string `mapstructure:"tool_hint_prefix"` // 工具提示前缀，默认 "🔧"
+	Streaming         bool   `mapstructure:"streaming"`        // 是否启用流式响应
 }
 
 // SecurityConfig 安全配置
 type SecurityConfig struct {
-	Auth                     AuthConfig       `mapstructure:"auth"`
-	RateLimit                RateLimitConfig  `mapstructure:"rate_limit"`
-	Upload                   UploadConfig     `mapstructure:"upload"`
-	RestrictToWorkspace      bool             `mapstructure:"restrict_to_workspace"`
-	WebUIAllowLocalServiceAccess bool         `mapstructure:"webui_allow_local_service_access"`
-	SSRFWhitelist            []string         `mapstructure:"ssrf_whitelist"`
+	Auth                         AuthConfig      `mapstructure:"auth"`
+	RateLimit                    RateLimitConfig `mapstructure:"rate_limit"`
+	Upload                       UploadConfig    `mapstructure:"upload"`
+	RestrictToWorkspace          bool            `mapstructure:"restrict_to_workspace"`
+	WebUIAllowLocalServiceAccess bool            `mapstructure:"webui_allow_local_service_access"`
+	SSRFWhitelist                []string        `mapstructure:"ssrf_whitelist"`
 }
 
 // AuthConfig 认证配置
@@ -278,9 +278,9 @@ type AuthConfig struct {
 
 // RateLimitConfig 限流配置
 type RateLimitConfig struct {
-	Enabled           bool  `mapstructure:"enabled"`
-	RequestsPerMinute int   `mapstructure:"requests_per_minute"`
-	Burst             int   `mapstructure:"burst"`
+	Enabled           bool `mapstructure:"enabled"`
+	RequestsPerMinute int  `mapstructure:"requests_per_minute"`
+	Burst             int  `mapstructure:"burst"`
 }
 
 // UploadConfig 上传配置

@@ -151,10 +151,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("llm.default_provider", "openai")
 
 	// Memory
-	v.SetDefault("memory.workspace", "")  // 空表示使用 ~/.neoray/workspace
+	v.SetDefault("memory.workspace", "") // 空表示使用 ~/.neoray/workspace
 	v.SetDefault("memory.git_enabled", true)
 	v.SetDefault("memory.dream_interval", "1h")
-	v.SetDefault("memory.session_ttl_minutes", 1440)  // 24小时
+	v.SetDefault("memory.session_ttl_minutes", 1440) // 24小时
 	v.SetDefault("memory.max_history_entries", 1000)
 
 	// Session
@@ -203,7 +203,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("channels.feishu.group_policy", "mention")
 	v.SetDefault("channels.feishu.reply_to_message", true)
 	v.SetDefault("channels.feishu.topic_isolation", true)
-	v.SetDefault("channels.feishu.react_emoji", "THUMBSUP")
+	v.SetDefault("channels.feishu.react_emoji", "THINKING")
 	v.SetDefault("channels.feishu.done_emoji", "")
 	v.SetDefault("channels.feishu.tool_hint_prefix", "🔧")
 	v.SetDefault("channels.feishu.streaming", true)
