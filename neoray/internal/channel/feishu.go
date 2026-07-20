@@ -761,17 +761,20 @@ func (f *FeishuChannel) removeReaction(messageID, reactionID string) error {
 func (f *FeishuChannel) startSDKWebSocket(ctx context.Context) {
 	eventHandler := dispatcher.NewEventDispatcher("", "").
 		OnP2MessageReceiveV1(func(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
-			if event != nil && event.EventReq != nil && len(event.EventReq.Body) > 0 {
-				f.handleMessageEvent(event.EventReq.Body)
-				return nil
-			}
+			// 异步处理消息，避免阻塞 WebSocket 事件循环
+			go func() {
+				if event != nil && event.EventReq != nil && len(event.EventReq.Body) > 0 {
+					f.handleMessageEvent(event.EventReq.Body)
+					return
+				}
 
-			body, err := json.Marshal(event)
-			if err != nil {
-				logger.Error("Failed to marshal Feishu message event", logger.ErrorField(err))
-				return err
-			}
-			f.handleMessageEvent(body)
+				body, err := json.Marshal(event)
+				if err != nil {
+					logger.Error("Failed to marshal Feishu message event", logger.ErrorField(err))
+					return
+				}
+				f.handleMessageEvent(body)
+			}()
 			return nil
 		}).
 		OnP2MessageReadV1(func(ctx context.Context, event *larkim.P2MessageReadV1) error {
