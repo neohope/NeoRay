@@ -747,14 +747,18 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 		logger.Int("message_count", len(turnCtx.InitialMessages)))
 
 	// 持久化用户消息（系统消息使用 system 角色）
-	logger.Info("DEBUG: About to persist user message", logger.String("session_key", turnCtx.SessionKey))
+	logger.Info("DEBUG: About to persist user message",
+		logger.String("session_key", turnCtx.SessionKey),
+		logger.Bool("user_persisted_early", turnCtx.UserPersistedEarly))
 	if !turnCtx.UserPersistedEarly {
+		logger.Info("DEBUG: Creating user message", logger.String("session_key", turnCtx.SessionKey))
 		var sessMsg session.Message
 		if turnCtx.Msg.Type == bus.MessageTypeSystem {
 			sessMsg = session.NewSystemMessage("", "", "", turnCtx.Msg.Content)
 		} else {
 			sessMsg = session.NewUserMessage("", "", "", turnCtx.Msg.Content)
 		}
+		logger.Info("DEBUG: Calling Session.AddMessage", logger.String("session_key", turnCtx.SessionKey))
 		turnCtx.Session.AddMessage(sessMsg)
 		turnCtx.UserPersistedEarly = true
 		logger.Info("User message persisted", logger.String("session_key", turnCtx.SessionKey))
