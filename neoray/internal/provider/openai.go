@@ -321,7 +321,7 @@ func (p *GenericProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 	// 转换 tool calls 回通用格式
 	var toolCalls []ToolCall
 	for _, tc := range choice.Message.ToolCalls {
-		logger.Debug("Tool call",
+		logger.Info("LLM tool call",
 			logger.String("id", tc.ID),
 			logger.String("name", tc.Function.Name),
 			logger.String("arguments", tc.Function.Arguments))
