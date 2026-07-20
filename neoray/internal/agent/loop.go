@@ -859,6 +859,10 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 		return StateEventOK, nil
 	}
 
+	logger.Info("LLM provider found",
+		logger.String("provider", p.Name()),
+		logger.String("session_key", turnCtx.SessionKey))
+
 	var providerTools []provider.Tool
 	if al.toolRegistry != nil {
 		for _, def := range al.toolRegistry.GetDefinitions() {
@@ -906,7 +910,7 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 			req.Temperature = providerCfg.Temperature
 		}
 
-		logger.Debug("Calling LLM",
+		logger.Info("Calling LLM",
 			logger.String("session_key", turnCtx.SessionKey),
 			logger.String("provider", p.Name()),
 			logger.Int("iteration", iterations+1))
@@ -914,6 +918,12 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 		llmStart := time.Now()
 		resp, err := al.callLLMWithRetry(ctx, p, req)
 		llmDuration := time.Since(llmStart)
+
+		logger.Info("LLM call completed",
+			logger.String("session_key", turnCtx.SessionKey),
+			logger.Duration("duration", llmDuration),
+			logger.Bool("error", err != nil),
+			logger.Bool("response_nil", resp == nil))
 
 		if trace != nil && resp != nil && resp.Usage != nil {
 			trace.AddLLMCall(iterations+1, resp.Usage.InputTokens, resp.Usage.OutputTokens, llmDuration)

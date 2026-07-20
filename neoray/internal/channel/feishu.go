@@ -1107,6 +1107,10 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
+	logger.Info("Calling agent.Chat",
+		logger.String("session_id", sessID),
+		logger.String("content_length", fmt.Sprintf("%d", len(content))))
+
 	result, err := f.agent.Chat(ctx, sess, content)
 	if err != nil {
 		logger.Error("Agent chat failed", logger.ErrorField(err))
@@ -1117,6 +1121,12 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 		_ = f.sendTextMessage(ctx, userID, "抱歉，处理失败，请稍后重试。", replyTo, chatType == "group")
 		return
 	}
+
+	logger.Info("Agent.Chat returned",
+		logger.String("session_id", sessID),
+		logger.Bool("result_nil", result == nil),
+		logger.Bool("message_nil", result != nil && result.Message == nil),
+		logger.Bool("error_nil", result == nil || result.Error == nil))
 
 	// 检查 Agent 返回的错误（processMessage 失败时 err 为 nil 但 result.Error 不为 nil）
 	if result != nil && result.Error != nil {
