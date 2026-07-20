@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"neoray/internal/config"
+	"neoray/internal/logger"
 	"neoray/internal/memory"
 	"neoray/internal/provider"
 	"neoray/internal/session"
@@ -281,6 +282,9 @@ func (b *ContextBuilder) getSystemPrompt(sessionSummary string) string {
 		var skillNames []string
 		if skillsLoader := b.memoryManager.SkillsLoader(); skillsLoader != nil {
 			skillNames = skillsLoader.GetAlwaysSkills()
+			if len(skillNames) > 0 {
+				logger.Info("Loading always-on skills", logger.Int("count", len(skillNames)))
+			}
 		}
 		// 传递技能名、频道、会话摘要
 		return b.memoryManager.BuildSystemPrompt(skillNames, b.channel, sessionSummary)

@@ -874,6 +874,9 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 				InputSchema: schema,
 			})
 		}
+		logger.Info("Tools loaded for LLM",
+			logger.Int("count", len(providerTools)),
+			logger.String("session_key", turnCtx.SessionKey))
 	}
 
 	maxIterations := defaultMaxIterations
