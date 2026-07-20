@@ -373,13 +373,16 @@ func (f *FeishuChannel) sendToolHint(ctx context.Context, msg bus.OutboundMessag
 		return nil
 	}
 
-	streamKey := f.streamKey(msg.ChatID, msg.Metadata)
+	// 从会话ID中提取真实的接收者ID（处理 "feishu:ou_xxx" 格式）
+	actualChatID := extractReceiveIDFromChatID(msg.ChatID)
+
+	streamKey := f.streamKey(actualChatID, msg.Metadata)
 	f.mu.RLock()
 	buf := f.streamBufs[streamKey]
 	f.mu.RUnlock()
 
 	if buf != nil && buf.cardID != "" {
-		return f.SendDelta(ctx, msg.ChatID, "\n\n"+f.formatToolHintDelta(hint)+"\n\n", msg.Metadata)
+		return f.SendDelta(ctx, actualChatID, "\n\n"+f.formatToolHintDelta(hint)+"\n\n", msg.Metadata)
 	}
 
 	card := map[string]interface{}{
@@ -390,11 +393,13 @@ func (f *FeishuChannel) sendToolHint(ctx context.Context, msg bus.OutboundMessag
 	}
 	cardContent, _ := json.Marshal(card)
 
-	return f.sendInteractiveMessage(ctx, msg.ChatID, string(cardContent), msg.Metadata)
+	return f.sendInteractiveMessage(ctx, actualChatID, string(cardContent), msg.Metadata)
 }
 
 func (f *FeishuChannel) sendMessageWithFormat(ctx context.Context, msg bus.OutboundMessage) error {
-	receiveIDType := f.receiveIDType(msg.ChatID)
+	// 从会话ID中提取真实的接收者ID（处理 "feishu:ou_xxx" 格式）
+	actualChatID := extractReceiveIDFromChatID(msg.ChatID)
+	receiveIDType := f.receiveIDType(actualChatID)
 
 	replyMessageID := ""
 	hasThreadID := false
@@ -428,7 +433,7 @@ func (f *FeishuChannel) sendMessageWithFormat(ctx context.Context, msg bus.Outbo
 				}
 			}
 		}
-		return f.createMessage(ctx, receiveIDType, msg.ChatID, mType, content)
+		return f.createMessage(ctx, receiveIDType, actualChatID, mType, content)
 	}
 
 	for _, filePath := range msg.Media {
@@ -490,7 +495,9 @@ func (f *FeishuChannel) sendMessageWithFormat(ctx context.Context, msg bus.Outbo
 }
 
 func (f *FeishuChannel) sendStreamDelta(ctx context.Context, chatID string, delta string, metadata map[string]interface{}) error {
-	streamKey := f.streamKey(chatID, metadata)
+	// 从会话ID中提取真实的接收者ID（处理 "feishu:ou_xxx" 格式）
+	actualChatID := extractReceiveIDFromChatID(chatID)
+	streamKey := f.streamKey(actualChatID, metadata)
 
 	// Phase 1: 快照阶段（持有锁）—— 读取/创建 buffer，追加 delta
 	type snapshot struct {
@@ -539,7 +546,7 @@ func (f *FeishuChannel) sendStreamDelta(ctx context.Context, chatID string, delt
 	}
 
 	if snap.needNewCard {
-		receiveIDType := f.receiveIDType(chatID)
+		receiveIDType := f.receiveIDType(actualChatID)
 		replyMsgID := ""
 		if metadata != nil {
 			if msgID, ok := metadata["message_id"].(string); ok {
@@ -547,7 +554,7 @@ func (f *FeishuChannel) sendStreamDelta(ctx context.Context, chatID string, delt
 			}
 		}
 
-		newCardID, err := f.createStreamingCard(ctx, receiveIDType, chatID, replyMsgID, f.shouldUseReplyInThread(metadata))
+		newCardID, err := f.createStreamingCard(ctx, receiveIDType, actualChatID, replyMsgID, f.shouldUseReplyInThread(metadata))
 		if err != nil {
 			return err
 		}
@@ -570,7 +577,9 @@ func (f *FeishuChannel) sendStreamDelta(ctx context.Context, chatID string, delt
 }
 
 func (f *FeishuChannel) finalizeStream(ctx context.Context, chatID string, metadata map[string]interface{}) error {
-	streamKey := f.streamKey(chatID, metadata)
+	// 从会话ID中提取真实的接收者ID（处理 "feishu:ou_xxx" 格式）
+	actualChatID := extractReceiveIDFromChatID(chatID)
+	streamKey := f.streamKey(actualChatID, metadata)
 
 	f.mu.Lock()
 	buf := f.streamBufs[streamKey]
@@ -610,7 +619,7 @@ func (f *FeishuChannel) finalizeStream(ctx context.Context, chatID string, metad
 		}
 	}
 
-	receiveIDType := f.receiveIDType(chatID)
+	receiveIDType := f.receiveIDType(actualChatID)
 
 	elements := f.buildCardElements(buf.text)
 	chunks := f.splitElementsByTableLimit(elements)
@@ -628,7 +637,7 @@ func (f *FeishuChannel) finalizeStream(ctx context.Context, chatID string, metad
 				sendErrors = append(sendErrors, fmt.Sprintf("reply failed: %v", err))
 			}
 		} else {
-			if err := f.createMessage(ctx, receiveIDType, chatID, "interactive", string(cardContent)); err != nil {
+			if err := f.createMessage(ctx, receiveIDType, actualChatID, "interactive", string(cardContent)); err != nil {
 				sendErrors = append(sendErrors, fmt.Sprintf("create failed: %v", err))
 			}
 		}
@@ -1104,12 +1113,16 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 		return
 	}
 
-	// 回复的消息 ID - 暂时用 _ 标记避免未使用错误
-	_ = ""
-	// replyTo := ""
-	// if f.cfg.ReplyToMessage || msgEvent.Event.Message.ThreadID != "" {
-	// 	replyTo = messageID
-	// }
+	// 检查 Agent 返回的错误（processMessage 失败时 err 为 nil 但 result.Error 不为 nil）
+	if result != nil && result.Error != nil {
+		logger.Error("Agent processing failed", logger.ErrorField(result.Error))
+		replyTo := ""
+		if f.cfg.ReplyToMessage {
+			replyTo = messageID
+		}
+		_ = f.sendTextMessage(ctx, userID, "抱歉，处理失败，请稍后重试。", replyTo, chatType == "group")
+		return
+	}
 
 	go func() {
 		f.mu.RLock()
@@ -1137,8 +1150,16 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 	}
 
 	replyContent := ""
-	if result.Message != nil {
+	if result != nil && result.Message != nil {
 		replyContent = result.Message.Content
+	}
+
+	// 如果回复内容为空，发送默认消息
+	if strings.TrimSpace(replyContent) == "" {
+		replyContent = "抱歉，我无法处理您的消息，请稍后重试。"
+		logger.Warn("Empty reply content, sending default message",
+			logger.String("message_id", messageID),
+			logger.String("chat_id", replyChatID))
 	}
 
 	if f.cfg.Streaming {
@@ -1706,7 +1727,9 @@ func (f *FeishuChannel) createMessage(ctx context.Context, receiveIDType, receiv
 }
 
 func (f *FeishuChannel) sendInteractiveMessage(ctx context.Context, receiveID, content string, metadata map[string]interface{}) error {
-	receiveIDType := f.receiveIDType(receiveID)
+	// 从会话ID中提取真实的接收者ID（处理 "feishu:ou_xxx" 格式）
+	actualReceiveID := extractReceiveIDFromChatID(receiveID)
+	receiveIDType := f.receiveIDType(actualReceiveID)
 
 	replyMsgID := f.threadReplyTarget(metadata)
 	if replyMsgID != "" {
@@ -1714,7 +1737,7 @@ func (f *FeishuChannel) sendInteractiveMessage(ctx context.Context, receiveID, c
 		return err
 	}
 
-	return f.createMessage(ctx, receiveIDType, receiveID, "interactive", content)
+	return f.createMessage(ctx, receiveIDType, actualReceiveID, "interactive", content)
 }
 
 func (f *FeishuChannel) replyMessage(ctx context.Context, messageID, msgType, content string, replyInThread bool) (bool, error) {

@@ -1193,7 +1193,18 @@ func (al *AgentLoop) Chat(ctx context.Context, sess *session.Session, userInput 
 	// 通过状态机处理
 	outbound, err := al.processMessage(ctx, msg, sessionKey)
 	if err != nil {
+		// 当 processMessage 失败时，添加错误消息到 session 并返回
+		errMsg := "抱歉，处理您的消息时出现问题，请稍后重试。"
+		assistantMsg := session.NewAssistantMessage("", "", "", errMsg)
+		sess.AddMessage(assistantMsg)
+
+		// 保存 session 以记录错误消息
+		if saveErr := al.sessionMgr.SaveSession(sess); saveErr != nil {
+			logger.Warn("Failed to save session after error", logger.ErrorField(saveErr))
+		}
+
 		return &ChatResult{
+			Message:    &assistantMsg,
 			Error:      err,
 			TokenUsage: al.tokenManager.GetSessionUsage(sess.ID),
 			Iterations: 1,
@@ -1219,6 +1230,15 @@ func (al *AgentLoop) Chat(ctx context.Context, sess *session.Session, userInput 
 	if lastMsg == nil && finalContent != "" {
 		msg := session.NewAssistantMessage("", "", "", finalContent)
 		lastMsg = &msg
+	}
+
+	// 如果仍然没有 assistant 消息，创建一个默认消息
+	if lastMsg == nil {
+		defaultMsg := session.NewAssistantMessage("", "", "", "抱歉，我无法处理您的消息，请稍后重试。")
+		sess.AddMessage(defaultMsg)
+		lastMsg = &defaultMsg
+		logger.Warn("No assistant message found, created default message",
+			logger.String("session_id", sess.ID))
 	}
 
 	result := &ChatResult{
