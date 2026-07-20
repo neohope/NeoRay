@@ -263,6 +263,15 @@ func (p *GenericProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
+	// 记录发送给LLM的请求内容
+	logger.Info("LLM request",
+		logger.String("provider", p.name),
+		logger.String("model", apiReq.Model),
+		logger.Int("messages", len(apiReq.Messages)),
+		logger.Int("tools", len(apiReq.Tools)),
+		logger.Int("max_tokens", apiReq.MaxTokens),
+		logger.String("body", string(body)))
+
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.cfg.APIURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -279,6 +288,9 @@ func (p *GenericProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024)) // 64 KB max for error bodies
+		logger.Error("LLM error response",
+			logger.Int("status", resp.StatusCode),
+			logger.String("body", string(errBody)))
 		errResp := p.parseErrorResponse(errBody, resp.StatusCode)
 		return errResp, fmt.Errorf("api error: %s", resp.Status)
 	}
@@ -288,7 +300,12 @@ func (p *GenericProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 	if err != nil {
 		return nil, fmt.Errorf("read response body: %w", err)
 	}
-	logger.Debug("API response received", logger.Int("body_bytes", len(respBody)))
+
+	// 记录LLM返回的内容
+	logger.Info("LLM response",
+		logger.String("provider", p.name),
+		logger.Int("body_bytes", len(respBody)),
+		logger.String("body", string(respBody)))
 
 	var apiResp openaiResponse
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
