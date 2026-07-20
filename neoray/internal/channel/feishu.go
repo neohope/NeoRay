@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	lark "github.com/larksuite/oapi-sdk-go/v3"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
@@ -92,6 +93,7 @@ type FeishuChannel struct {
 	tenantToken         string
 	tokenExpiry         time.Time
 	httpClient          *http.Client
+	larkClient          *lark.Client  // 飞书 SDK 客户端
 	wsClient            *larkws.Client
 	wsCancel            context.CancelFunc
 	botOpenID           string
@@ -155,19 +157,22 @@ func (o *orderedMap) add(key string) {
 
 type streamBuf struct {
 	text      string
-	cardID    string
-	sequence  int
+	messageID string   // 使用消息ID替代卡片ID
 	lastEdit  float64
 	createdAt time.Time
 }
 
 func NewFeishuChannel(cfg *FeishuConfig, appConfig *config.Config, aiAgent agent.AgentInterface, sessionMgr *session.Manager) *FeishuChannel {
+	// 创建 lark SDK 客户端
+	larkClient := lark.NewClient(cfg.AppID, cfg.AppSecret)
+
 	return &FeishuChannel{
 		cfg:                 cfg,
 		appConfig:           appConfig,
 		agent:               aiAgent,
 		sessionMgr:          sessionMgr,
 		httpClient:          &http.Client{Timeout: 30 * time.Second},
+		larkClient:          larkClient,
 		stopChan:            make(chan struct{}),
 		processedMessageIDs: newOrderedMap(1000),
 		reactionIDs:         make(map[string]string),
@@ -381,7 +386,7 @@ func (f *FeishuChannel) sendToolHint(ctx context.Context, msg bus.OutboundMessag
 	buf := f.streamBufs[streamKey]
 	f.mu.RUnlock()
 
-	if buf != nil && buf.cardID != "" {
+	if buf != nil && buf.messageID != "" {
 		return f.SendDelta(ctx, actualChatID, "\n\n"+f.formatToolHintDelta(hint)+"\n\n", msg.Metadata)
 	}
 
@@ -501,10 +506,9 @@ func (f *FeishuChannel) sendStreamDelta(ctx context.Context, chatID string, delt
 
 	// Phase 1: 快照阶段（持有锁）—— 读取/创建 buffer，追加 delta
 	type snapshot struct {
-		text     string
-		cardID   string
-		sequence int
-		needNewCard bool
+		text        string
+		messageID   string
+		needNewMsg  bool
 		needUpdate  bool
 	}
 
@@ -526,26 +530,23 @@ func (f *FeishuChannel) sendStreamDelta(ctx context.Context, chatID string, delt
 		}
 
 		snap.text = text
-		snap.cardID = buf.cardID
-		snap.sequence = buf.sequence
+		snap.messageID = buf.messageID
 
 		now := float64(time.Now().UnixNano()) / 1e9
-		if buf.cardID == "" {
-			snap.needNewCard = true
+		if buf.messageID == "" {
+			snap.needNewMsg = true
 		} else if now-buf.lastEdit >= 0.5 {
-			buf.sequence++
 			buf.lastEdit = now
-			snap.sequence = buf.sequence
 			snap.needUpdate = true
 		}
 	}()
 
-	// Phase 2: 动作阶段（无锁）—— 创建卡片或更新内容
+	// Phase 2: 动作阶段（无锁）—— 创建消息或更新内容
 	if snap.text == "" {
 		return nil
 	}
 
-	if snap.needNewCard {
+	if snap.needNewMsg {
 		receiveIDType := f.receiveIDType(actualChatID)
 		replyMsgID := ""
 		if metadata != nil {
@@ -554,7 +555,7 @@ func (f *FeishuChannel) sendStreamDelta(ctx context.Context, chatID string, delt
 			}
 		}
 
-		newCardID, err := f.createStreamingCard(ctx, receiveIDType, actualChatID, replyMsgID, f.shouldUseReplyInThread(metadata))
+		newMsgID, err := f.createStreamingMessage(ctx, receiveIDType, actualChatID, replyMsgID, f.shouldUseReplyInThread(metadata))
 		if err != nil {
 			return err
 		}
@@ -562,15 +563,17 @@ func (f *FeishuChannel) sendStreamDelta(ctx context.Context, chatID string, delt
 		f.mu.Lock()
 		buf := f.streamBufs[streamKey]
 		if buf != nil {
-			buf.cardID = newCardID
-			buf.sequence = 1
+			buf.messageID = newMsgID
 			buf.lastEdit = float64(time.Now().UnixNano()) / 1e9
 		}
 		f.mu.Unlock()
 
-		_ = f.streamUpdateText(ctx, newCardID, snap.text, 1)
+		// 更新消息内容
+		postContent := f.buildPostContent(snap.text)
+		_ = f.updateMessage(ctx, newMsgID, postContent)
 	} else if snap.needUpdate {
-		_ = f.streamUpdateText(ctx, snap.cardID, snap.text, snap.sequence)
+		postContent := f.buildPostContent(snap.text)
+		_ = f.updateMessage(ctx, snap.messageID, postContent)
 	}
 
 	return nil
@@ -608,14 +611,13 @@ func (f *FeishuChannel) finalizeStream(ctx context.Context, chatID string, metad
 		return nil
 	}
 
-	if buf.cardID != "" {
-		buf.sequence++
-		if err := f.streamUpdateText(ctx, buf.cardID, buf.text, buf.sequence); err == nil {
-			buf.sequence++
-			_ = f.closeStreamingMode(ctx, buf.cardID, buf.sequence)
+	// 如果有流式消息，更新最终内容
+	if buf.messageID != "" {
+		postContent := f.buildPostContent(buf.text)
+		if err := f.updateMessage(ctx, buf.messageID, postContent); err == nil {
 			return nil
 		} else {
-			logger.Warn("Streaming card final update failed, falling back to regular card", logger.String("card_id", buf.cardID), logger.ErrorField(err))
+			logger.Warn("Streaming message final update failed, falling back to regular message", logger.String("message_id", buf.messageID), logger.ErrorField(err))
 		}
 	}
 
@@ -1715,16 +1717,21 @@ func (f *FeishuChannel) uploadFile(ctx context.Context, filePath string) (string
 }
 
 func (f *FeishuChannel) createMessage(ctx context.Context, receiveIDType, receiveID, msgType, content string) error {
-	url := f.getDomain() + "/open-apis/im/v1/messages?receive_id_type=" + receiveIDType
-	msgBody := map[string]interface{}{
-		"receive_id": receiveID,
-		"msg_type":   msgType,
-		"content":    content,
-		"uuid":       fmt.Sprintf("%d", time.Now().UnixNano()),
-	}
+	req := larkim.NewCreateMessageReqBuilder().
+		ReceiveIdType(receiveIDType).
+		Body(larkim.NewCreateMessageReqBodyBuilder().
+			ReceiveId(receiveID).
+			MsgType(msgType).
+			Content(content).
+			Build()).
+		Build()
 
-	if err := f.doAPIRequest(ctx, "POST", url, msgBody, nil); err != nil {
-		return err
+	resp, err := f.larkClient.Im.V1.Message.Create(ctx, req)
+	if err != nil {
+		return fmt.Errorf("create message: %w", err)
+	}
+	if !resp.Success() {
+		return fmt.Errorf("create message failed: code=%d, msg=%s", resp.Code, resp.Msg)
 	}
 
 	logger.Debug("Created Feishu message", logger.String("receive_id_type", receiveIDType), logger.String("receive_id", receiveID), logger.String("msg_type", msgType))
@@ -1746,100 +1753,88 @@ func (f *FeishuChannel) sendInteractiveMessage(ctx context.Context, receiveID, c
 }
 
 func (f *FeishuChannel) replyMessage(ctx context.Context, messageID, msgType, content string, replyInThread bool) (bool, error) {
-	url := f.getDomain() + fmt.Sprintf("/open-apis/im/v1/messages/%s/reply", messageID)
-	msgBody := map[string]interface{}{
-		"msg_type": msgType,
-		"content":  content,
-		"uuid":     fmt.Sprintf("%d", time.Now().UnixNano()),
-	}
-	if replyInThread {
-		msgBody["reply_in_thread"] = true
-	}
+	req := larkim.NewReplyMessageReqBuilder().
+		MessageId(messageID).
+		Body(larkim.NewReplyMessageReqBodyBuilder().
+			MsgType(msgType).
+			Content(content).
+			Build()).
+		Build()
 
-	if err := f.doAPIRequest(ctx, "POST", url, msgBody, nil); err != nil {
-		return false, err
+	resp, err := f.larkClient.Im.V1.Message.Reply(ctx, req)
+	if err != nil {
+		return false, fmt.Errorf("reply message: %w", err)
+	}
+	if !resp.Success() {
+		return false, fmt.Errorf("reply message failed: code=%d, msg=%s", resp.Code, resp.Msg)
 	}
 
 	logger.Debug("Reply sent", logger.String("message_id", messageID), logger.String("msg_type", msgType))
 	return true, nil
 }
 
-func (f *FeishuChannel) createStreamingCard(ctx context.Context, receiveIDType, chatID, replyMessageID string, replyInThread bool) (string, error) {
-	cardJSON := map[string]interface{}{
-		"schema": "2.0",
-		"config": map[string]interface{}{
-			"wide_screen_mode": true,
-			"update_multi":     true,
-			"streaming_mode":   true,
-		},
-		"body": map[string]interface{}{
-			"elements": []map[string]interface{}{
-				{"tag": "markdown", "content": "", "element_id": "streaming_md"},
-			},
-		},
-	}
-	cardData, _ := json.Marshal(cardJSON)
+// createStreamingMessage 创建流式消息（发送初始消息并返回消息ID）
+func (f *FeishuChannel) createStreamingMessage(ctx context.Context, receiveIDType, chatID, replyMessageID string, replyInThread bool) (string, error) {
+	// 发送初始空消息
+	initialContent := "..."
+	postBody := f.buildPostContent(initialContent)
 
-	reqBody := map[string]interface{}{
-		"type": "card_json",
-		"data": string(cardData),
-	}
-	url := f.getDomain() + "/open-apis/cardkit/v1/cards"
-
-	var cardResult struct {
-		CardID string `json:"card_id"`
-	}
-	if err := f.doAPIRequest(ctx, "POST", url, reqBody, &cardResult); err != nil {
-		return "", err
-	}
-
-	cardID := cardResult.CardID
-	if cardID == "" {
-		return "", fmt.Errorf("no card_id returned")
-	}
-
-	interactiveContent, _ := json.Marshal(map[string]interface{}{
-		"type": "card",
-		"data": map[string]interface{}{"card_id": cardID},
-	})
-
-	var err error
 	if replyMessageID != "" {
-		_, err = f.replyMessage(ctx, replyMessageID, "interactive", string(interactiveContent), replyInThread)
-	} else {
-		err = f.createMessage(ctx, receiveIDType, chatID, "interactive", string(interactiveContent))
+		req := larkim.NewReplyMessageReqBuilder().
+			MessageId(replyMessageID).
+			Body(larkim.NewReplyMessageReqBodyBuilder().
+				MsgType("post").
+				Content(postBody).
+				Build()).
+			Build()
+
+		resp, err := f.larkClient.Im.V1.Message.Reply(ctx, req)
+		if err != nil {
+			return "", fmt.Errorf("create streaming message: %w", err)
+		}
+		if !resp.Success() {
+			return "", fmt.Errorf("create streaming message failed: code=%d, msg=%s", resp.Code, resp.Msg)
+		}
+		return *resp.Data.MessageId, nil
 	}
 
+	req := larkim.NewCreateMessageReqBuilder().
+		ReceiveIdType(receiveIDType).
+		Body(larkim.NewCreateMessageReqBodyBuilder().
+			ReceiveId(chatID).
+			MsgType("post").
+			Content(postBody).
+			Build()).
+		Build()
+
+	resp, err := f.larkClient.Im.V1.Message.Create(ctx, req)
 	if err != nil {
-		logger.Warn("Created streaming card but failed to send", logger.String("card_id", cardID), logger.ErrorField(err))
-		return "", err
+		return "", fmt.Errorf("create streaming message: %w", err)
 	}
-
-	logger.Debug("Created streaming card", logger.String("card_id", cardID))
-	return cardID, nil
+	if !resp.Success() {
+		return "", fmt.Errorf("create streaming message failed: code=%d, msg=%s", resp.Code, resp.Msg)
+	}
+	return *resp.Data.MessageId, nil
 }
 
-func (f *FeishuChannel) streamUpdateText(ctx context.Context, cardID, content string, sequence int) error {
-	url := f.getDomain() + fmt.Sprintf("/open-apis/cardkit/v1/cards/%s/elements/streaming_md/content", cardID)
-	reqBody := map[string]interface{}{
-		"content":  content,
-		"sequence": sequence,
-	}
-	return f.doAPIRequest(ctx, "PATCH", url, reqBody, nil)
-}
+// updateMessage 更新消息内容（使用 Message.Update API）
+func (f *FeishuChannel) updateMessage(ctx context.Context, messageID, content string) error {
+	req := larkim.NewUpdateMessageReqBuilder().
+		MessageId(messageID).
+		Body(larkim.NewUpdateMessageReqBodyBuilder().
+			MsgType("post").
+			Content(content).
+			Build()).
+		Build()
 
-func (f *FeishuChannel) closeStreamingMode(ctx context.Context, cardID string, sequence int) error {
-	settings, _ := json.Marshal(map[string]interface{}{
-		"config": map[string]interface{}{"streaming_mode": false},
-	})
-
-	url := f.getDomain() + fmt.Sprintf("/open-apis/cardkit/v1/cards/%s/settings", cardID)
-	reqBody := map[string]interface{}{
-		"settings": string(settings),
-		"sequence": sequence,
-		"uuid":     fmt.Sprintf("%d", time.Now().UnixNano()),
+	resp, err := f.larkClient.Im.V1.Message.Update(ctx, req)
+	if err != nil {
+		return fmt.Errorf("update message: %w", err)
 	}
-	return f.doAPIRequest(ctx, "POST", url, reqBody, nil)
+	if !resp.Success() {
+		return fmt.Errorf("update message failed: code=%d, msg=%s", resp.Code, resp.Msg)
+	}
+	return nil
 }
 
 func (f *FeishuChannel) detectMsgFormat(content string) string {
@@ -2058,6 +2053,11 @@ func (f *FeishuChannel) stripMarkdownFormatting(text string) string {
 	text = mdItalicRegex.ReplaceAllString(text, "$1$2$3")
 	text = mdStrikeRegex.ReplaceAllString(text, "$1")
 	return text
+}
+
+// buildPostContent 构建 post 格式的消息内容
+func (f *FeishuChannel) buildPostContent(content string) string {
+	return f.markdownToPost(content)
 }
 
 func (f *FeishuChannel) markdownToPost(content string) string {
