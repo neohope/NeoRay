@@ -771,6 +771,11 @@ func (f *FeishuChannel) startSDKWebSocket(ctx context.Context) {
 			}
 			f.handleMessageEvent(body)
 			return nil
+		}).
+		OnP2MessageReadV1(func(ctx context.Context, event *larkim.P2MessageReadV1) error {
+			// 忽略消息已读回执事件，仅记录调试日志
+			logger.Debug("Message read event received (ignored)")
+			return nil
 		})
 
 	client := larkws.NewClient(
