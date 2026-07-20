@@ -1188,7 +1188,37 @@ func (al *AgentLoop) Chat(ctx context.Context, sess *session.Session, userInput 
 
 	sessionKey := sess.ID
 	lock := al.getSessionLock(sessionKey)
-	lock.mu.Lock()
+
+	// 添加锁等待超时，避免无限等待
+	logger.Info("Waiting for session lock", logger.String("session_key", sessionKey))
+	lockAcquired := make(chan struct{})
+	go func() {
+		lock.mu.Lock()
+		close(lockAcquired)
+	}()
+
+	select {
+	case <-lockAcquired:
+		logger.Info("Session lock acquired", logger.String("session_key", sessionKey))
+	case <-ctx.Done():
+		al.releaseSessionLock(sessionKey)
+		return &ChatResult{
+			Error:      fmt.Errorf("timeout waiting for session lock"),
+			TokenUsage: al.tokenManager.GetSessionUsage(sess.ID),
+			Iterations: 1,
+			Duration:   time.Since(startTime),
+		}, nil
+	case <-time.After(30 * time.Second):
+		al.releaseSessionLock(sessionKey)
+		logger.Error("Timeout waiting for session lock", logger.String("session_key", sessionKey))
+		return &ChatResult{
+			Error:      fmt.Errorf("timeout waiting for session lock after 30s"),
+			TokenUsage: al.tokenManager.GetSessionUsage(sess.ID),
+			Iterations: 1,
+			Duration:   time.Since(startTime),
+		}, nil
+	}
+
 	defer lock.mu.Unlock()
 	defer al.releaseSessionLock(sessionKey)
 
