@@ -57,7 +57,7 @@ func (ci *CronIntegration) JobHandler(ctx context.Context, job *CronJob) error {
 
 func (ci *CronIntegration) handleSystemEvent(ctx context.Context, job *CronJob) error {
 	// 处理记忆系统相关事件
-	if job.Payload.Message == "dream:process" {
+	if job.Payload.Message == "dream:process" || job.Payload.Message == "dream-process" {
 		if ci.memoryManager != nil {
 			logger.Info("Running dream processing from cron job")
 			_, err := ci.memoryManager.RunDream(ctx)
@@ -66,7 +66,7 @@ func (ci *CronIntegration) handleSystemEvent(ctx context.Context, job *CronJob) 
 		return nil
 	}
 
-	if job.Payload.Message == "autocompact:process" {
+	if job.Payload.Message == "autocompact:process" || job.Payload.Message == "autocompact-process" {
 		if ci.memoryManager != nil {
 			logger.Info("Running autocompact from cron job")
 			ci.memoryManager.CheckExpiredSessions(ctx)
