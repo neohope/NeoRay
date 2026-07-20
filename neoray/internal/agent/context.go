@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"neoray/internal/config"
+	"neoray/internal/logger"
 	"neoray/internal/memory"
 	"neoray/internal/provider"
 	"neoray/internal/session"
@@ -74,6 +75,10 @@ func (b *ContextBuilder) BuildMessages(sess *session.Session) []provider.Message
 	copy(messagesCopy, sess.Messages)
 	sess.RUnlock()
 
+	logger.Info("BuildMessages",
+		logger.String("session_id", sess.ID),
+		logger.Int("session_messages", len(messagesCopy)))
+
 	msgs := make([]provider.Message, 0, len(messagesCopy)+1)
 
 	// 获取会话摘要（如果有）
@@ -89,6 +94,8 @@ func (b *ContextBuilder) BuildMessages(sess *session.Session) []provider.Message
 			Role:    "system",
 			Content: systemMsg,
 		})
+		logger.Info("System prompt added",
+			logger.Int("length", len(systemMsg)))
 	}
 
 	// 根据策略处理历史消息

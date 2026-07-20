@@ -552,12 +552,15 @@ func (al *AgentLoop) processMessage(
 	ctx = al.refreshProviderSnapshot(ctx)
 
 	turnCtx := NewTurnContext(msg, sessionKey)
+	logger.Info("processMessage started", logger.String("session_key", sessionKey))
 
 	// 状态机主循环
 	for turnCtx.State != TurnStateDone {
 		startedAt := time.Now()
 		var event StateEvent
 		var err error
+
+		logger.Info("State machine", logger.String("state", string(turnCtx.State)))
 
 		switch turnCtx.State {
 		case TurnStateRestore:
@@ -580,6 +583,12 @@ func (al *AgentLoop) processMessage(
 
 		duration := time.Since(startedAt)
 
+		logger.Info("State completed",
+			logger.String("state", string(turnCtx.State)),
+			logger.String("event", string(event)),
+			logger.Duration("duration", duration),
+			logger.Bool("error", err != nil))
+
 		// 记录追踪
 		entry := StateTraceEntry{
 			State:     turnCtx.State,
@@ -597,12 +606,6 @@ func (al *AgentLoop) processMessage(
 			return nil, err
 		}
 
-		logger.Debug("State transition",
-			logger.String("turn_id", turnCtx.TurnID),
-			logger.String("state", string(turnCtx.State)),
-			logger.String("event", string(event)),
-			logger.Duration("duration", duration))
-
 		// 状态转换
 		nextState, ok := al.transitions[turnCtx.State][event]
 		if !ok {
@@ -611,8 +614,8 @@ func (al *AgentLoop) processMessage(
 		turnCtx.State = nextState
 	}
 
-	logger.Debug("Turn completed",
-		logger.String("turn_id", turnCtx.TurnID),
+	logger.Info("processMessage completed",
+		logger.String("session_key", sessionKey),
 		logger.Int("states", len(turnCtx.Trace)))
 
 	// finishChat: Hook + 内存记录（确保 bus 路径也能记录）
@@ -724,7 +727,7 @@ func (al *AgentLoop) stateCommand(ctx context.Context, turnCtx *TurnContext) (St
 
 // stateBuild 构建上下文
 func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (StateEvent, error) {
-	logger.Debug("State: Build", logger.String("session_key", turnCtx.SessionKey))
+	logger.Info("State: Build started", logger.String("session_key", turnCtx.SessionKey))
 
 	// 设置工具上下文
 	if al.spawnTool != nil {
@@ -737,7 +740,11 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 	}
 
 	// 构建初始消息
+	logger.Info("Building initial messages", logger.String("session_key", turnCtx.SessionKey))
 	turnCtx.InitialMessages = al.contextBuilder.BuildMessages(turnCtx.Session)
+	logger.Info("Built initial messages",
+		logger.String("session_key", turnCtx.SessionKey),
+		logger.Int("message_count", len(turnCtx.InitialMessages)))
 
 	// 持久化用户消息（系统消息使用 system 角色）
 	if !turnCtx.UserPersistedEarly {
@@ -749,6 +756,7 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 		}
 		turnCtx.Session.AddMessage(sessMsg)
 		turnCtx.UserPersistedEarly = true
+		logger.Info("User message persisted", logger.String("session_key", turnCtx.SessionKey))
 	}
 
 	// token 预算压缩：在发送到 LLM 前压缩过长的会话历史
@@ -758,6 +766,7 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 		}
 	}
 
+	logger.Info("State: Build completed", logger.String("session_key", turnCtx.SessionKey))
 	return StateEventOK, nil
 }
 
