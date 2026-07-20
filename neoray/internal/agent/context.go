@@ -277,8 +277,13 @@ func (b *ContextBuilder) getMaxMessagesForTokens(maxTokens int) int {
 func (b *ContextBuilder) getSystemPrompt(sessionSummary string) string {
 	// 如果有记忆管理器，使用它来构建系统提示
 	if b.memoryManager != nil && b.memoryManager.IsInitialized() {
-		// 传递技能名（当前为空）、频道、会话摘要
-		return b.memoryManager.BuildSystemPrompt(nil, b.channel, sessionSummary)
+		// 获取自动加载的 skills（标记为 always=true 的 skills）
+		var skillNames []string
+		if skillsLoader := b.memoryManager.SkillsLoader(); skillsLoader != nil {
+			skillNames = skillsLoader.GetAlwaysSkills()
+		}
+		// 传递技能名、频道、会话摘要
+		return b.memoryManager.BuildSystemPrompt(skillNames, b.channel, sessionSummary)
 	}
 
 	// 回退到原来的系统提示
