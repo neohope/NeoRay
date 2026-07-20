@@ -747,6 +747,7 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 		logger.Int("message_count", len(turnCtx.InitialMessages)))
 
 	// 持久化用户消息（系统消息使用 system 角色）
+	logger.Info("Persisting user message", logger.String("session_key", turnCtx.SessionKey))
 	if !turnCtx.UserPersistedEarly {
 		var sessMsg session.Message
 		if turnCtx.Msg.Type == bus.MessageTypeSystem {
@@ -760,10 +761,13 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 	}
 
 	// token 预算压缩：在发送到 LLM 前压缩过长的会话历史
+	logger.Info("Checking memory manager", logger.String("session_key", turnCtx.SessionKey))
 	if al.memoryManager != nil {
+		logger.Info("Running MaybeConsolidateSession", logger.String("session_key", turnCtx.SessionKey))
 		if err := al.memoryManager.MaybeConsolidateSession(ctx, turnCtx.Session); err != nil {
 			logger.Warn("Session consolidation failed", logger.ErrorField(err))
 		}
+		logger.Info("MaybeConsolidateSession completed", logger.String("session_key", turnCtx.SessionKey))
 	}
 
 	logger.Info("State: Build completed", logger.String("session_key", turnCtx.SessionKey))
