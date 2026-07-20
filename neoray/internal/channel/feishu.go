@@ -1104,7 +1104,7 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 		_ = f.sessionMgr.SaveSession(sess)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	result, err := f.agent.Chat(ctx, sess, content)
