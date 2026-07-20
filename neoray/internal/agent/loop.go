@@ -944,6 +944,10 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 					Name:      tc.Name,
 					Arguments: tc.Arguments,
 				})
+				logger.Info("LLM requested tool call",
+					logger.String("tool", tc.Name),
+					logger.String("tool_id", tc.ID),
+					logger.String("arguments", tc.Arguments))
 			}
 		}
 		turnCtx.Session.AddMessage(assistantMsg)
@@ -1838,12 +1842,22 @@ func (al *AgentLoop) executeToolCallsLocked(
 			toolCtx, cancel := context.WithTimeout(ctx, toolExecutionTimeout)
 			defer cancel()
 
+			// 记录工具调用开始
+			logger.Info("Tool call started",
+				logger.String("tool", tc.Name),
+				logger.String("tool_id", tc.ID),
+				logger.String("arguments", tc.Arguments))
+
 			toolStart := time.Now()
 			result, err := al.toolRegistry.Execute(toolCtx, tc.Name, json.RawMessage(tc.Arguments))
 			toolDuration := time.Since(toolStart)
 
 			if err != nil {
-				logger.Warn("Tool execution failed", logger.String("tool", tc.Name), logger.ErrorField(err))
+				logger.Warn("Tool call failed",
+					logger.String("tool", tc.Name),
+					logger.String("tool_id", tc.ID),
+					logger.Duration("duration", toolDuration),
+					logger.ErrorField(err))
 				if trace != nil {
 					trace.AddToolCall(tc.Name, tc.ID, true, toolDuration)
 				}
@@ -1855,6 +1869,15 @@ func (al *AgentLoop) executeToolCallsLocked(
 				}
 				mu.Unlock()
 			} else {
+				resultStr := string(result)
+				if len(resultStr) > 500 {
+					resultStr = resultStr[:500] + "..."
+				}
+				logger.Info("Tool call completed",
+					logger.String("tool", tc.Name),
+					logger.String("tool_id", tc.ID),
+					logger.Duration("duration", toolDuration),
+					logger.String("result", resultStr))
 				if trace != nil {
 					trace.AddToolCall(tc.Name, tc.ID, false, toolDuration)
 				}
