@@ -1779,6 +1779,26 @@ func (al *AgentLoop) callLLMWithRetry(
 	baseDelay := 1 * time.Second
 	var lastErr error
 
+	// 记录发送给LLM的请求详情
+	logger.Info("=== LLM Request ===",
+		logger.String("provider", p.Name()),
+		logger.Int("message_count", len(req.Messages)),
+		logger.Int("tool_count", len(req.Tools)),
+		logger.Int("max_tokens", req.MaxTokens))
+
+	// 记录消息摘要（每条消息的role和前100字符）
+	for i, msg := range req.Messages {
+		contentPreview := msg.Content
+		if len(contentPreview) > 100 {
+			contentPreview = contentPreview[:100] + "..."
+		}
+		logger.Info("LLM Message",
+			logger.Int("index", i),
+			logger.String("role", msg.Role),
+			logger.String("content_preview", contentPreview),
+			logger.Int("tool_calls", len(msg.ToolCalls)))
+	}
+
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		select {
 		case <-ctx.Done():
@@ -1786,12 +1806,34 @@ func (al *AgentLoop) callLLMWithRetry(
 		default:
 		}
 
+		logger.Info("Calling LLM API", logger.Int("attempt", attempt+1))
 		resp, err := p.Chat(ctx, req)
+
+		// 记录LLM响应
+		if err != nil {
+			logger.Warn("LLM call failed",
+				logger.Int("attempt", attempt+1),
+				logger.ErrorField(err))
+		} else {
+			contentPreview := resp.Content
+			if len(contentPreview) > 200 {
+				contentPreview = contentPreview[:200] + "..."
+			}
+			logger.Info("=== LLM Response ===",
+				logger.String("content_preview", contentPreview),
+				logger.Int("tool_calls", len(resp.ToolCalls)),
+				logger.String("finish_reason", resp.FinishReason))
+			if resp.Usage != nil {
+				logger.Info("LLM Usage",
+					logger.Int("input_tokens", resp.Usage.InputTokens),
+					logger.Int("output_tokens", resp.Usage.OutputTokens))
+			}
+		}
+
 		if err == nil {
 			return resp, nil
 		}
 		lastErr = err
-		logger.Warn("LLM call failed, retrying", logger.ErrorField(err), logger.Int("attempt", attempt+1))
 
 		if attempt < maxRetries-1 {
 			delay := baseDelay * time.Duration(1<<attempt)
