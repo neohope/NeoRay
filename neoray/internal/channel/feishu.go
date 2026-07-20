@@ -25,6 +25,15 @@ import (
 	"neoray/internal/session"
 )
 
+// extractReceiveIDFromChatID 从会话 ID 中提取真实的接收者 ID
+func extractReceiveIDFromChatID(chatID string) string {
+	if !strings.HasPrefix(chatID, "feishu:") {
+		return chatID
+	}
+	parts := strings.SplitN(chatID[len("feishu:"):], ":", 2)
+	return parts[0]
+}
+
 const (
 	feishuDomain      = "https://open.feishu.cn"
 	larkDomain        = "https://open.larksuite.com"
@@ -336,9 +345,14 @@ func (f *FeishuChannel) sendTextMessage(ctx context.Context, receiveID, message 
 			msgBody["reply_in_thread"] = true
 		}
 	} else {
-		url = f.getDomain() + "/open-apis/im/v1/messages?receive_id_type=open_id"
+		actualID := extractReceiveIDFromChatID(receiveID)
+		receiveIDType := "open_id"
+		if strings.HasPrefix(actualID, "oc_") {
+			receiveIDType = "chat_id"
+		}
+		url = f.getDomain() + "/open-apis/im/v1/messages?receive_id_type=" + receiveIDType
 		msgBody = map[string]interface{}{
-			"receive_id": receiveID,
+			"receive_id": actualID,
 			"msg_type":   "text",
 			"content":    fmt.Sprintf(`{"text":"%s"}`, escapeJSON(message)),
 			"uuid":       fmt.Sprintf("%d", time.Now().UnixNano()),

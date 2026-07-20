@@ -1159,11 +1159,18 @@ func (al *AgentLoop) Chat(ctx context.Context, sess *session.Session, userInput 
 		defer al.memoryManager.UntrackSession(sess.ID)
 	}
 
+	// 从会话中提取 ChannelID 和 ChatID
+	// 会话 ID 格式: <channel>:<chat_id> 或 <channel>:<chat_id>:<topic_id>
+	channelID := sess.ChannelID
+	chatID := sess.ID // 使用完整会话 ID 作为 ChatID，feishu 频道会正确处理
+
+	logger.Debug("Chat: extracted channel info", logger.String("sess_id", sess.ID), logger.String("channel_id", channelID), logger.String("chat_id", chatID))
+
 	// 构建 bus 消息
 	msg := &bus.InboundMessage{
 		ID:        fmt.Sprintf("chat:%d", time.Now().UnixNano()),
-		ChannelID: "cli",
-		ChatID:    "direct",
+		ChannelID: channelID,
+		ChatID:    chatID,
 		UserID:    "direct",
 		Content:   userInput,
 		Metadata:  make(map[string]interface{}),
