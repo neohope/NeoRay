@@ -552,15 +552,12 @@ func (al *AgentLoop) processMessage(
 	ctx = al.refreshProviderSnapshot(ctx)
 
 	turnCtx := NewTurnContext(msg, sessionKey)
-	logger.Info("processMessage started", logger.String("session_key", sessionKey))
 
 	// 状态机主循环
 	for turnCtx.State != TurnStateDone {
 		startedAt := time.Now()
 		var event StateEvent
 		var err error
-
-		logger.Info("State machine", logger.String("state", string(turnCtx.State)))
 
 		switch turnCtx.State {
 		case TurnStateRestore:
@@ -583,12 +580,6 @@ func (al *AgentLoop) processMessage(
 
 		duration := time.Since(startedAt)
 
-		logger.Info("State completed",
-			logger.String("state", string(turnCtx.State)),
-			logger.String("event", string(event)),
-			logger.Duration("duration", duration),
-			logger.Bool("error", err != nil))
-
 		// 记录追踪
 		entry := StateTraceEntry{
 			State:     turnCtx.State,
@@ -606,6 +597,12 @@ func (al *AgentLoop) processMessage(
 			return nil, err
 		}
 
+		logger.Debug("State transition",
+			logger.String("turn_id", turnCtx.TurnID),
+			logger.String("state", string(turnCtx.State)),
+			logger.String("event", string(event)),
+			logger.Duration("duration", duration))
+
 		// 状态转换
 		nextState, ok := al.transitions[turnCtx.State][event]
 		if !ok {
@@ -614,8 +611,8 @@ func (al *AgentLoop) processMessage(
 		turnCtx.State = nextState
 	}
 
-	logger.Info("processMessage completed",
-		logger.String("session_key", sessionKey),
+	logger.Debug("Turn completed",
+		logger.String("turn_id", turnCtx.TurnID),
 		logger.Int("states", len(turnCtx.Trace)))
 
 	// finishChat: Hook + 内存记录（确保 bus 路径也能记录）
@@ -727,7 +724,7 @@ func (al *AgentLoop) stateCommand(ctx context.Context, turnCtx *TurnContext) (St
 
 // stateBuild 构建上下文
 func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (StateEvent, error) {
-	logger.Info("State: Build started", logger.String("session_key", turnCtx.SessionKey))
+	logger.Debug("State: Build", logger.String("session_key", turnCtx.SessionKey))
 
 	// 设置工具上下文
 	if al.spawnTool != nil {
@@ -740,41 +737,27 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 	}
 
 	// 构建初始消息
-	logger.Info("Building initial messages", logger.String("session_key", turnCtx.SessionKey))
 	turnCtx.InitialMessages = al.contextBuilder.BuildMessages(turnCtx.Session)
-	logger.Info("DEBUG: Built initial messages done",
-		logger.String("session_key", turnCtx.SessionKey),
-		logger.Int("message_count", len(turnCtx.InitialMessages)))
 
 	// 持久化用户消息（系统消息使用 system 角色）
-	logger.Info("DEBUG: About to persist user message",
-		logger.String("session_key", turnCtx.SessionKey),
-		logger.Bool("user_persisted_early", turnCtx.UserPersistedEarly))
 	if !turnCtx.UserPersistedEarly {
-		logger.Info("DEBUG: Creating user message", logger.String("session_key", turnCtx.SessionKey))
 		var sessMsg session.Message
 		if turnCtx.Msg.Type == bus.MessageTypeSystem {
 			sessMsg = session.NewSystemMessage("", "", "", turnCtx.Msg.Content)
 		} else {
 			sessMsg = session.NewUserMessage("", "", "", turnCtx.Msg.Content)
 		}
-		logger.Info("DEBUG: Calling Session.AddMessage", logger.String("session_key", turnCtx.SessionKey))
 		turnCtx.Session.AddMessage(sessMsg)
 		turnCtx.UserPersistedEarly = true
-		logger.Info("User message persisted", logger.String("session_key", turnCtx.SessionKey))
 	}
 
 	// token 预算压缩：在发送到 LLM 前压缩过长的会话历史
-	logger.Info("Checking memory manager", logger.String("session_key", turnCtx.SessionKey))
 	if al.memoryManager != nil {
-		logger.Info("Running MaybeConsolidateSession", logger.String("session_key", turnCtx.SessionKey))
 		if err := al.memoryManager.MaybeConsolidateSession(ctx, turnCtx.Session); err != nil {
 			logger.Warn("Session consolidation failed", logger.ErrorField(err))
 		}
-		logger.Info("MaybeConsolidateSession completed", logger.String("session_key", turnCtx.SessionKey))
 	}
 
-	logger.Info("State: Build completed", logger.String("session_key", turnCtx.SessionKey))
 	return StateEventOK, nil
 }
 
@@ -875,10 +858,6 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 		turnCtx.FinalContent = errMsg
 		return StateEventOK, nil
 	}
-
-	logger.Info("LLM provider found",
-		logger.String("provider", p.Name()),
-		logger.String("session_key", turnCtx.SessionKey))
 
 	var providerTools []provider.Tool
 	if al.toolRegistry != nil {
@@ -1205,37 +1184,7 @@ func (al *AgentLoop) Chat(ctx context.Context, sess *session.Session, userInput 
 
 	sessionKey := sess.ID
 	lock := al.getSessionLock(sessionKey)
-
-	// 添加锁等待超时，避免无限等待
-	logger.Info("Waiting for session lock", logger.String("session_key", sessionKey))
-	lockAcquired := make(chan struct{})
-	go func() {
-		lock.mu.Lock()
-		close(lockAcquired)
-	}()
-
-	select {
-	case <-lockAcquired:
-		logger.Info("Session lock acquired", logger.String("session_key", sessionKey))
-	case <-ctx.Done():
-		al.releaseSessionLock(sessionKey)
-		return &ChatResult{
-			Error:      fmt.Errorf("timeout waiting for session lock"),
-			TokenUsage: al.tokenManager.GetSessionUsage(sess.ID),
-			Iterations: 1,
-			Duration:   time.Since(startTime),
-		}, nil
-	case <-time.After(30 * time.Second):
-		al.releaseSessionLock(sessionKey)
-		logger.Error("Timeout waiting for session lock", logger.String("session_key", sessionKey))
-		return &ChatResult{
-			Error:      fmt.Errorf("timeout waiting for session lock after 30s"),
-			TokenUsage: al.tokenManager.GetSessionUsage(sess.ID),
-			Iterations: 1,
-			Duration:   time.Since(startTime),
-		}, nil
-	}
-
+	lock.mu.Lock()
 	defer lock.mu.Unlock()
 	defer al.releaseSessionLock(sessionKey)
 
@@ -1796,25 +1745,10 @@ func (al *AgentLoop) callLLMWithRetry(
 	baseDelay := 1 * time.Second
 	var lastErr error
 
-	// 记录发送给LLM的请求详情
-	logger.Info("=== LLM Request ===",
+	logger.Info("Calling LLM",
 		logger.String("provider", p.Name()),
-		logger.Int("message_count", len(req.Messages)),
-		logger.Int("tool_count", len(req.Tools)),
-		logger.Int("max_tokens", req.MaxTokens))
-
-	// 记录消息摘要（每条消息的role和前100字符）
-	for i, msg := range req.Messages {
-		contentPreview := msg.Content
-		if len(contentPreview) > 100 {
-			contentPreview = contentPreview[:100] + "..."
-		}
-		logger.Info("LLM Message",
-			logger.Int("index", i),
-			logger.String("role", msg.Role),
-			logger.String("content_preview", contentPreview),
-			logger.Int("tool_calls", len(msg.ToolCalls)))
-	}
+		logger.Int("messages", len(req.Messages)),
+		logger.Int("tools", len(req.Tools)))
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		select {
@@ -1823,28 +1757,17 @@ func (al *AgentLoop) callLLMWithRetry(
 		default:
 		}
 
-		logger.Info("Calling LLM API", logger.Int("attempt", attempt+1))
 		resp, err := p.Chat(ctx, req)
 
-		// 记录LLM响应
 		if err != nil {
 			logger.Warn("LLM call failed",
 				logger.Int("attempt", attempt+1),
 				logger.ErrorField(err))
 		} else {
-			contentPreview := resp.Content
-			if len(contentPreview) > 200 {
-				contentPreview = contentPreview[:200] + "..."
-			}
-			logger.Info("=== LLM Response ===",
-				logger.String("content_preview", contentPreview),
+			logger.Info("LLM response received",
+				logger.Int("content_length", len(resp.Content)),
 				logger.Int("tool_calls", len(resp.ToolCalls)),
 				logger.String("finish_reason", resp.FinishReason))
-			if resp.Usage != nil {
-				logger.Info("LLM Usage",
-					logger.Int("input_tokens", resp.Usage.InputTokens),
-					logger.Int("output_tokens", resp.Usage.OutputTokens))
-			}
 		}
 
 		if err == nil {

@@ -175,11 +175,22 @@ func (s *Session) Clear() {
 }
 
 // DeepCopy 返回 Session 的深拷贝，防止调用方绕过锁直接修改内部状态。
+// 注意：不能用 cp := *s 复制整个 struct，因为 sync.RWMutex 在首次使用后不能复制。
+// 复制已锁定的 mutex 会导致拷贝的 mutex 也处于锁定状态，造成死锁。
 func (s *Session) DeepCopy() *Session {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	cp := *s
+	cp := &Session{
+		ID:        s.ID,
+		ChannelID: s.ChannelID,
+		UserID:    s.UserID,
+		Title:     s.Title,
+		CreatedAt: s.CreatedAt,
+		UpdatedAt: s.UpdatedAt,
+		// mu 留零值，不复制原始 mutex
+	}
+
 	cp.Messages = make([]Message, len(s.Messages))
 	copy(cp.Messages, s.Messages)
 
@@ -190,7 +201,7 @@ func (s *Session) DeepCopy() *Session {
 		}
 	}
 
-	return &cp
+	return cp
 }
 
 // generateID 生成唯一 ID
