@@ -705,8 +705,13 @@ func (al *AgentLoop) stateCommand(ctx context.Context, turnCtx *TurnContext) (St
 		)
 	}
 
-	// 保存用户消息和命令响应（除了 /new）
-	if raw != "/new" && raw != "/new " {
+	// 保存用户消息和命令响应
+	if raw == "/new" || raw == "/new " {
+		// /new 清空了 session，需要保存清空后的状态
+		if saveErr := al.sessionMgr.SaveSession(turnCtx.Session); saveErr != nil {
+			logger.Error("Failed to save session after /new", logger.ErrorField(saveErr))
+		}
+	} else {
 		turnCtx.UserPersistedEarly = true
 		userMsg := session.NewUserMessage("", "", "", raw)
 		turnCtx.Session.AddMessage(userMsg)
