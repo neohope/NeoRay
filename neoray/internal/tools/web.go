@@ -63,7 +63,7 @@ type SearchResult struct {
 func NewWebSearchTool() *WebSearchTool {
 	provider := os.Getenv("NEORAY_WEB_SEARCH_PROVIDER")
 	if provider == "" {
-		provider = "duckduckgo"
+		provider = "bytedance" // 默认使用字节搜索
 	}
 	return &WebSearchTool{
 		provider:    provider,
@@ -113,6 +113,8 @@ func (t *WebSearchTool) Execute(ctx context.Context, args json.RawMessage) (json
 
 	var result string
 	switch provider {
+	case "bytedance", "volcengine":
+		result = t.searchBytedance(query, n)
 	case "duckduckgo":
 		result = t.searchDuckDuckGo(query, n)
 	case "brave":
@@ -135,10 +137,18 @@ func (t *WebSearchTool) Execute(ctx context.Context, args json.RawMessage) (json
 func (t *WebSearchTool) effectiveProvider() string {
 	provider := strings.ToLower(strings.TrimSpace(t.provider))
 	if provider == "" {
-		provider = "duckduckgo"
+		provider = "bytedance"
 	}
 
 	switch provider {
+	case "bytedance", "volcengine":
+		apiKey := t.apiKey
+		if apiKey == "" {
+			apiKey = os.Getenv("WEB_SEARCH_API_KEY")
+		}
+		if apiKey == "" {
+			return "duckduckgo"
+		}
 	case "brave":
 		apiKey := t.apiKey
 		if apiKey == "" {
@@ -185,6 +195,80 @@ func (t *WebSearchTool) effectiveProvider() string {
 
 func (t *WebSearchTool) searchDuckDuckGo(query string, n int) string {
 	return fmt.Sprintf("Web search for '%s' would go here. DuckDuckGo integration requires additional setup. For now, try searching manually or use web_fetch with a known URL.", query)
+}
+
+// searchBytedance 使用火山引擎联网搜索 API（字节跳动）
+// 官方文档：https://www.volcengine.com/docs/85508/1650263
+func (t *WebSearchTool) searchBytedance(query string, n int) string {
+	apiKey := t.apiKey
+	if apiKey == "" {
+		apiKey = os.Getenv("WEB_SEARCH_API_KEY")
+	}
+	if apiKey == "" {
+		return "Error: ByteDance web search requires WEB_SEARCH_API_KEY. Get it from https://console.volcengine.com/search-infinity/api-key"
+	}
+
+	client := &http.Client{Timeout: longSearchTimeout}
+
+	// 构建请求体
+	reqBody := map[string]interface{}{
+		"Query":       query,
+		"SearchType":  "web",
+		"Count":       n,
+		"NeedSummary": true,
+	}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	// 使用 API Key 认证（Bearer token）
+	req, err := http.NewRequest("POST", "https://open.feedcoopapi.com/search_api/web_search", bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Sprintf("Error: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("X-Traffic-Tag", "neoray_web_search")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Sprintf("Error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Sprintf("Error: ByteDance search returned status %d", resp.StatusCode)
+	}
+
+	var data map[string]interface{}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, defaultMaxChars)).Decode(&data); err != nil {
+		return fmt.Sprintf("Error: %v", err)
+	}
+
+	// 检查错误响应
+	if metadata, ok := data["ResponseMetadata"].(map[string]interface{}); ok {
+		if errInfo, ok := metadata["Error"].(map[string]interface{}); ok {
+			code, _ := errInfo["Code"].(string)
+			msg, _ := errInfo["Message"].(string)
+			return fmt.Sprintf("Error [%s]: %s", code, msg)
+		}
+	}
+
+	// 解析结果
+	result, _ := data["Result"].(map[string]interface{})
+	webResults, _ := result["WebResults"].([]interface{})
+
+	items := make([]SearchResult, 0, len(webResults))
+	for _, r := range webResults {
+		item, _ := r.(map[string]interface{})
+		title, _ := item["Title"].(string)
+		urlStr, _ := item["Url"].(string)
+		summary, _ := item["Summary"].(string)
+		if summary == "" {
+			summary, _ = item["Snippet"].(string)
+		}
+		items = append(items, SearchResult{Title: title, URL: urlStr, Content: summary})
+	}
+
+	return formatResults(query, items, n)
 }
 
 func (t *WebSearchTool) searchBrave(query string, n int) string {
