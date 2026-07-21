@@ -138,6 +138,7 @@ func (o *orderedMap) loadFromFile(path string) {
 		logger.Warn("Failed to parse processed message IDs", logger.ErrorField(err))
 		return
 	}
+	o.mu.Lock()
 	for _, id := range ids {
 		if _, exists := o.data[id]; !exists {
 			elem := o.order.PushBack(id)
@@ -154,6 +155,7 @@ func (o *orderedMap) loadFromFile(path string) {
 			o.order.Remove(oldest)
 		}
 	}
+	o.mu.Unlock()
 	logger.Info("Loaded processed message IDs", logger.Int("count", len(o.data)))
 }
 
@@ -162,12 +164,14 @@ func (o *orderedMap) saveToFile() {
 	if o.filePath == "" {
 		return
 	}
+	o.mu.RLock()
 	ids := make([]string, 0, len(o.data))
 	for e := o.order.Front(); e != nil; e = e.Next() {
 		if id, ok := e.Value.(string); ok {
 			ids = append(ids, id)
 		}
 	}
+	o.mu.RUnlock()
 	data, err := json.Marshal(ids)
 	if err != nil {
 		logger.Warn("Failed to marshal processed message IDs", logger.ErrorField(err))
@@ -211,7 +215,7 @@ func (o *orderedMap) add(key string) {
 	o.data[key] = elem
 	o.mu.Unlock()
 
-	// 异步持久化，避免持锁时做 I/O
+	// 异步持久化到文件
 	go o.saveToFile()
 }
 
