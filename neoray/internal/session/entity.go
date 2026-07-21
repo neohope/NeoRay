@@ -164,6 +164,16 @@ func (s *Session) LastMessage() *Message {
 	return &last
 }
 
+// RemoveLastMessage 移除最后一条消息（线程安全）
+func (s *Session) RemoveLastMessage() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.Messages) > 0 {
+		s.Messages = s.Messages[:len(s.Messages)-1]
+	}
+}
+
 // Clear 清空会话消息（线程安全）
 func (s *Session) Clear() {
 	s.mu.Lock()
