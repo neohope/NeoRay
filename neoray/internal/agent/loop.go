@@ -736,8 +736,10 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 		)
 	}
 
+	// 构建初始消息
+	turnCtx.InitialMessages = al.contextBuilder.BuildMessages(turnCtx.Session)
+
 	// 持久化用户消息（系统消息使用 system 角色）
-	// 必须在 BuildMessages 之前添加，否则第一次 LLM 调用看不到当前用户消息
 	if !turnCtx.UserPersistedEarly {
 		var sessMsg session.Message
 		if turnCtx.Msg.Type == bus.MessageTypeSystem {
@@ -748,9 +750,6 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 		turnCtx.Session.AddMessage(sessMsg)
 		turnCtx.UserPersistedEarly = true
 	}
-
-	// 构建初始消息（包含刚添加的用户消息）
-	turnCtx.InitialMessages = al.contextBuilder.BuildMessages(turnCtx.Session)
 
 	// token 预算压缩：在发送到 LLM 前压缩过长的会话历史
 	if al.memoryManager != nil {

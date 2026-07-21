@@ -108,10 +108,11 @@ type FeishuChannel struct {
 // orderedMap 是一个线程安全的 LRU 去重集合。
 // 使用 container/list 实现 O(1) 的访问提升和淘汰。
 type orderedMap struct {
-	mu    sync.RWMutex
-	data  map[string]*list.Element
-	order *list.List
-	cap   int
+	mu       sync.RWMutex
+	data     map[string]*list.Element
+	order    *list.List
+	cap      int
+	filePath string // 持久化文件路径，为空则不持久化
 }
 
 func newOrderedMap(capacity int) *orderedMap {
@@ -119,6 +120,61 @@ func newOrderedMap(capacity int) *orderedMap {
 		data:  make(map[string]*list.Element),
 		order: list.New(),
 		cap:   capacity,
+	}
+}
+
+// loadFromFile 从文件加载已处理的消息 ID
+func (o *orderedMap) loadFromFile(path string) {
+	o.filePath = path
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			logger.Warn("Failed to load processed message IDs", logger.ErrorField(err))
+		}
+		return
+	}
+	var ids []string
+	if err := json.Unmarshal(data, &ids); err != nil {
+		logger.Warn("Failed to parse processed message IDs", logger.ErrorField(err))
+		return
+	}
+	for _, id := range ids {
+		if _, exists := o.data[id]; !exists {
+			elem := o.order.PushBack(id)
+			o.data[id] = elem
+		}
+	}
+	// 超出容量时淘汰最旧的
+	for o.order.Len() > o.cap {
+		oldest := o.order.Front()
+		if oldest != nil {
+			if key, ok := oldest.Value.(string); ok {
+				delete(o.data, key)
+			}
+			o.order.Remove(oldest)
+		}
+	}
+	logger.Info("Loaded processed message IDs", logger.Int("count", len(o.data)))
+}
+
+// saveToFile 将已处理的消息 ID 持久化到文件
+func (o *orderedMap) saveToFile() {
+	if o.filePath == "" {
+		return
+	}
+	ids := make([]string, 0, len(o.data))
+	for e := o.order.Front(); e != nil; e = e.Next() {
+		if id, ok := e.Value.(string); ok {
+			ids = append(ids, id)
+		}
+	}
+	data, err := json.Marshal(ids)
+	if err != nil {
+		logger.Warn("Failed to marshal processed message IDs", logger.ErrorField(err))
+		return
+	}
+	if err := os.WriteFile(o.filePath, data, 0644); err != nil {
+		logger.Warn("Failed to save processed message IDs", logger.ErrorField(err))
 	}
 }
 
@@ -135,10 +191,10 @@ func (o *orderedMap) has(key string) bool {
 
 func (o *orderedMap) add(key string) {
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	if elem, ok := o.data[key]; ok {
 		// 已存在，提升到末尾
 		o.order.MoveToBack(elem)
+		o.mu.Unlock()
 		return
 	}
 	// 容量已满，淘汰最久未使用的（链表头部）
@@ -153,6 +209,10 @@ func (o *orderedMap) add(key string) {
 	}
 	elem := o.order.PushBack(key)
 	o.data[key] = elem
+	o.mu.Unlock()
+
+	// 异步持久化，避免持锁时做 I/O
+	go o.saveToFile()
 }
 
 type streamBuf struct {
@@ -166,6 +226,16 @@ func NewFeishuChannel(cfg *FeishuConfig, appConfig *config.Config, aiAgent agent
 	// 创建 lark SDK 客户端
 	larkClient := lark.NewClient(cfg.AppID, cfg.AppSecret)
 
+	processedIDs := newOrderedMap(1000)
+
+	// 从文件加载已处理的消息 ID，防止重启后重复处理
+	if appConfig != nil && appConfig.HomeDir != "" {
+		dataDir := filepath.Join(appConfig.HomeDir, "data")
+		if mkErr := os.MkdirAll(dataDir, 0755); mkErr == nil {
+			processedIDs.loadFromFile(filepath.Join(dataDir, "feishu_processed_messages.json"))
+		}
+	}
+
 	return &FeishuChannel{
 		cfg:                 cfg,
 		appConfig:           appConfig,
@@ -174,7 +244,7 @@ func NewFeishuChannel(cfg *FeishuConfig, appConfig *config.Config, aiAgent agent
 		httpClient:          &http.Client{Timeout: 30 * time.Second},
 		larkClient:          larkClient,
 		stopChan:            make(chan struct{}),
-		processedMessageIDs: newOrderedMap(1000),
+		processedMessageIDs: processedIDs,
 		reactionIDs:         make(map[string]string),
 		streamBufs:          make(map[string]*streamBuf),
 	}
