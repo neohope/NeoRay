@@ -757,6 +757,22 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 	// 构建初始消息（包含刚加入的用户消息）
 	turnCtx.InitialMessages = al.contextBuilder.BuildMessages(turnCtx.Session)
 
+	// 调试：打印发送给 LLM 的消息列表
+	logger.Info("Built LLM messages",
+		logger.String("session_key", turnCtx.SessionKey),
+		logger.Int("session_messages", len(turnCtx.Session.Messages)),
+		logger.Int("initial_messages", len(turnCtx.InitialMessages)))
+	for i, m := range turnCtx.InitialMessages {
+		contentPreview := m.Content
+		if len(contentPreview) > 100 {
+			contentPreview = contentPreview[:100] + "..."
+		}
+		logger.Info("LLM message detail",
+			logger.Int("index", i),
+			logger.String("role", m.Role),
+			logger.String("content", contentPreview))
+	}
+
 	// token 预算压缩：在发送到 LLM 前压缩过长的会话历史
 	if al.memoryManager != nil {
 		if err := al.memoryManager.MaybeConsolidateSession(ctx, turnCtx.Session); err != nil {
