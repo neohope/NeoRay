@@ -741,10 +741,8 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 		)
 	}
 
-	// 构建初始消息
-	turnCtx.InitialMessages = al.contextBuilder.BuildMessages(turnCtx.Session)
-
-	// 持久化用户消息（系统消息使用 system 角色）
+	// 先持久化用户消息到 session，再构建 LLM 上下文
+	// 这样 InitialMessages 会包含当前用户消息
 	if !turnCtx.UserPersistedEarly {
 		var sessMsg session.Message
 		if turnCtx.Msg.Type == bus.MessageTypeSystem {
@@ -755,6 +753,9 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 		turnCtx.Session.AddMessage(sessMsg)
 		turnCtx.UserPersistedEarly = true
 	}
+
+	// 构建初始消息（包含刚加入的用户消息）
+	turnCtx.InitialMessages = al.contextBuilder.BuildMessages(turnCtx.Session)
 
 	// token 预算压缩：在发送到 LLM 前压缩过长的会话历史
 	if al.memoryManager != nil {
@@ -937,6 +938,11 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 			logger.Error("LLM call failed after retries", logger.ErrorField(err), logger.Int("iteration", iterations+1))
 			if trace != nil {
 				trace.AddError(err, fmt.Sprintf("LLM call iteration %d", iterations+1))
+			}
+			// 移除孤儿用户消息，避免落盘后污染重启后的会话
+			if turnCtx.UserPersistedEarly {
+				turnCtx.Session.RemoveLastMessage()
+				turnCtx.UserPersistedEarly = false
 			}
 			errMsg := "I'm having trouble connecting to the AI service right now. Please try again later."
 			turnCtx.FinalContent = errMsg
