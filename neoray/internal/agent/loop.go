@@ -1216,6 +1216,14 @@ func (al *AgentLoop) Chat(ctx context.Context, sess *session.Session, userInput 
 
 	// 通过状态机处理
 	outbound, err := al.processMessage(ctx, msg, sessionKey)
+
+	// 重新从 store 加载 session，确保后续代码拿到的是 processMessage 更新后的版本。
+	// FileStore.Get() 返回深拷贝，processMessage 内部修改的是另一个拷贝，
+	// 如果不重新加载，Chat() 持有的 sess 会缺少本轮新增的 assistant 消息。
+	if reloaded, reloadErr := al.sessionMgr.GetSession(sessionKey); reloadErr == nil {
+		sess = reloaded
+	}
+
 	if err != nil {
 		// 记录失败结果到 session，保留用户消息
 		errMsg := "处理失败: " + err.Error()
