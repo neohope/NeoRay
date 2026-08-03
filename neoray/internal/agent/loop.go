@@ -741,6 +741,10 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 		)
 	}
 
+	// 清理无效消息序列：空 assistant（无 tool_calls）后面跟着 tool 结果
+	// 这种序列是之前工具调用失败时残留的，会导致 LLM API 返回错误或通用回复
+	al.cleanInvalidMessageSequence(turnCtx.Session, turnCtx.SessionKey)
+
 	// 先持久化用户消息到 session，再构建 LLM 上下文
 	// 这样 InitialMessages 会包含当前用户消息
 	if !turnCtx.UserPersistedEarly {
@@ -781,6 +785,51 @@ func (al *AgentLoop) stateBuild(ctx context.Context, turnCtx *TurnContext) (Stat
 	}
 
 	return StateEventOK, nil
+}
+
+// cleanInvalidMessageSequence 清理 session 中的无效消息序列。
+// 典型问题：空 assistant 消息（无 tool_calls）后面跟着 tool 结果，
+// 这种序列是工具调用失败时残留的，会导致 LLM API 返回错误或通用回复。
+// 此方法在每次 stateBuild 前调用，确保发送给 LLM 的消息序列始终有效。
+func (al *AgentLoop) cleanInvalidMessageSequence(sess *session.Session, sessionKey string) {
+	msgs := sess.Messages
+	if len(msgs) < 2 {
+		return
+	}
+
+	// 扫描并收集需要移除的无效消息索引
+	// 规则：assistant 消息如果 content 为空且没有 tool_calls，后面紧跟 tool 消息，则这对消息无效
+	removeIdx := make(map[int]bool)
+	for i := 0; i < len(msgs)-1; i++ {
+		if msgs[i].Role == "assistant" && msgs[i].Content == "" && len(msgs[i].ToolCalls) == 0 {
+			if msgs[i+1].Role == "tool" {
+				removeIdx[i] = true
+				removeIdx[i+1] = true
+				logger.Warn("Found invalid message sequence: empty assistant + tool result",
+					logger.String("session_key", sessionKey),
+					logger.Int("assistant_idx", i),
+					logger.Int("tool_idx", i+1))
+			}
+		}
+	}
+
+	if len(removeIdx) == 0 {
+		return
+	}
+
+	// 重建消息列表，过滤掉无效消息
+	cleaned := make([]session.Message, 0, len(msgs)-len(removeIdx))
+	for i, m := range msgs {
+		if !removeIdx[i] {
+			cleaned = append(cleaned, m)
+		}
+	}
+	sess.Messages = cleaned
+
+	logger.Info("Cleaned invalid message sequences",
+		logger.String("session_key", sessionKey),
+		logger.Int("removed", len(removeIdx)),
+		logger.Int("remaining", len(cleaned)))
 }
 
 // wireToolsForSession 将 FileStateStore 和 ExecSessionManager 绑定到当前会话。
@@ -1035,6 +1084,23 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 		}
 		toolMsg := session.NewToolMessage("", "", "", string(toolRespJSON))
 		turnCtx.Session.AddMessage(toolMsg)
+
+		// 验证：确保 assistant 消息有 tool_calls，否则移除空 assistant 避免无效消息序列
+		// 无效序列（空 assistant + tool 结果）会导致 LLM API 报错或返回通用回复
+		lastMsgs := turnCtx.Session.Messages
+		if len(lastMsgs) >= 2 {
+			prevMsg := lastMsgs[len(lastMsgs)-2] // assistant 消息
+			if prevMsg.Role == "assistant" && prevMsg.Content == "" && len(prevMsg.ToolCalls) == 0 {
+				logger.Warn("Removing orphaned empty assistant message (no tool_calls)",
+					logger.String("session_key", turnCtx.SessionKey))
+				// 移除空 assistant 和对应的 tool 结果
+				turnCtx.Session.RemoveLastMessage() // tool result
+				turnCtx.Session.RemoveLastMessage() // empty assistant
+				// 用错误提示替代，让 LLM 重新生成有效回复
+				errMsg := session.NewAssistantMessage("", "", "", "工具调用执行失败，请直接回复用户。")
+				turnCtx.Session.AddMessage(errMsg)
+			}
+		}
 	}
 
 	logger.Warn("Max tool iterations reached")
