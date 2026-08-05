@@ -382,6 +382,9 @@ func (f *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) error
 	}
 
 	if hint, ok := msg.Metadata["_tool_hint"].(bool); ok && hint {
+		if f.cfg.Streaming {
+			return f.sendToolHintDelta(ctx, msg)
+		}
 		return f.sendToolHint(ctx, msg)
 	}
 
@@ -473,6 +476,75 @@ func (f *FeishuChannel) sendToolHint(ctx context.Context, msg bus.OutboundMessag
 	cardContent, _ := json.Marshal(card)
 
 	return f.sendInteractiveMessage(ctx, actualChatID, string(cardContent), msg.Metadata)
+}
+
+// sendToolHintDelta 在流式模式下将工具提示追加到流式消息中。
+// 复用 streamBuf 基础设施，工具提示和最终回复在同一条消息中显示。
+// 当 finalizeStream 到达时，整条消息会被更新为最终内容，工具提示自然被替换。
+func (f *FeishuChannel) sendToolHintDelta(ctx context.Context, msg bus.OutboundMessage) error {
+	hint := strings.TrimSpace(msg.Content)
+	if hint == "" {
+		return nil
+	}
+
+	actualChatID := extractReceiveIDFromChatID(msg.ChatID)
+	streamKey := f.streamKey(actualChatID, msg.Metadata)
+	formatted := f.formatToolHintDelta(hint) + "\n\n"
+
+	// Phase 1: 快照阶段（持有锁）—— 读取/创建 buffer，追加 hint
+	type snapshot struct {
+		text       string
+		messageID  string
+		needNewMsg bool
+	}
+
+	var snap snapshot
+	func() {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+
+		buf := f.streamBufs[streamKey]
+		if buf == nil {
+			buf = &streamBuf{createdAt: time.Now()}
+			f.streamBufs[streamKey] = buf
+		}
+		buf.text += formatted
+		snap.text = buf.text
+		snap.messageID = buf.messageID
+		snap.needNewMsg = buf.messageID == ""
+	}()
+
+	if strings.TrimSpace(snap.text) == "" {
+		return nil
+	}
+
+	// Phase 2: 动作阶段（无锁）—— 创建消息或更新内容
+	if snap.needNewMsg {
+		receiveIDType := f.receiveIDType(actualChatID)
+		replyMsgID := ""
+		if msgID, ok := msg.Metadata["message_id"].(string); ok {
+			replyMsgID = msgID
+		}
+
+		newMsgID, err := f.createStreamingMessage(ctx, receiveIDType, actualChatID, replyMsgID, f.shouldUseReplyInThread(msg.Metadata))
+		if err != nil {
+			return err
+		}
+
+		f.mu.Lock()
+		buf := f.streamBufs[streamKey]
+		if buf != nil {
+			buf.messageID = newMsgID
+			buf.lastEdit = float64(time.Now().UnixNano()) / 1e9
+		}
+		f.mu.Unlock()
+
+		postContent := f.buildPostContent(snap.text)
+		return f.updateMessage(ctx, newMsgID, postContent)
+	}
+
+	postContent := f.buildPostContent(snap.text)
+	return f.updateMessage(ctx, snap.messageID, postContent)
 }
 
 func (f *FeishuChannel) sendMessageWithFormat(ctx context.Context, msg bus.OutboundMessage) error {

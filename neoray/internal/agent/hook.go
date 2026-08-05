@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+
 	"neoray/internal/bus"
 	"neoray/internal/session"
 )
@@ -166,4 +167,43 @@ func (ph *ProgressHook) publishProgress(sess *session.Session, status, message s
 		"session": sess.ID,
 	}
 	_ = ph.bus.PublishOutbound(msg)
+}
+
+// OnToolStart 在工具调用开始时发布进度提示
+func (ph *ProgressHook) OnToolStart(ctx context.Context, sess *session.Session, toolName string) error {
+	hint := toolDisplayName(toolName)
+	ph.publishToolHint(sess, hint)
+	return nil
+}
+
+// publishToolHint 发布工具调用提示消息（带 _tool_hint 标记）
+func (ph *ProgressHook) publishToolHint(sess *session.Session, hint string) {
+	if ph.bus == nil { return }
+	msg := bus.NewOutboundMessage(sess.ChannelID, sess.ID, hint)
+	msg.Type = bus.MessageTypeProgress
+	msg.SessionID = sess.ID
+	msg.Metadata = map[string]interface{}{
+		"_tool_hint": true,
+		"status":     "tool_hint",
+		"session":    sess.ID,
+	}
+	_ = ph.bus.PublishOutbound(msg)
+}
+
+// toolDisplayName 将工具名转为用户友好的中文描述
+func toolDisplayName(name string) string {
+	names := map[string]string{
+		"web_search":    "搜索网页",
+		"shell":         "执行命令",
+		"read_file":     "读取文件",
+		"write_file":    "写入文件",
+		"edit_file":     "编辑文件",
+		"list_files":    "列出文件",
+		"memory":        "读取记忆",
+		"exec_session":  "执行命令",
+	}
+	if display, ok := names[name]; ok {
+		return display
+	}
+	return name
 }

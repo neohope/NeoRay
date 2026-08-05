@@ -116,6 +116,7 @@ type TurnContext struct {
 	OnStream      func(ctx context.Context, delta string) error
 	OnStreamEnd   func(ctx context.Context, resuming bool) error
 	OnRetryWait   func(ctx context.Context, message string) error
+	OnToolStart   func(ctx context.Context, toolName string) error
 
 	// 队列
 	PendingQueue chan *bus.InboundMessage
@@ -882,12 +883,13 @@ func (al *AgentLoop) wireAndExecuteToolCalls(
 	sessionID string,
 	toolCalls []provider.ToolCall,
 	trace *TraceSession,
+	onToolStart func(ctx context.Context, toolName string) error,
 ) []map[string]interface{} {
 	al.toolWireMu.Lock()
 	defer al.toolWireMu.Unlock()
 
 	al.wireToolsForSessionLocked(sessionID)
-	return al.executeToolCallsLocked(ctx, toolCalls, trace)
+	return al.executeToolCallsLocked(ctx, toolCalls, trace, onToolStart)
 }
 
 // stateRun 运行 LLM
@@ -948,6 +950,24 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 		logger.Info("Tools loaded for LLM",
 			logger.Int("count", len(providerTools)),
 			logger.String("session_key", turnCtx.SessionKey))
+	}
+
+	// 连接工具进度回调：从 Hook 中提取 ProgressHook 并绑定到 turnCtx
+	if ch, ok := al.hook.(*CompositeHook); ok {
+		for _, h := range ch.Hooks() {
+			if ph, ok := h.(*ProgressHook); ok {
+				sess := turnCtx.Session
+				turnCtx.OnToolStart = func(ctx context.Context, toolName string) error {
+					return ph.OnToolStart(ctx, sess, toolName)
+				}
+				break
+			}
+		}
+	} else if ph, ok := al.hook.(*ProgressHook); ok {
+		sess := turnCtx.Session
+		turnCtx.OnToolStart = func(ctx context.Context, toolName string) error {
+			return ph.OnToolStart(ctx, sess, toolName)
+		}
 	}
 
 	maxIterations := defaultMaxIterations
@@ -1076,7 +1096,7 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 
 		// 有工具调用，继续执行（原子绑定+执行，防止并发 session 状态串扰）
 		totalToolCalls += len(resp.ToolCalls)
-		toolResponses := al.wireAndExecuteToolCalls(ctx, turnCtx.Session.ID, resp.ToolCalls, trace)
+		toolResponses := al.wireAndExecuteToolCalls(ctx, turnCtx.Session.ID, resp.ToolCalls, trace, turnCtx.OnToolStart)
 		toolRespJSON, err := json.Marshal(toolResponses)
 		if err != nil {
 			logger.Warn("Failed to marshal tool responses", logger.ErrorField(err))
@@ -1642,7 +1662,7 @@ func (al *AgentLoop) handleNativeStreamTool(
 		}
 		sess.AddMessage(assistantMsg)
 
-		toolResponses := al.wireAndExecuteToolCalls(ctx, sess.ID, currentToolCalls, trace)
+		toolResponses := al.wireAndExecuteToolCalls(ctx, sess.ID, currentToolCalls, trace, nil)
 		if !sendChunk(ctx, resultChan, StreamChunk{Type: "tool_result", ToolResults: toolResponses}) {
 			return true, ctx.Err()
 		}
@@ -1726,7 +1746,7 @@ func (al *AgentLoop) handleFallbackStream(
 		}
 		sess.AddMessage(assistantMsg)
 
-		toolResponses := al.wireAndExecuteToolCalls(ctx, sess.ID, resp.ToolCalls, trace)
+		toolResponses := al.wireAndExecuteToolCalls(ctx, sess.ID, resp.ToolCalls, trace, nil)
 		if !sendChunk(ctx, resultChan, StreamChunk{Type: "tool_result", ToolResults: toolResponses}) {
 			return true, ctx.Err()
 		}
@@ -1902,6 +1922,7 @@ func (al *AgentLoop) executeToolCallsLocked(
 	ctx context.Context,
 	toolCalls []provider.ToolCall,
 	trace *TraceSession,
+	onToolStart func(ctx context.Context, toolName string) error,
 ) []map[string]interface{} {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -1941,6 +1962,11 @@ func (al *AgentLoop) executeToolCallsLocked(
 				return
 			}
 			defer sem.Release(1)
+
+			// 发布工具调用进度提示
+			if onToolStart != nil {
+				_ = onToolStart(ctx, tc.Name)
+			}
 
 			toolCtx, cancel := context.WithTimeout(ctx, toolExecutionTimeout)
 			defer cancel()
