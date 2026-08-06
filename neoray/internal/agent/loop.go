@@ -1274,11 +1274,6 @@ func (al *AgentLoop) releaseSessionLock(sessionKey string) {
 func (al *AgentLoop) Chat(ctx context.Context, sess *session.Session, userInput string) (*ChatResult, error) {
 	startTime := time.Now()
 
-	// Hook: BeforeIter
-	if err := al.hook.BeforeIter(ctx, sess); err != nil {
-		logger.Warn("Hook BeforeIter failed", logger.ErrorField(err))
-	}
-
 	// 跟踪活跃会话
 	if al.memoryManager != nil {
 		al.memoryManager.TrackSession(sess.ID)
@@ -1336,14 +1331,18 @@ func (al *AgentLoop) Chat(ctx context.Context, sess *session.Session, userInput 
 			logger.Warn("Failed to save session after error", logger.ErrorField(saveErr))
 		}
 
-		return &ChatResult{
+		result := &ChatResult{
 			Message:    &assistantMsg,
 			Error:      err,
 			TokenUsage: al.tokenManager.GetSessionUsage(sess.ID),
 			Iterations: 1,
 			Duration:   time.Since(startTime),
 			Trace:      trace,
-		}, nil
+		}
+
+		// finishChat: 错误路径需要单独调用（processMessage 出错时不会调用）
+		al.finishChat(ctx, sess, userInput, result)
+		return result, nil
 	}
 
 	// 提取最终内容
@@ -1381,8 +1380,8 @@ func (al *AgentLoop) Chat(ctx context.Context, sess *session.Session, userInput 
 		Duration:   time.Since(startTime),
 	}
 
-	// finishChat: Hook + 内存记录
-	al.finishChat(ctx, sess, userInput, result)
+	// finishChat: 已在 processMessage 的状态机结束时调用，此处不再重复调用。
+	// 错误路径在上方单独调用 finishChat，因为 processMessage 出错时不会触发。
 	return result, nil
 }
 
