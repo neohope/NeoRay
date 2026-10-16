@@ -1050,6 +1050,9 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 			}
 		}
 		turnCtx.Session.AddMessage(assistantMsg)
+		// 记录本轮 assistant 消息在会话中的起始下标：后续取回复内容时只在此下标之后查找，
+		// 避免把本轮之前的历史消息（旧答案/占位符）当成本轮结果。
+		turnAssistantIdx := len(turnCtx.Session.Messages) - 1
 
 		// 检查是否需要续轮（仅在没有工具调用时）
 		if len(resp.ToolCalls) == 0 || al.toolRegistry == nil {
@@ -1084,10 +1087,11 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 				}
 			}
 
-			// 获取最终内容
-			finalMsg := turnCtx.Session.LastMessage()
-			if finalMsg != nil {
-				turnCtx.FinalContent = finalMsg.Content
+			// 获取最终内容：只在本轮新增的消息范围内取 assistant 回复，
+			// 不再使用 Session.LastMessage()（它可能是工具结果、空占位或历史旧答案）。
+			turnCtx.FinalContent = turnCtx.Session.LastAssistantContentSince(turnAssistantIdx)
+			if strings.TrimSpace(turnCtx.FinalContent) == "" {
+				turnCtx.FinalContent = resp.Content
 			}
 			turnCtx.StopReason = resp.FinishReason
 			turnCtx.HadInjections = false
@@ -1345,36 +1349,25 @@ func (al *AgentLoop) Chat(ctx context.Context, sess *session.Session, userInput 
 		return result, nil
 	}
 
-	// 提取最终内容
+	// 提取最终内容：只认本轮产出（outbound.Content）。
+	// 这里绝不能再回退去取"会话历史里最后一条 assistant 消息"——本轮生成失败时，
+	// 那会是上一轮甚至几天前的旧答案，用户会看到重复内容。
 	finalContent := ""
 	if outbound != nil {
-		finalContent = outbound.Content
+		finalContent = strings.TrimSpace(outbound.Content)
 	}
 
-	// 查找最后的 assistant 消息
-	var lastMsg *session.Message
-	for i := len(sess.Messages) - 1; i >= 0; i-- {
-		if sess.Messages[i].Role == "assistant" {
-			lastMsg = &sess.Messages[i]
-			break
-		}
-	}
-	if lastMsg == nil && finalContent != "" {
-		msg := session.NewAssistantMessage("", "", "", finalContent)
-		lastMsg = &msg
-	}
-
-	// 如果仍然没有 assistant 消息，记录失败结果
-	if lastMsg == nil {
-		defaultMsg := session.NewAssistantMessage("", "", "", "处理失败: 未生成回复")
-		sess.AddMessage(defaultMsg)
-		lastMsg = &defaultMsg
-		logger.Warn("No assistant message found, recorded failure",
+	var replyMsg session.Message
+	if finalContent != "" {
+		replyMsg = session.NewAssistantMessage("", "", "", finalContent)
+	} else {
+		replyMsg = session.NewAssistantMessage("", "", "", "处理失败: 本轮未生成回复，请重试。")
+		logger.Warn("Empty turn output; replying with explicit failure instead of stale history",
 			logger.String("session_id", sess.ID))
 	}
 
 	result := &ChatResult{
-		Message:    lastMsg,
+		Message:    &replyMsg,
 		TokenUsage: al.tokenManager.GetSessionUsage(sess.ID),
 		Trace:      trace,
 		Duration:   time.Since(startTime),
@@ -1391,14 +1384,39 @@ func (al *AgentLoop) finishChat(ctx context.Context, sess *session.Session, user
 		logger.Warn("Hook AfterIter failed", logger.ErrorField(err))
 	}
 
-	// 记录对话到记忆系统
-	if al.memoryManager != nil && result != nil && result.Message != nil {
-		if userInput != "" && result.Message.Content != "" {
-			if _, err := al.memoryManager.AppendHistory(userInput, result.Message.Content); err != nil {
-				logger.Warn("Failed to append to history", logger.ErrorField(err))
-			}
+	// 记录对话到记忆系统：只记录本轮真实生成的回复。
+	// 失败提示与占位内容绝不能写入历史，否则会污染后续上下文并诱发重复回复。
+	if al.memoryManager == nil || result == nil || result.Message == nil || result.Error != nil {
+		return
+	}
+	content := strings.TrimSpace(result.Message.Content)
+	if userInput == "" || content == "" || isNonReplyContent(content) {
+		logger.Debug("Skip memory history for non-reply content",
+			logger.String("session_id", sess.ID), logger.String("content", content))
+		return
+	}
+	if _, err := al.memoryManager.AppendHistory(userInput, content); err != nil {
+		logger.Warn("Failed to append to history", logger.ErrorField(err))
+	}
+}
+
+// isNonReplyContent 判断内容是否为失败提示或占位符（这类内容不应进入记忆历史）。
+func isNonReplyContent(content string) bool {
+	if content == "" || content == " " {
+		return true
+	}
+	for _, prefix := range []string{
+		"处理失败:",
+		"工具调用执行失败",
+		"I'm having trouble connecting to the AI service",
+		"抱歉，处理失败",
+		"抱歉，我无法处理",
+	} {
+		if strings.HasPrefix(content, prefix) {
+			return true
 		}
 	}
+	return false
 }
 
 // ChatStream 发送聊天消息（流式入口，替代 Agent.ChatStream）

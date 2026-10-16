@@ -3,6 +3,7 @@ package session
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"strings"
 	"sync"
 	"time"
 )
@@ -162,6 +163,24 @@ func (s *Session) LastMessage() *Message {
 	// 返回副本而非指针，避免外部修改内部数据
 	last := s.Messages[len(s.Messages)-1]
 	return &last
+}
+
+// LastAssistantContentSince 返回下标 index（含）之后最后一条非空 assistant 消息的内容。
+// 用于"只在本轮新增的消息范围内"提取回复，避免误取历史旧答案（线程安全）。
+func (s *Session) LastAssistantContentSince(index int) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if index < 0 {
+		index = 0
+	}
+	for i := len(s.Messages) - 1; i >= index; i-- {
+		msg := s.Messages[i]
+		if msg.Role == "assistant" && strings.TrimSpace(msg.Content) != "" {
+			return msg.Content
+		}
+	}
+	return ""
 }
 
 // RemoveLastMessage 移除最后一条消息（线程安全）

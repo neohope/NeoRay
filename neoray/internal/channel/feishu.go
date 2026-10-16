@@ -109,6 +109,7 @@ type FeishuChannel struct {
 // 使用 container/list 实现 O(1) 的访问提升和淘汰。
 type orderedMap struct {
 	mu       sync.RWMutex
+	saveMu   sync.Mutex // 串行化文件写入，避免并发写坏持久化文件
 	data     map[string]*list.Element
 	order    *list.List
 	cap      int
@@ -159,11 +160,17 @@ func (o *orderedMap) loadFromFile(path string) {
 	logger.Info("Loaded processed message IDs", logger.Int("count", len(o.data)))
 }
 
-// saveToFile 将已处理的消息 ID 持久化到文件
+// saveToFile 将已处理的消息 ID 持久化到文件。
+// 写入前先落临时文件再 rename，保证读端永远看到完整 JSON；并用 saveMu 串行化，
+// 避免多个 goroutine 并发写同一文件导致内容损坏（损坏后重启会丢失去重记录）。
 func (o *orderedMap) saveToFile() {
 	if o.filePath == "" {
 		return
 	}
+
+	o.saveMu.Lock()
+	defer o.saveMu.Unlock()
+
 	o.mu.RLock()
 	ids := make([]string, 0, len(o.data))
 	for e := o.order.Front(); e != nil; e = e.Next() {
@@ -177,9 +184,44 @@ func (o *orderedMap) saveToFile() {
 		logger.Warn("Failed to marshal processed message IDs", logger.ErrorField(err))
 		return
 	}
-	if err := os.WriteFile(o.filePath, data, 0644); err != nil {
+
+	tmpPath := o.filePath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		logger.Warn("Failed to write processed message IDs", logger.ErrorField(err))
+		return
+	}
+	if err := os.Rename(tmpPath, o.filePath); err != nil {
 		logger.Warn("Failed to save processed message IDs", logger.ErrorField(err))
 	}
+}
+
+// addIfNew 原子地"检查并加入"，返回 false 表示该 key 已存在（重复消息）。
+// 取代原先 has() + add() 两步调用，消除并发下两个 goroutine 同时通过去重的竞态。
+func (o *orderedMap) addIfNew(key string) bool {
+	o.mu.Lock()
+	if elem, ok := o.data[key]; ok {
+		// 已存在，提升到末尾并报告重复
+		o.order.MoveToBack(elem)
+		o.mu.Unlock()
+		return false
+	}
+	// 容量已满，淘汰最久未使用的（链表头部）
+	if o.order.Len() >= o.cap {
+		oldest := o.order.Front()
+		if oldest != nil {
+			if oldKey, ok := oldest.Value.(string); ok {
+				delete(o.data, oldKey)
+			}
+			o.order.Remove(oldest)
+		}
+	}
+	elem := o.order.PushBack(key)
+	o.data[key] = elem
+	o.mu.Unlock()
+
+	// 异步持久化到文件（saveToFile 内部已串行化 + 原子替换）
+	go o.saveToFile()
+	return true
 }
 
 func (o *orderedMap) has(key string) bool {
@@ -386,6 +428,12 @@ func (f *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) error
 			return f.sendToolHintDelta(ctx, msg)
 		}
 		return f.sendToolHint(ctx, msg)
+	}
+
+	// 其余进度类消息（Processing... / Done 等）不面向用户，直接丢弃，
+	// 避免把内部状态当聊天内容发出去污染对话。
+	if msg.Type == bus.MessageTypeProgress {
+		return nil
 	}
 
 	return f.sendMessageWithFormat(ctx, msg)
@@ -1119,11 +1167,11 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 		return
 	}
 
-	if f.processedMessageIDs.has(messageID) {
+	// 原子去重：同一条消息只处理一次（检查与登记在同一把锁内完成）
+	if !f.processedMessageIDs.addIfNew(messageID) {
 		logger.Debug("Skipping duplicate message", logger.String("message_id", messageID))
 		return
 	}
-	f.processedMessageIDs.add(messageID)
 
 	userID := msgEvent.Event.Sender.SenderID.OpenID
 	chatID := msgEvent.Event.Message.ChatID
