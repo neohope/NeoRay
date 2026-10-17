@@ -20,8 +20,9 @@
 ```
 # Windows
 C:\Users\YourName\.neoray\
-├── config.toml           # 主配置文件
+├── neoray.toml           # 主配置文件
 ├── config.local.toml     # 本地覆盖 (可选)
+├── config.toml.example   # 完整配置项参考样例（程序不读取）
 ├── logs/                 # 日志目录
 │   └── neoray.log
 ├── data/                 # 数据目录
@@ -32,7 +33,7 @@ C:\Users\YourName\.neoray\
 # macOS / Linux
 ~/
 └── .neoray/
-    ├── config.toml
+    ├── neoray.toml
     ├── logs/
     ├── data/
     └── workspace/
@@ -43,12 +44,10 @@ C:\Users\YourName\.neoray\
 NeoRay/
 ├── neoray/               # Go 后端 (项目名: neoray)
 │   ├── cmd/
-│   ├── internal/
-│   └── pkg/
-├── neorayui/             # Flutter 前端 (项目名: neorayui)
-├── config/               # 默认配置模板 (开发时)
-│   ├── config.toml       # 默认配置模板
-│   └── config.dev.toml   # 开发配置模板
+│   ├── internal/         # 含 internal/webui（内嵌 Web UI 资源）
+│   └── scripts/
+├── webui/                # Web UI 前端源码 (React + Vite)
+├── neoray_app/           # Flutter 客户端
 └── docs/                 # 文档
 ```
 
@@ -56,15 +55,18 @@ NeoRay/
 
 ## 配置文件位置优先级 (从高到低)
 
-1. **命令行参数**: `--config /path/to/config.toml`
-2. **环境变量**: `NEORAY_CONFIG=/path/to/config.toml`
-3. **用户目录**: `~/.neoray/config.toml`
-4. **当前目录**: `./config.toml`
-5. **可执行文件同目录**: `./config.toml`
+1. **命令行参数**: `--config /path/to/neoray.toml`
+2. **环境变量**: `NEORAY_CONFIG=/path/to/neoray.toml`
+3. **用户目录**: `~/.neoray/neoray.toml`
+4. **当前目录**: `./neoray.toml`
+5. **可执行文件同目录**: `./neoray.toml`
+
+> 文件名由 `config.Load` 中的 `SetConfigName("neoray")` 决定，故为 `neoray.toml`。
+> 此外会尝试合并 `config.local.toml` 作为本地覆盖（安全相关字段不允许被其覆盖）。
 
 ---
 
-## 配置文件结构 (config.toml)
+## 配置文件结构 (neoray.toml)
 
 ```toml
 # 应用基本信息
@@ -266,11 +268,16 @@ allowed_types = [
 # 相对路径: 相对于 ~/.neoray/
 temp_dir = "tmp/uploads"
 
-# Web UI 配置 (可选，用于托管前端)
+# Web UI 配置 (可选，用于内置托管 Web 界面)
+# 说明：默认 enabled=false，关闭时行为与未引入该功能时一致。
+# 静态资源已由 go:embed 内嵌进二进制，通常无需设置 static_dir。
 [web]
 enabled = false
-static_dir = "../neorayui/dist"
-index_path = "../neorayui/dist/index.html"
+# 留空表示使用内嵌资源（推荐）；仅本地调试前端时指向磁盘目录
+static_dir = ""
+index_path = ""
+# 开发模式下前端 dev server 的 Origin（如 http://127.0.0.1:5173）
+dev_origin = ""
 ```
 
 ---

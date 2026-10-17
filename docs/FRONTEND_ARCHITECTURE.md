@@ -75,133 +75,52 @@
 ## 目录结构
 
 ```
-neorayui/
+neoray_app/                         # Flutter 客户端（项目名: neoray_app）
 ├── lib/
-│   ├── main.dart                    # 应用入口
-│   ├── app.dart                     # App 根组件
+│   ├── main.dart                   # 应用入口（ProviderScope + 全局 WS 事件分发）
 │   │
-│   ├── core/                        # 核心基础设施
-│   │   ├── constants/
-│   │   │   ├── app_constants.dart
-│   │   │   ├── app_theme.dart
-│   │   │   └── api_constants.dart
-│   │   ├── router/
-│   │   │   └── app_router.dart      # GoRouter 配置
-│   │   ├── theme/
-│   │   │   ├── app_theme.dart
-│   │   │   └── theme_controller.dart
-│   │   ├── di/
-│   │   │   └── service_locator.dart # 依赖注入
-│   │   ├── errors/
-│   │   │   └── failures.dart
-│   │   ├── platform/                # 平台相关
-│   │   │   ├── platform_info.dart
-│   │   │   └── window_manager.dart  # 窗口管理封装
-│   │   └── utils/
-│   │       ├── date_formatter.dart
-│   │       └── markdown_parser.dart
+│   ├── constants/                  # 常量与尺寸
+│   │   ├── app_defaults.dart       # 默认值（serverUrl / 主题 / 模型参数）
+│   │   ├── app_dimensions.dart     # 间距、圆角、尺寸
+│   │   ├── app_strings.dart        # 文案
+│   │   ├── app_timings.dart        # 超时、动画时长
+│   │   └── constants.dart          # 汇总导出
 │   │
-│   ├── data/                        # 数据层
-│   │   ├── models/
-│   │   │   ├── session.dart
-│   │   │   ├── message.dart
-│   │   │   └── settings.dart
-│   │   ├── datasources/
-│   │   │   ├── websocket/
-│   │   │   │   └── websocket_client.dart
-│   │   │   ├── api/
-│   │   │   │   └── rest_api_client.dart
-│   │   │   └── storage/
-│   │   │       └── local_storage.dart
-│   │   └── repositories/
-│   │       ├── session_repository_impl.dart
-│   │       ├── message_repository_impl.dart
-│   │       └── settings_repository_impl.dart
+│   ├── models/                     # 数据模型（freezed 生成不可变类）
+│   │   ├── app_config.dart         # AppConfig（客户端本地）+ ServerConfig（服务端）
+│   │   ├── message.dart            # 消息实体
+│   │   └── session.dart            # 会话实体
 │   │
-│   ├── domain/                      # 领域层
-│   │   ├── entities/
-│   │   │   ├── session.dart
-│   │   │   ├── message.dart
-│   │   │   └── settings.dart
-│   │   ├── repositories/
-│   │   │   ├── session_repository.dart
-│   │   │   ├── message_repository.dart
-│   │   │   └── settings_repository.dart
-│   │   └── usecases/
-│   │       ├── send_message_usecase.dart
-│   │       ├── load_sessions_usecase.dart
-│   │       ├── create_session_usecase.dart
-│   │       ├── delete_session_usecase.dart
-│   │       └── update_settings_usecase.dart
+│   ├── pages/                      # 页面
+│   │   ├── chat_page.dart          # 聊天页（会话列表 + 消息区 + 输入区）
+│   │   └── config_page.dart        # 配置页（LLM / Channel / Tools）
 │   │
-│   ├── presentation/                # 表现层
-│   │   ├── providers/               # Riverpod Providers
-│   │   │   ├── session_provider.dart
-│   │   │   ├── message_provider.dart
-│   │   │   ├── settings_provider.dart
-│   │   │   ├── connection_provider.dart
-│   │   │   └── theme_provider.dart
-│   │   ├── pages/
-│   │   │   ├── home/
-│   │   │   │   ├── home_page.dart
-│   │   │   │   └── widgets/
-│   │   │   │       ├── sidebar.dart        # 桌面端侧边栏
-│   │   │   │       ├── session_list.dart
-│   │   │   │       └── session_header.dart
-│   │   │   ├── chat/
-│   │   │   │   ├── chat_page.dart
-│   │   │   │   └── widgets/
-│   │   │   │       ├── message_list.dart
-│   │   │   │       ├── message_bubble.dart
-│   │   │   │       ├── chat_input_bar.dart  # 桌面优化输入框
-│   │   │   │       ├── code_block.dart
-│   │   │   │       └── typing_indicator.dart
-│   │   │   ├── settings/
-│   │   │   │   ├── settings_page.dart
-│   │   │   │   └── widgets/
-│   │   │   │       ├── model_settings.dart
-│   │   │   │       └── appearance_settings.dart
-│   │   │   ├── splash/
-│   │   │   │   └── splash_page.dart
-│   │   │   └── welcome/
-│   │   │       └── welcome_page.dart
-│   │   └── widgets/
-│   │       ├── common/
-│   │       │   ├── error_view.dart
-│   │       │   ├── loading_view.dart
-│   │       │   └── platform_menu_bar.dart  # 桌面菜单条
-│   │       ├── chat/
-│   │       │   ├── markdown_renderer.dart
-│   │       │   ├── message_actions.dart     # 复制/重试等
-│   │       │   └── attachment_button.dart
-│   │       └── layout/
-│   │           ├── desktop_scaffold.dart    # 桌面布局
-│   │           ├── responsive_layout.dart
-│   │           └── split_view.dart          # 左右分栏
+│   ├── providers/
+│   │   └── providers.dart          # 全部 Riverpod 状态（配置/会话/流式 UI）
 │   │
-│   ├── services/                    # 服务层
-│   │   ├── websocket_service.dart
-│   │   ├── storage_service.dart
-│   │   ├── tray_service.dart        # 系统托盘 (桌面)
-│   │   └── window_service.dart      # 窗口管理 (桌面)
+│   ├── services/                   # 通信层
+│   │   ├── api_service.dart        # REST 客户端（含 X-Api-Key 认证头）
+│   │   └── websocket_service.dart  # WebSocket（指数退避重连、事件解析）
 │   │
-│   └── features/                    # 功能模块 (可选)
-│       └── [feature_name]/
+│   ├── theme/
+│   │   └── app_theme.dart          # 亮/暗主题
+│   │
+│   ├── utils/
+│   │   └── logger.dart             # 日志封装
+│   │
+│   └── widgets/                    # 组件
+│       ├── message_bubble.dart     # 消息气泡
+│       └── sidebar.dart            # 会话侧边栏
 │
-├── assets/                         # 资源文件
-│   ├── icons/
-│   └── images/
-│
-├── test/
-│   ├── unit/
-│   ├── widget/
-│   └── integration/
-│
-├── linux/                          # Linux 特定文件
-├── macos/                          # macOS 特定文件
-├── windows/                        # Windows 特定文件
-└── web/                            # Web 特定文件
+├── macos/                          # macOS 平台工程
+├── windows/                        # Windows 平台工程
+├── web/                            # Web 平台脚手架（未构建，实际 Web UI 见 webui/）
+└── scripts/                        # 构建脚本
 ```
+
+> 说明：仓库根目录的 `webui/` 是 **Web UI 前端源码**（React + Vite），
+> 与本目录（Flutter 客户端）是两套独立前端；Flutter 负责桌面/移动端。
+> 早期文档中的 `neorayui/` 为历史命名，现已更名为 `neoray_app/`。
 
 ---
 

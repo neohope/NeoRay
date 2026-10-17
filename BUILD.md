@@ -6,13 +6,17 @@
 
 ```
 NeoRay/
-├── neoray/              # Go 后端
+├── neoray/              # Go 后端（含内嵌 Web UI 资源）
 │   ├── cmd/server/
-│   ├── internal/
-│   ├── scripts/
+│   ├── internal/        # 含 internal/webui（go:embed 资源）
+│   ├── scripts/         # 含 build-webui.sh
 │   ├── Makefile
 │   └── BUILD.md        # 后端打包文档
-├── neoray_app/         # Flutter 前端
+├── webui/              # Web UI 前端源码（React + Vite）
+│   ├── src/
+│   ├── public/
+│   └── vite.config.ts
+├── neoray_app/         # Flutter 客户端
 │   ├── lib/
 │   ├── scripts/
 │   ├── Makefile
@@ -180,9 +184,11 @@ flutter run
 
 ```
 neoray.exe / neoray
-config.yaml
-config.yaml.example
+neoray.toml.example
 ```
+
+> 配置文件为 TOML 格式（`neoray.toml`），首次运行时会自动生成于 `~/.neoray/`。
+> Web UI 资源已内嵌进二进制，发布包无需附带前端文件。
 
 ### 前端包 (neoray-*.zip/dmg/tar.gz)
 
@@ -215,47 +221,62 @@ make run
 
 ---
 
-## Web 版本部署
+## Web UI 部署
 
-### 构建 Web 版本
+Web UI 资源由 `go:embed` 内嵌进后端二进制，**没有独立的 Web 构建产物需要部署**。
 
-```bash
-# 方式 1：使用根目录 Makefile
-make all-web
-
-# 方式 2：使用前端脚本
-cd neoray_app
-scripts\build-web.bat  # Windows
-# 或
-scripts/build-web.sh   # macOS/Linux
-```
-
-### 运行 Web 版本
+### 构建
 
 ```bash
-# 开发模式
-cd neoray_app
-make run-web
+# 1. 构建前端资源（输出到 neoray/internal/webui/dist，供 go:embed 打包）
+cd webui
+npm install
+npm run build
 
-# 测试构建版本
-cd neoray_app/build/web
-python3 -m http.server 8080
-# 浏览器打开 http://localhost:8080
+# 2. 编译后端（自动内嵌上一步产物）
+cd ../neoray
+go build -o neoray ./cmd/server
 ```
 
-### 部署到生产
+后端构建脚本已接入前端构建（`neoray/scripts/build-webui.sh`）。
+未安装 Node 时会自动跳过，此时服务端显示内置提示页，不影响其他功能。
 
-将 `neoray_app/build/web` 目录部署到任何静态托管服务：
-- Netlify
-- Vercel
-- GitHub Pages
-- Nginx
-- AWS S3
-- 等等
+### 启用与访问
 
-**重要**：Web 版本需要后端 API 可访问，确保：
-1. 后端服务已启动
-2. 前端配置的 API 地址可访问（跨域配置）
+在 `~/.neoray/neoray.toml` 中启用：
+
+```toml
+[web]
+enabled = true
+```
+
+启动后浏览器访问 `http://127.0.0.1:8080`。
+
+首次以 `web.enabled = true` 启动且 `security.auth.secret_key` 为空时，
+程序会自动生成强随机密钥、写入配置文件并打印一次，登录时输入该密钥。
+
+### 安全说明
+
+- Web UI 默认**关闭**；关闭时行为与未引入该功能时完全一致。
+- 服务默认仅监听 `127.0.0.1`。若绑定到非回环地址，启动时会输出告警。
+- Web UI 使用 Cookie 会话鉴权（浏览器 WebSocket 无法自定义请求头）；
+  CLI / Flutter 客户端仍使用 `X-Api-Key` / `Bearer` 请求头，两者互不影响。
+
+### 开发模式
+
+改前端时无需重新编译 Go 二进制，可在配置中指向磁盘目录：
+
+```toml
+[web]
+enabled = true
+static_dir = "../neoray/internal/webui/dist"
+```
+
+或使用 Vite dev server（已内置代理到 `127.0.0.1:8080`）：
+
+```bash
+cd webui && npm run dev
+```
 
 ## 相关文档
 

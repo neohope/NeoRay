@@ -57,9 +57,8 @@ echo.
 echo [6/6] 打包...
 mkdir dist 2>nul
 
-REM 复制配置文件
-copy config.yaml.example build\config.yaml.example 2>nul
-copy config.yaml build\config.yaml 2>nul || copy config.yaml.example build\config.yaml
+REM 复制配置样例（实际配置为 TOML 格式，首次运行自动生成于 %USERPROFILE%\.neoray\neoray.toml）
+copy neoray.toml.example build\neoray.toml.example 2>nul
 
 REM 创建发布包
 powershell -Command "Compress-Archive -Path build\* -DestinationPath dist\neoray-windows.zip -Force"

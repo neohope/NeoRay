@@ -54,9 +54,8 @@ echo ""
 echo "[6/6] 打包..."
 mkdir -p dist
 
-# 复制配置文件
-cp config.yaml.example build/config.yaml.example 2>/dev/null || true
-cp config.yaml build/config.yaml 2>/dev/null || cp config.yaml.example build/config.yaml
+# 复制配置样例（实际配置为 TOML 格式，首次运行自动生成于 ~/.neoray/neoray.toml）
+cp neoray.toml.example build/neoray.toml.example 2>/dev/null || true
 
 # 创建 tar.gz 包
 cd build

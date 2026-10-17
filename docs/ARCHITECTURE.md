@@ -89,24 +89,29 @@ NeoRay/
 │   │   └── server/
 │   ├── internal/        # 内部模块
 │   │   ├── agent/       # 核心代理引擎
+│   │   ├── api/         # HTTP + WebSocket 服务（含 Web UI 静态托管）
 │   │   ├── bus/         # 消息总线
 │   │   ├── channel/     # 频道集成
 │   │   ├── config/      # 配置
 │   │   ├── provider/    # LLM 提供商
 │   │   ├── session/     # 会话管理
 │   │   ├── security/    # 安全模块
-│   │   └── tools/       # 工具系统
-│   └── pkg/             # 公共包
+│   │   ├── tools/       # 工具系统
+│   │   └── webui/       # 内嵌 Web UI 资源（go:embed）
+│   └── scripts/         # 构建脚本
 │
-├── neorayui/            # Flutter 前端 (项目名: neorayui)
+├── neoray_app/          # Flutter 客户端
 │   ├── lib/
-│   │   ├── features/    # 功能模块
+│   │   ├── pages/       # 页面
 │   │   ├── providers/   # 状态管理
-│   │   ├── services/    # API 服务
+│   │   ├── services/    # API / WebSocket 服务
+│   │   ├── models/      # 数据模型
 │   │   └── widgets/     # 组件
 │
-├── config/              # 默认配置模板
-│   └── config.toml      # 默认配置
+├── webui/               # Web UI 前端源码 (React + Vite)
+│   ├── src/
+│   ├── public/          # 静态资源（如 favicon）
+│   └── vite.config.ts   # 产物输出到 neoray/internal/webui/dist
 │
 └── docs/                # 文档
 ```
@@ -116,14 +121,14 @@ NeoRay/
 ```
 # Windows
 C:\Users\YourName\.neoray\
-├── config.toml         # 配置文件
+├── neoray.toml         # 配置文件
 ├── logs/               # 日志
 ├── data/               # 数据库
 └── workspace/          # 工具工作区
 
 # macOS / Linux
 ~/.neoray/
-├── config.toml
+├── neoray.toml
 ├── logs/
 ├── data/
 └── workspace/

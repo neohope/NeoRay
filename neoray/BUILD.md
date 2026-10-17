@@ -135,8 +135,12 @@ neoray.exe --no-tui
 ### 指定配置文件
 
 ```bash
-neoray --config /path/to/config.yaml
+neoray --config /path/to/neoray.toml
 ```
+
+> 配置文件为 TOML 格式，默认名 `neoray.toml`（由 `SetConfigName("neoray")` 决定）。
+> 未显式指定时按以下顺序查找：`~/.neoray/` → 当前目录 → 可执行文件同目录。
+> 首次运行时会在 `~/.neoray/` 自动生成一份默认配置。
 
 ---
 
@@ -159,14 +163,14 @@ make fmt          # 格式化代码
 
 ## 配置文件
 
-构建脚本会自动复制配置文件：
+构建脚本会复制配置样例：
 
-- `config.yaml.example` → `build/config.yaml.example`
-- `config.yaml` → `build/config.yaml`（如果存在）
+- `neoray.toml.example` → `build/neoray.toml.example`
 
-如果没有 `config.yaml`，会从 example 复制一份。
+**重要**：实际使用的配置文件为 `~/.neoray/neoray.toml`（TOML 格式），
+首次运行时会自动生成。如需自定义，请参照 `neoray.toml.example` 编辑。
 
-**重要**：首次运行前请编辑 `config.yaml` 配置你的 API keys。
+> Web UI 相关资源已由 `go:embed` 内嵌进二进制，发布包无需额外附带前端文件。
 
 ---
 
@@ -229,8 +233,7 @@ neoray/
 │   └── build-linux.sh      # Linux 构建脚本
 ├── Makefile                # Makefile
 ├── BUILD.md               # 本文档
-├── config.yaml            # 配置文件
-└── config.yaml.example    # 配置示例
+└── neoray.toml.example    # 配置样例（实际配置生成于 ~/.neoray/neoray.toml）
 ```
 
 ---

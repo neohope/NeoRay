@@ -149,6 +149,9 @@ webui_allow_local_service_access = false
 ssrf_whitelist = []
 
 [web]
+# Web UI 开关。启用后可通过浏览器访问 http://<host>:<port>/
+# 静态资源已由 go:embed 内嵌，通常无需设置 static_dir。
 enabled = false
-static_dir = "../neorayui/dist"
-index_path = "../neorayui/dist/index.html"
+static_dir = ""
+index_path = ""
+dev_origin = ""
