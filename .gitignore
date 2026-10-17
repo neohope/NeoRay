@@ -24,6 +24,13 @@ go.work
 # Flutter Web
 neoray_app/build/web/
 
+# Web UI 前端
+webui/node_modules/
+webui/dist/
+# 忽略内嵌资源的构建产物，但保留目录标记（go:embed 要求目录存在且非空）
+neoray/internal/webui/dist/*
+!neoray/internal/webui/dist/.gitkeep
+
 # IDE
 .idea/
 .vscode/

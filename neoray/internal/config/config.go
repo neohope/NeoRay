@@ -23,7 +23,8 @@ type Config struct {
 	Agent    AgentConfig    `mapstructure:"agent"`
 
 	// 内部字段
-	HomeDir string `mapstructure:"-"` // 用户数据目录 ~/.neoray
+	HomeDir    string `mapstructure:"-"` // 用户数据目录 ~/.neoray
+	ConfigPath string `mapstructure:"-"` // 实际加载的配置文件路径（供写回使用）
 }
 
 // AppConfig 应用配置
@@ -40,7 +41,11 @@ type ServerConfig struct {
 	ReadTimeout  time.Duration `mapstructure:"read_timeout"`
 	WriteTimeout time.Duration `mapstructure:"write_timeout"`
 	IdleTimeout  time.Duration `mapstructure:"idle_timeout"`
-	CORS         CORSConfig    `mapstructure:"cors"`
+	// WSMessageTimeout 单条 WebSocket 消息的处理超时。
+	// 必须大于 agent 自身的处理超时（内部为 5 分钟），否则长任务
+	// （多轮工具调用）会被外层先截断，导致 chat_end 无法下发。
+	WSMessageTimeout time.Duration `mapstructure:"ws_message_timeout"`
+	CORS             CORSConfig    `mapstructure:"cors"`
 }
 
 // CORSConfig CORS 配置
@@ -332,6 +337,9 @@ type WebConfig struct {
 	Enabled   bool   `mapstructure:"enabled"`
 	StaticDir string `mapstructure:"static_dir"`
 	IndexPath string `mapstructure:"index_path"`
+	// DevOrigin 为开发模式下前端 dev server 的 Origin（如 http://127.0.0.1:5173），
+	// 非空时会加入 CORS 白名单，仅用于本地调试。
+	DevOrigin string `mapstructure:"dev_origin"`
 }
 
 // GetHomeDir 获取用户数据目录 ~/.neoray

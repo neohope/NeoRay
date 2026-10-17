@@ -11,6 +11,9 @@ port = 8080
 read_timeout = 60
 write_timeout = 60
 idle_timeout = 120
+# 单条 WebSocket 消息的处理超时。默认 10m。
+# 必须大于 agent 内部处理超时（5m），否则多轮工具调用的长任务会被提前截断。
+ws_message_timeout = "10m"
 
 [llm]
 default_provider = "anthropic"
@@ -184,6 +187,15 @@ dbname = "neoray"
 sslmode = "disable"
 
 [web]
-enabled = true
-static_dir = "webui/dist"
-index_path = "webui/dist/index.html"
+# Web UI 开关。启用后可通过浏览器访问 http://<host>:<port>/ 使用聊天界面。
+# 仅在浏览器访问时需要；CLI / Flutter 客户端 / 飞书渠道不受影响。
+# 注意：Web UI 面向本机使用，建议保持 server.host = "127.0.0.1"。
+enabled = false
+# 静态资源目录。留空表示使用编译进二进制的内嵌资源（推荐，免安装）。
+# 仅在本地调试前端时指向磁盘目录（如 "../webui/dist"），改前端无需重新编译。
+static_dir = ""
+# SPA 入口文件，留空使用默认 index.html。
+index_path = ""
+# 开发模式下前端 dev server 的 Origin（如 "http://127.0.0.1:5173"），
+# 非空时会加入 CORS 白名单，仅用于本地调试。
+dev_origin = ""

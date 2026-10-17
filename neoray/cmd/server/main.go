@@ -199,6 +199,18 @@ func main() {
 	}
 	fmt.Println("Config loaded")
 
+	// 方案 B：启用 Web UI 但未配置认证密钥时，自动生成强随机密钥并写回配置文件，
+	// 做到开箱即用（无需用户手动生成）。密钥仅在本次生成时打印一次。
+	if generated, key, keyErr := config.EnsureWebAuthKey(cfg, cfg.ConfigPath); keyErr != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  Web auth key setup: %v\n", keyErr)
+		if generated && key != "" {
+			fmt.Printf("\n🔑 Web UI 登录密钥（本次运行有效，未能写入配置文件）:\n\n    %s\n\n", key)
+		}
+	} else if generated {
+		fmt.Printf("\n🔑 已自动生成 Web UI 登录密钥并写入 %s:\n\n    %s\n\n", cfg.ConfigPath, key)
+		fmt.Println("   请妥善保存；登录 Web UI 时输入该密钥。")
+	}
+
 	fmt.Println("Initializing logger...")
 	// 初始化日志
 	if err := logger.Init(cfg); err != nil {

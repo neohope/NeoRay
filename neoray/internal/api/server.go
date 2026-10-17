@@ -36,6 +36,10 @@ type Server struct {
 	clientsMu   sync.RWMutex
 	httpServer  *http.Server
 	rateLimiter *rateLimiter
+
+	// webSessions 为 Web UI 的 Cookie 会话存储（浏览器 WS 无法自定义请求头，
+	// 故 Web UI 走 Cookie 鉴权）。为 nil 时表示未启用。
+	webSessions *webSessionStore
 }
 
 // rateLimiter implements a simple per-IP token bucket rate limiter.
@@ -209,6 +213,11 @@ func NewServer(cfg *config.Config, aiAgent agent.AgentInterface, sessionMgr *ses
 		rateLimiter: newRateLimiter(cfg.Security.RateLimit.RequestsPerMinute, cfg.Security.RateLimit.Burst, time.Minute),
 	}
 
+	// 仅在启用 Web UI 时初始化会话存储，避免无用开销
+	if cfg.Web.Enabled {
+		s.webSessions = newWebSessionStore()
+	}
+
 	// 如果有消息总线，订阅出站消息
 	if msgBus != nil {
 		s.subscribeToBus()
@@ -230,6 +239,33 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/config", s.wrapMiddleware(s.handleConfig))
 	mux.HandleFunc("/api/health", s.wrapMiddleware(s.handleHealth))
 
+	// Web UI 认证端点（仅 Web UI 启用时注册）
+	if s.cfg.Web.Enabled {
+		mux.HandleFunc("/api/auth/login", s.handleAuthLogin)
+		mux.HandleFunc("/api/auth/logout", s.handleAuthLogout)
+		mux.HandleFunc("/api/auth/me", s.handleAuthMe)
+	}
+
+	// API 未注册路径兜底：返回 JSON 404。
+	// 必须显式注册，否则会被下面的 "/" 静态路由（SPA 回退）吞掉并返回 HTML，
+	// 导致前端 JSON 解析失败。Go 1.22+ ServeMux 按最长前缀匹配，
+	// 本模式优先级低于上面已注册的精确路径，故不影响现有接口。
+	mux.HandleFunc("/api/", s.wrapMiddleware(s.handleAPINotFound))
+
+	// Web UI 静态资源（可选，默认关闭）。
+	// 仅在 web.enabled = true 时注册；关闭时行为与改动前完全一致。
+	if s.cfg.Web.Enabled {
+		s.warnIfWebExposed()
+		if handler := newStaticHandler(s.cfg.Web.StaticDir); handler != nil {
+			// 注意：静态资源不经过 wrapMiddleware，因此不做认证/限流，
+			// 以免页面本体、JS、CSS 被鉴权拦截而无法加载。
+			mux.Handle("/", handler)
+			logger.Info("Web UI enabled",
+				logger.String("static_dir", s.cfg.Web.StaticDir))
+		} else {
+			logger.Warn("Web UI enabled but no usable assets found; UI will be unavailable")
+		}
+	}
 
 	addr := fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.Port)
 	s.httpServer = &http.Server{
@@ -250,6 +286,7 @@ func (s *Server) Start() error {
 
 	logger.Info("API server starting",
 		logger.String("addr", addr),
+		logger.Duration("ws_message_timeout", s.effectiveWSMessageTimeout()),
 	)
 
 	go func() {
@@ -259,6 +296,17 @@ func (s *Server) Start() error {
 	}()
 
 	return nil
+}
+
+// effectiveWSMessageTimeout 返回单条 WebSocket 消息的生效处理超时。
+// 优先取配置值；未配置或非法时回退到默认 10 分钟。
+// 抽取为方法是为了便于启动日志与 readPump 共用同一来源，避免两处不一致。
+func (s *Server) effectiveWSMessageTimeout() time.Duration {
+	const defaultTimeout = 10 * time.Minute
+	if cfg := s.getConfig(); cfg != nil && cfg.Server.WSMessageTimeout > 0 {
+		return cfg.Server.WSMessageTimeout
+	}
+	return defaultTimeout
 }
 
 // subscribeToBus 订阅消息总线
@@ -353,6 +401,11 @@ func (s *Server) Stop(ctx context.Context) error {
 		s.rateLimiter.stop()
 	}
 
+	// Stop Web UI session store cleanup goroutine
+	if s.webSessions != nil {
+		s.webSessions.stop()
+	}
+
 	// 取消消息总线订阅（关闭 outChan 让 subscribeToBus goroutine 退出）
 	if s.msgBus != nil {
 		s.msgBus.UnsubscribeOutbound("api_server")
@@ -440,14 +493,18 @@ func (s *Server) corsMiddleware(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	// Web UI 开发模式：允许前端 dev server 的 Origin（仅本地调试用）。
+	if !allowed && cfg.Web.DevOrigin != "" && origin == cfg.Web.DevOrigin {
+		allowed = true
+	}
 	if !allowed {
 		return
 	}
 
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
-	if cfg.Server.CORS.AllowCredentials {
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, X-Api-Key")
+	if cfg.Server.CORS.AllowCredentials || (cfg.Web.DevOrigin != "" && origin == cfg.Web.DevOrigin) {
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 	}
 	w.Header().Set("Access-Control-Max-Age", "86400")
@@ -481,6 +538,12 @@ func (s *Server) authenticateRequest(r *http.Request) bool {
 
 	// Check X-Api-Key header
 	if apiKey := r.Header.Get("X-Api-Key"); subtle.ConstantTimeCompare([]byte(apiKey), []byte(expectedKey)) == 1 {
+		return true
+	}
+
+	// Check Web UI session cookie —— 浏览器 WebSocket 无法自定义请求头，
+	// 因此 Web UI 使用同源 Cookie 鉴权（对存量 Header 客户端无影响）。
+	if s.validWebSession(r) {
 		return true
 	}
 
@@ -562,8 +625,12 @@ func (c *Client) readPump() {
 			logger.Int("message_bytes", len(message)),
 		)
 
-		// 处理消息（带超时控制，防止消息处理阻塞过久）
-		handleCtx, handleCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		// 处理消息（带超时控制，防止消息处理阻塞过久）。
+		// 超时值可配（server.ws_message_timeout，默认 10m）：
+		// 必须大于 agent 内部的处理超时（5 分钟），否则多轮工具调用的长任务
+		// 会被外层提前截断，导致 chat_end 无法下发、前端只能报超时。
+		msgTimeout := c.Server.effectiveWSMessageTimeout()
+		handleCtx, handleCancel := context.WithTimeout(context.Background(), msgTimeout)
 		done := make(chan struct{})
 		go func() {
 			c.handleMessage(handleCtx, message)
@@ -577,6 +644,7 @@ func (c *Client) readPump() {
 			logger.Warn("WebSocket message handling timed out",
 				logger.String("client_id", c.ID),
 				logger.Int("message_bytes", len(message)),
+				logger.Duration("timeout", msgTimeout),
 			)
 			c.sendError("timeout", "Message handling timed out")
 		}

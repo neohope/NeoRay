@@ -93,6 +93,13 @@ func Load(configPath string) (*Config, error) {
 
 	cfg.HomeDir = homeDir
 
+	// 记录实际生效的配置文件路径，供后续写回（如自动生成 Web 密钥）使用。
+	if used := v.ConfigFileUsed(); used != "" {
+		cfg.ConfigPath = used
+	} else {
+		cfg.ConfigPath = filepath.Join(homeDir, "neoray.toml")
+	}
+
 	// 如果用户目录没有配置文件，保存默认配置
 	userConfigPath := filepath.Join(homeDir, "neoray.toml")
 	if _, err := os.Stat(userConfigPath); os.IsNotExist(err) {
@@ -128,6 +135,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.read_timeout", "60s")
 	v.SetDefault("server.write_timeout", "60s")
 	v.SetDefault("server.idle_timeout", "120s")
+	// 单条 WS 消息处理超时：默认 10 分钟。
+	// 需大于 agent 内部处理超时（5 分钟），避免长任务被外层提前截断。
+	v.SetDefault("server.ws_message_timeout", "10m")
 
 	// Logger
 	v.SetDefault("logger.level", "info")
@@ -225,6 +235,9 @@ func setDefaults(v *viper.Viper) {
 
 	// Web
 	v.SetDefault("web.enabled", false)
+	v.SetDefault("web.static_dir", "")
+	v.SetDefault("web.index_path", "")
+	v.SetDefault("web.dev_origin", "")
 }
 
 // validate 验证配置

@@ -38,7 +38,13 @@ else
 fi
 
 echo ""
-echo "[5/6] 构建 macOS 可执行文件..."
+echo "[5/7] 构建 Web UI 前端资源..."
+# 前端资源可选：失败不阻断后端构建，服务端会回退到内置提示页。
+chmod +x ./scripts/build-webui.sh 2>/dev/null || true
+./scripts/build-webui.sh
+
+echo ""
+echo "[6/7] 构建 macOS 可执行文件..."
 mkdir -p build
 export GOOS=darwin
 export GOARCH=arm64
@@ -51,7 +57,7 @@ chmod +x build/neoray
 echo "✅ 构建成功"
 
 echo ""
-echo "[6/6] 打包..."
+echo "[7/7] 打包..."
 mkdir -p dist
 
 # 复制配置文件
