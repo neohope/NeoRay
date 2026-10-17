@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- NeoRay favicon：兔子 🐰 -->
+  <!-- 背景：品牌蓝圆角方块 -->
+  <rect x="0" y="0" width="64" height="64" rx="14" fill="#2563eb"/>
+
+  <!-- 左耳 -->
+  <g transform="rotate(-16 22 22)">
+    <ellipse cx="22" cy="21" rx="5.6" ry="13.5" fill="#ffffff"/>
+    <ellipse cx="22" cy="21" rx="2.9" ry="8.6" fill="#f9a8d4"/>
+  </g>
+  <!-- 右耳 -->
+  <g transform="rotate(16 42 22)">
+    <ellipse cx="42" cy="21" rx="5.6" ry="13.5" fill="#ffffff"/>
+    <ellipse cx="42" cy="21" rx="2.9" ry="8.6" fill="#f9a8d4"/>
+  </g>
+
+  <!-- 头部 -->
+  <ellipse cx="32" cy="40" rx="15.5" ry="13.5" fill="#ffffff"/>
+
+  <!-- 眼睛 -->
+  <circle cx="26" cy="38" r="2.3" fill="#1f2328"/>
+  <circle cx="38" cy="38" r="2.3" fill="#1f2328"/>
+  <!-- 眼睛高光 -->
+  <circle cx="26.8" cy="37.2" r="0.75" fill="#ffffff"/>
+  <circle cx="38.8" cy="37.2" r="0.75" fill="#ffffff"/>
+
+  <!-- 鼻子 -->
+  <ellipse cx="32" cy="43.6" rx="2.5" ry="1.9" fill="#f472b6"/>
+
+  <!-- 嘴（W 形，两段小弧） -->
+  <path d="M32 45.6 L32 47" stroke="#1f2328" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+  <path d="M32 47 Q29.6 49.4 28.2 47.4" stroke="#1f2328" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+  <path d="M32 47 Q34.4 49.4 35.8 47.4" stroke="#1f2328" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+
+  <!-- 胡须 -->
+  <g stroke="#c7cbd1" stroke-width="0.9" stroke-linecap="round">
+    <path d="M20.5 41.5 L25 42.2"/>
+    <path d="M20.5 45 L25 44.6"/>
+    <path d="M43.5 41.5 L39 42.2"/>
+    <path d="M43.5 45 L39 44.6"/>
+  </g>
+
+  <!-- 脸颊 -->
+  <circle cx="24" cy="44.5" r="2.6" fill="#fbcfe8" opacity="0.75"/>
+  <circle cx="40" cy="44.5" r="2.6" fill="#fbcfe8" opacity="0.75"/>
+</svg>
