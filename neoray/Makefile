@@ -1,4 +1,4 @@
-.PHONY: help build-windows build-macos build-linux clean run test install
+.PHONY: help all windows macos linux clean run test install fmt
 
 # 帮助信息
 help:

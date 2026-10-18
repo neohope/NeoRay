@@ -1,4 +1,4 @@
-.PHONY: help build-windows build-macos build-linux build-web clean run
+.PHONY: help all windows macos linux web run-web generate clean run format
 
 # 帮助信息
 help:
