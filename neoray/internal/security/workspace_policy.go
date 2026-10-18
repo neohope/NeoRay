@@ -209,8 +209,14 @@ func IsDevicePath(path string) bool {
 		return true
 	}
 
-	// Windows reserved device names — check every path component
-	for _, component := range strings.Split(cleanPath, string(filepath.Separator)) {
+	// Windows reserved device names — check every path component.
+	// 注意：不能只用 filepath.Separator。该函数需要在任意平台上识别 Windows 路径
+	// （例如在 macOS/Linux 上校验用户提交的 `C:\\temp\\NUL`）。
+	// 若仅按当前平台的 Separator 拆分，反斜杠路径会被当作单个组件，
+	// 导致路径中间的保留设备名（NUL/CON 等）漏检。
+	for _, component := range strings.FieldsFunc(cleanPath, func(r rune) bool {
+		return r == '/' || r == '\\'
+	}) {
 		if component != "" && IsWindowsReservedName(component) {
 			return true
 		}
