@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"time"
 
+	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/viper"
 )
 
@@ -85,9 +88,17 @@ func Load(configPath string) (*Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
-	// 解析到结构体
+	// 解析到结构体。
+	// 需自定义 DecodeHook：viper 默认只把「字符串」转为 time.Duration，
+	// 而 TOML 中写 `read_timeout = 60`（裸整数）会被 WeaklyTypedInput
+	// 直接转成 60 纳秒，与用户直觉（60 秒）相差 9 个数量级。
+	// 这里把裸数字按「秒」解释，同时保留 viper 原有的字符串解析与切片能力。
 	var cfg Config
-	if err := v.Unmarshal(&cfg); err != nil {
+	if err := v.Unmarshal(&cfg, viper.DecodeHook(mapstructure.ComposeDecodeHookFunc(
+		durationFromNumberHook,
+		mapstructure.StringToTimeDurationHookFunc(),
+		mapstructure.StringToSliceHookFunc(","),
+	))); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
 
@@ -120,6 +131,37 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// durationFromNumberHook 将配置中的裸数字按「秒」转换为 time.Duration。
+//
+// 背景：viper 默认的 mapstructure 配置开启了 WeaklyTypedInput，
+// 且 DecodeHook 仅包含 StringToTimeDurationHookFunc（只处理字符串）。
+// 因此 TOML/JSON 中写成整数的时间值（如 `read_timeout = 60`）
+// 会被直接当作纳秒，导致超时设置实际远小于预期。
+//
+// 示例：read_timeout = 60   → 60s（修复前为 60ns）
+//
+//	jwt_expiry  = 86400 → 24h
+//
+// 带单位的字符串写法（如 "10m"）仍由 StringToTimeDurationHookFunc 处理。
+func durationFromNumberHook(f reflect.Type, t reflect.Type, data interface{}) (interface{}, error) {
+	if t != reflect.TypeOf(time.Duration(0)) {
+		return data, nil
+	}
+	switch v := data.(type) {
+	case int:
+		return time.Duration(v) * time.Second, nil
+	case int32:
+		return time.Duration(v) * time.Second, nil
+	case int64:
+		return time.Duration(v) * time.Second, nil
+	case uint64:
+		return time.Duration(v) * time.Second, nil
+	case float64:
+		return time.Duration(v * float64(time.Second)), nil
+	}
+	return data, nil
 }
 
 // setDefaults 设置默认值
