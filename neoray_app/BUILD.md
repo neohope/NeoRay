@@ -176,6 +176,11 @@ make web          # Web 版本
 make run-web      # 运行 Web 开发版本
 ```
 
+> 说明：以上 `web` / `run-web` 构建的是本 Flutter 子项目的 Web 产物。
+> 项目当前采用的 Web UI 是仓库根目录的 `webui/`（React + Vite），
+> 其产物由后端 `go:embed` 内嵌进二进制，推荐使用该方案。
+> 本子项目的 web 能力仅作为实验性保留。
+
 ## 快速开发测试
 
 ```bash

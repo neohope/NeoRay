@@ -53,17 +53,22 @@ chmod +x scripts/build-all-linux.sh
 ### 方式 2：使用根目录 Makefile
 
 ```bash
-# 自动检测平台并构建（桌面）
+# 自动检测平台并构建（后端 + 桌面客户端，当前平台）
 make all
 
-# 构建 Web 版本（后端 + 前端 Web）
-make all-web
+# 仅构建后端（其构建脚本会先构建 Web UI 资源并内嵌）
+make backend
+
+# 仅构建 Web UI 前端资源（React + Vite，产物由后端 go:embed 使用）
+make webui
+
+# 仅构建桌面客户端（Flutter）
+make frontend
 
 # 或指定平台
 make windows
 make macos
 make linux
-make web
 ```
 
 ---
@@ -127,17 +132,19 @@ chmod +x scripts/build-linux.sh
 
 ```bash
 make              # 显示帮助
-make all          # 自动检测平台构建全部（桌面）
-make all-web      # 构建全部（后端 + Web 前端）
+make all          # 自动检测平台构建全部（后端 + 桌面客户端）
+make backend      # 仅构建后端（含内嵌 Web UI）
+make webui        # 仅构建 Web UI 前端资源（React + Vite）
+make frontend     # 仅构建桌面客户端（Flutter）
 make windows      # 构建 Windows 版本
 make macos        # 构建 macOS 版本
 make linux        # 构建 Linux 版本
-make web          # 构建 Web 版本
-make backend      # 仅构建后端
-make frontend     # 仅构建前端（桌面）
-make frontend-web # 仅构建前端（Web）
 make clean        # 清理所有构建
 ```
+
+> `make web` 是 `make webui` 的别名（保持历史命令可用）。
+> 注意：Web UI 的构建产物由后端 `go:embed` 内嵌进二进制，
+> 因此 `backend` / `macos` / `windows` / `linux` 均已自动包含 Web UI 构建。
 
 ---
 
