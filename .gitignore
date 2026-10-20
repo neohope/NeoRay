@@ -12,6 +12,8 @@ reference/
 neoray/server
 neoray/build/
 neoray/dist/
+# 本地直接 `go build -o neoray ./cmd/server` 的默认输出（16MB 二进制）
+neoray/neoray
 *.exe
 *.exe~
 *.dll
