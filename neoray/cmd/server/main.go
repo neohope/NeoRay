@@ -199,6 +199,11 @@ func main() {
 	}
 	fmt.Println("Config loaded")
 
+	// 配置里存在但当前版本不生效的项：启动时明确告知，避免"设了没用"的困惑
+	for _, warn := range config.UnusedConfigWarnings(cfg) {
+		fmt.Println("⚠️  " + warn)
+	}
+
 	// 方案 B：启用 Web UI 但未配置认证密钥时，自动生成强随机密钥并写回配置文件，
 	// 做到开箱即用（无需用户手动生成）。密钥仅在本次生成时打印一次。
 	if generated, key, keyErr := config.EnsureWebAuthKey(cfg, cfg.ConfigPath); keyErr != nil {
@@ -343,7 +348,7 @@ func main() {
 		cronScheduler = cron.NewCronScheduler(cronStorePath, nil)
 		// 创建适配器和 CronTool，然后注册到工具注册表
 		adapter := &cronSchedulerAdapter{scheduler: cronScheduler}
-		cronTool := tools.NewCronTool(adapter)
+		cronTool := tools.NewCronTool(adapter, tools.WithCronMaxJobs(cfg.Tools.Cron.MaxJobs))
 		toolRegistry.Register(cronTool)
 		logger.Info("Cron tool registered")
 	}
@@ -356,7 +361,7 @@ func main() {
 		}
 	}
 	tokenManager := agent.NewTokenManager(maxTokens * 10) // 10x 预算
-	traceManager := agent.NewTraceManager(true) // 启用追踪
+	traceManager := agent.NewTraceManager(true)           // 启用追踪
 
 	// 创建并组合 Hook
 	fmt.Println("Setting up agent hooks...")
@@ -405,9 +410,9 @@ func main() {
 			if cfg.Memory.DreamInterval != "" {
 				fmt.Printf("Registering dream job with interval: %s\n", cfg.Memory.DreamInterval)
 				dreamJob := cron.CronJob{
-					ID:               "dream-process",
-					Name:             "dream-process",
-					Enabled:          true,
+					ID:      "dream-process",
+					Name:    "dream-process",
+					Enabled: true,
 					Schedule: cron.CronSchedule{
 						Kind: cron.ScheduleKindCron,
 						Expr: cfg.Memory.DreamInterval,
@@ -425,9 +430,9 @@ func main() {
 			// 注册 AutoCompact 任务（每小时一次）
 			if cfg.Memory.SessionTTLMinutes > 0 {
 				compactJob := cron.CronJob{
-					ID:               "autocompact-process",
-					Name:             "autocompact-process",
-					Enabled:          true,
+					ID:      "autocompact-process",
+					Name:    "autocompact-process",
+					Enabled: true,
 					Schedule: cron.CronSchedule{
 						Kind: cron.ScheduleKindCron,
 						Expr: "0 * * * *",
@@ -483,19 +488,19 @@ func main() {
 	fmt.Printf("  AppSecret present: %v\n", cfg.Channels.Feishu.AppSecret != "")
 
 	feishuConfig := &channel.FeishuConfig{
-		AppID:            cfg.Channels.Feishu.AppID,
-		AppSecret:        cfg.Channels.Feishu.AppSecret,
-		Enabled:          cfg.Channels.Feishu.Enabled,
+		AppID:             cfg.Channels.Feishu.AppID,
+		AppSecret:         cfg.Channels.Feishu.AppSecret,
+		Enabled:           cfg.Channels.Feishu.Enabled,
 		VerificationToken: cfg.Channels.Feishu.VerificationToken,
-		EncryptKey:       cfg.Channels.Feishu.EncryptKey,
-		Domain:           cfg.Channels.Feishu.Domain,
-		GroupPolicy:      cfg.Channels.Feishu.GroupPolicy,
-		ReplyToMessage:   cfg.Channels.Feishu.ReplyToMessage,
-		TopicIsolation:   cfg.Channels.Feishu.TopicIsolation,
-		ReactEmoji:       cfg.Channels.Feishu.ReactEmoji,
-		DoneEmoji:        cfg.Channels.Feishu.DoneEmoji,
-		ToolHintPrefix:   cfg.Channels.Feishu.ToolHintPrefix,
-		Streaming:        cfg.Channels.Feishu.Streaming,
+		EncryptKey:        cfg.Channels.Feishu.EncryptKey,
+		Domain:            cfg.Channels.Feishu.Domain,
+		GroupPolicy:       cfg.Channels.Feishu.GroupPolicy,
+		ReplyToMessage:    cfg.Channels.Feishu.ReplyToMessage,
+		TopicIsolation:    cfg.Channels.Feishu.TopicIsolation,
+		ReactEmoji:        cfg.Channels.Feishu.ReactEmoji,
+		DoneEmoji:         cfg.Channels.Feishu.DoneEmoji,
+		ToolHintPrefix:    cfg.Channels.Feishu.ToolHintPrefix,
+		Streaming:         cfg.Channels.Feishu.Streaming,
 	}
 	channelMgr.RegisterChannel(channel.NewFeishuChannel(feishuConfig, cfg, aiAgent, sessionMgr))
 

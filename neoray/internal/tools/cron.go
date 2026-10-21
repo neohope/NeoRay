@@ -31,15 +31,15 @@ type CronContext struct {
 
 // CronArgs 是工具参数
 type CronArgs struct {
-	Action        string  `json:"action"`
-	Name          string  `json:"name"`
-	Message       string  `json:"message"`
-	EverySeconds  int     `json:"every_seconds"`
-	CronExpr      string  `json:"cron_expr"`
-	TZ            string  `json:"tz"`
-	At            string  `json:"at"`
-	Deliver       bool    `json:"deliver"`
-	JobID         string  `json:"job_id"`
+	Action       string `json:"action"`
+	Name         string `json:"name"`
+	Message      string `json:"message"`
+	EverySeconds int    `json:"every_seconds"`
+	CronExpr     string `json:"cron_expr"`
+	TZ           string `json:"tz"`
+	At           string `json:"at"`
+	Deliver      bool   `json:"deliver"`
+	JobID        string `json:"job_id"`
 }
 
 // CronToolOption 用于设置 CronTool 的选项
@@ -57,6 +57,15 @@ type CronTool struct {
 	scheduler CronSchedulerInterface
 	// 用于获取当前上下文（channel, session 等）
 	getContext func() CronContext
+	// maxJobs 任务数上限（tools.cron.max_jobs，0 = 不限制）
+	maxJobs int
+}
+
+// WithCronMaxJobs 设置任务数上限
+func WithCronMaxJobs(max int) CronToolOption {
+	return func(t *CronTool) {
+		t.maxJobs = max
+	}
 }
 
 // NewCronTool 创建 CronTool
@@ -160,6 +169,14 @@ func (t *CronTool) handleAdd(ctx context.Context, input CronArgs) (json.RawMessa
 
 	if t.scheduler == nil {
 		return nil, fmt.Errorf("cron scheduler not available")
+	}
+
+	// 任务数上限：tools.cron.max_jobs（0 表示不限制）
+	if t.maxJobs > 0 {
+		existing := t.scheduler.ListJobs(true)
+		if len(existing) >= t.maxJobs {
+			return nil, fmt.Errorf("job limit reached: %d jobs already scheduled (tools.cron.max_jobs)", len(existing))
+		}
 	}
 
 	context := t.getContext()

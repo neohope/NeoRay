@@ -583,6 +583,9 @@ type WebFetchTool struct {
 	cfg               *config.Config
 	useJinaReader     bool
 	maxChars          int
+	maxContentLength  int64    // tools.web.max_content_length（0 表示不限制）
+	blockedDomains    []string // tools.web.blocked_domains
+	requestTimeout    time.Duration
 	allowLocalService bool
 }
 
@@ -616,12 +619,23 @@ func NewWebFetchTool(cfg *config.Config) *WebFetchTool {
 		}
 	}
 
-	return &WebFetchTool{
+	tool := &WebFetchTool{
 		cfg:               cfg,
 		useJinaReader:     useJinaReader,
 		maxChars:          defaultMaxChars,
+		requestTimeout:    readabilityTimeout,
 		allowLocalService: allowLocalService,
 	}
+	if cfg != nil {
+		// 这几项以前只存在配置里、代码从不读取：用户设了 blocked_domains
+		// 或 max_content_length 却毫无效果
+		tool.maxContentLength = cfg.Tools.Web.MaxContentLength
+		tool.blockedDomains = cfg.Tools.Web.BlockedDomains
+		if cfg.Tools.Web.Timeout > 0 {
+			tool.requestTimeout = cfg.Tools.Web.Timeout
+		}
+	}
+	return tool
 }
 
 func (t *WebFetchTool) Name() string {
@@ -659,9 +673,17 @@ func (t *WebFetchTool) Execute(ctx context.Context, args json.RawMessage) (json.
 	if extractMode == "" {
 		extractMode = "markdown"
 	}
+	if blocked := t.checkBlockedDomain(urlStr); blocked != "" {
+		return json.Marshal(WebFetchResult{URL: urlStr, Error: blocked})
+	}
+
 	maxChars := input.MaxChars
 	if maxChars <= 0 {
 		maxChars = t.maxChars
+	}
+	// tools.web.max_content_length 作为硬上限，防止把超大页面读进上下文
+	if t.maxContentLength > 0 && int64(maxChars) > t.maxContentLength {
+		maxChars = int(t.maxContentLength)
 	}
 
 	valid, errMsg := t.validateURLSafe(ctx, urlStr)
@@ -681,6 +703,36 @@ func (t *WebFetchTool) Execute(ctx context.Context, args json.RawMessage) (json.
 	return json.Marshal(result)
 }
 
+// resolveTimeout 返回工具使用的请求超时（配置优先，否则用内置默认）
+func (t *WebFetchTool) resolveTimeout() time.Duration {
+	if t.requestTimeout > 0 {
+		return t.requestTimeout
+	}
+	return readabilityTimeout
+}
+
+// checkBlockedDomain 命中 blocked_domains 时返回错误信息
+func (t *WebFetchTool) checkBlockedDomain(urlStr string) string {
+	if len(t.blockedDomains) == 0 {
+		return ""
+	}
+	parsed, err := url.Parse(urlStr)
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(parsed.Hostname())
+	for _, blocked := range t.blockedDomains {
+		blocked = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(blocked, ".")))
+		if blocked == "" {
+			continue
+		}
+		if host == blocked || strings.HasSuffix(host, "."+blocked) {
+			return fmt.Sprintf("domain %s is blocked by tools.web.blocked_domains", host)
+		}
+	}
+	return ""
+}
+
 func (t *WebFetchTool) fetchJina(ctx context.Context, urlStr string, maxChars int) *WebFetchResult {
 	// Defense-in-depth: validate the original URL's DNS resolution before sending it to Jina,
 	// to prevent SSRF even if the caller skips validation.
@@ -693,7 +745,7 @@ func (t *WebFetchTool) fetchJina(ctx context.Context, urlStr string, maxChars in
 		}
 	}
 
-	client := &http.Client{Timeout: jinaFetchTimeout}
+	client := &http.Client{Timeout: t.resolveTimeout()}
 	req, err := http.NewRequest("GET", fmt.Sprintf("https://r.jina.ai/%s", urlStr), nil)
 	if err != nil {
 		return &WebFetchResult{
@@ -774,7 +826,7 @@ func (t *WebFetchTool) fetchReadability(ctx context.Context, urlStr string, extr
 
 	// P0-fix: Use pre-resolved dialer for the initial request to eliminate DNS rebinding TOCTOU.
 	// ValidateURLTarget resolves DNS once; PreResolvedDialer connects to those exact IPs.
-	_, initialDialer, err := security.NewPreResolvedDialer(urlStr, allowLoopback, readabilityTimeout)
+	_, initialDialer, err := security.NewPreResolvedDialer(urlStr, allowLoopback, t.resolveTimeout())
 	if err != nil {
 		return &WebFetchResult{
 			URL:   urlStr,
@@ -787,12 +839,12 @@ func (t *WebFetchTool) fetchReadability(ctx context.Context, urlStr string, extr
 	// before the HTTP client follows the redirect, preventing DNS rebinding.
 	safeTransport := &http.Transport{DialContext: initialDialer.DialContext}
 	client := &http.Client{
-		Timeout:   readabilityTimeout,
+		Timeout:   t.resolveTimeout(),
 		Transport: safeTransport,
 	}
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		allowLoopback := t.allowLocalService && security.CurrentScopeAllowsLoopback(ctx, t.allowLocalService)
-		_, redirectDialer, dialErr := security.NewPreResolvedDialer(req.URL.String(), allowLoopback, readabilityTimeout)
+		_, redirectDialer, dialErr := security.NewPreResolvedDialer(req.URL.String(), allowLoopback, t.resolveTimeout())
 		if dialErr != nil {
 			return fmt.Errorf("redirect blocked: %v", dialErr)
 		}

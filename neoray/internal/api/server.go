@@ -53,8 +53,24 @@ type rateLimiter struct {
 }
 
 type visitor struct {
-	tokens    int
-	lastSeen  time.Time
+	tokens   int
+	lastSeen time.Time
+}
+
+// newRateLimiterForConfig 依据 security.rate_limit 构造限流器；
+// enabled=false 时返回 nil（调用方需判空）
+func newRateLimiterForConfig(cfg *config.Config) *rateLimiter {
+	if cfg == nil {
+		return nil
+	}
+	r := cfg.Security.RateLimit
+	if !r.Enabled {
+		return nil
+	}
+	if r.RequestsPerMinute <= 0 {
+		return nil
+	}
+	return newRateLimiter(r.RequestsPerMinute, r.Burst, time.Minute)
 }
 
 func newRateLimiter(rate int, burst int, window time.Duration) *rateLimiter {
@@ -123,15 +139,15 @@ func (rl *rateLimiter) allow(ip string) bool {
 
 // Client WebSocket 客户端
 type Client struct {
-	ID         string
-	Conn       *websocket.Conn
-	Send       chan []byte
-	Server     *Server
+	ID     string
+	Conn   *websocket.Conn
+	Send   chan []byte
+	Server *Server
 
-	mu         sync.RWMutex
-	ChannelID  string
-	UserID     string
-	SessionID  string
+	mu        sync.RWMutex
+	ChannelID string
+	UserID    string
+	SessionID string
 }
 
 // SetChannelID safely sets the client's channel ID.
@@ -210,7 +226,7 @@ func NewServer(cfg *config.Config, aiAgent agent.AgentInterface, sessionMgr *ses
 			},
 		},
 		clients:     make(map[string]*Client),
-		rateLimiter: newRateLimiter(cfg.Security.RateLimit.RequestsPerMinute, cfg.Security.RateLimit.Burst, time.Minute),
+		rateLimiter: newRateLimiterForConfig(cfg),
 	}
 
 	// 仅在启用 Web UI 时初始化会话存储，避免无用开销
@@ -268,15 +284,32 @@ func (s *Server) Start() error {
 	}
 
 	addr := fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.Port)
+	// 超时取自配置（server.read_timeout / write_timeout / idle_timeout），
+	// 未配置时保留历史默认值
+	readTimeout := 15 * time.Second
+	writeTimeout := 60 * time.Second
+	idleTimeout := 60 * time.Second
+	if s.cfg != nil {
+		if s.cfg.Server.ReadTimeout > 0 {
+			readTimeout = s.cfg.Server.ReadTimeout
+		}
+		if s.cfg.Server.WriteTimeout > 0 {
+			writeTimeout = s.cfg.Server.WriteTimeout
+		}
+		if s.cfg.Server.IdleTimeout > 0 {
+			idleTimeout = s.cfg.Server.IdleTimeout
+		}
+	}
+
 	s.httpServer = &http.Server{
-		Addr:         addr,
-		Handler:      mux,
-		ReadTimeout:  15 * time.Second,
+		Addr:        addr,
+		Handler:     mux,
+		ReadTimeout: readTimeout,
 		// P1-fix: 使用合理的 WriteTimeout 替代 0。SSE handler 内部已有 context 超时控制，
 		// 但 WriteTimeout=0 会导致所有 HTTP 连接（不仅是 SSE）无写超时保护。
 		// SSE handler 通过 http.NewResponseController 动态延长写超时。
-		WriteTimeout: 60 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		WriteTimeout: writeTimeout,
+		IdleTimeout:  idleTimeout,
 	}
 
 	// 检查认证配置
@@ -439,8 +472,9 @@ func (s *Server) wrapMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		// 速率限制中间件 — 使用 RemoteAddr 防止 X-Forwarded-For 伪造绕过
+		// rateLimiter 为 nil 表示 security.rate_limit.enabled=false
 		clientIP := extractIP(r.RemoteAddr)
-		if !s.rateLimiter.allow(clientIP) {
+		if s.rateLimiter != nil && !s.rateLimiter.allow(clientIP) {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Retry-After", "60")
 			w.WriteHeader(http.StatusTooManyRequests)
