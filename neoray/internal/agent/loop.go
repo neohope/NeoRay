@@ -2061,8 +2061,17 @@ func (al *AgentLoop) seedRuntimeState() {
 		seed.ProviderRetryMode = al.cfg.Agent.ProviderRetryMode
 		seed.MaxToolResultChars = al.cfg.Agent.MaxToolResultChars
 		seed.WorkspaceSandbox = al.cfg.Tools.Shell.Sandbox
-		seed.WebEnabled = al.cfg.Web.Enabled
+		seed.WebUIEnabled = al.cfg.Web.Enabled
+		seed.WebSearchEnabled = al.cfg.Tools.WebSearch.Enabled
+		seed.WebFetchEnabled = al.cfg.Tools.WebFetch.Enabled
 	}
+
+	// web_search 的提供方来自环境变量（工具有回落逻辑），用同一套解析函数，
+	// 保证 agent 自查到的就是工具实际会用的
+	web := tools.ResolveWebSearchProvider()
+	seed.WebSearchProvider = web.Configured
+	seed.WebSearchEffective = web.Effective
+	seed.WebSearchHasKey = web.HasAPIKey
 
 	if al.providerMgr != nil {
 		if p := al.providerMgr.DefaultProvider(); p != nil {
@@ -2078,7 +2087,7 @@ func (al *AgentLoop) seedRuntimeState() {
 
 	al.runtimeState.Seed(seed)
 	// 启动时打一行，方便确认 agent 自查到的是真实值（而不是全空）
-	logger.Infof("runtime state seeded: provider=%s model=%s workspace=%s max_iterations=%d context_window=%d",
-		seed.Provider, seed.Model, seed.Workspace,
+	logger.Infof("runtime state seeded: provider=%s model=%s workspace=%s web_search=%s max_iterations=%d context_window=%d",
+		seed.Provider, seed.Model, seed.Workspace, seed.WebSearchEffective,
 		al.runtimeState.GetMaxIterations(), al.runtimeState.GetContextWindowTokens())
 }

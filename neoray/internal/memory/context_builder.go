@@ -26,10 +26,19 @@ type ContextBuilder struct {
 	// modelLabel 形如 "anthropic/claude-3-sonnet"，写进 identity 的 Runtime 行，
 	// 让 agent 不查配置也知道自己在用什么模型
 	modelLabel string
+	// capabilities 形如 "web_search: volcengine（已配置 key）"，写进 identity
+	capabilities string
 }
 
 // ContextBuilderOption 选项
 type ContextBuilderOption func(*ContextBuilder)
+
+// WithCapabilities 设置能力摘要（写进 identity 的 Capabilities 段）
+func WithCapabilities(text string) ContextBuilderOption {
+	return func(cb *ContextBuilder) {
+		cb.capabilities = strings.TrimSpace(text)
+	}
+}
 
 // WithModelLabel 设置 Runtime 行展示的模型标签（provider/model）
 func WithModelLabel(label string) ContextBuilderOption {
@@ -202,10 +211,16 @@ func (cb *ContextBuilder) getIdentity(channel string) string {
 	})
 
 	// 渲染 identity 模板
+	capabilities := cb.capabilities
+	if capabilities == "" {
+		capabilities = "web_search: 未配置（用内置默认与回落）"
+	}
+
 	vars := map[string]string{
 		"workspace_path":  workspacePath,
 		"channel":         channel,
 		"runtime":         runtimeStr,
+		"capabilities":    capabilities,
 		"platform_policy": platformPolicy,
 	}
 

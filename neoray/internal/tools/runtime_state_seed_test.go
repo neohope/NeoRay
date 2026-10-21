@@ -15,7 +15,9 @@ func TestSeedFillsRuntimeState(t *testing.T) {
 		ProviderRetryMode:   "exponential",
 		MaxToolResultChars:  4000,
 		WorkspaceSandbox:    "strict",
-		WebEnabled:          true,
+		WebUIEnabled:        true,
+		WebSearchEnabled:    true,
+		WebFetchEnabled:     true,
 		Subagents:           map[string]interface{}{"enabled": true},
 	})
 
@@ -44,8 +46,13 @@ func TestSeedFillsRuntimeState(t *testing.T) {
 	if m["workspace_sandbox"] != "strict" {
 		t.Fatalf("workspace_sandbox 未写入: %v", m["workspace_sandbox"])
 	}
-	if web, ok := m["web_config"].(map[string]interface{}); !ok || web["enable"] != true {
-		t.Fatalf("web_config 未写入: %v", m["web_config"])
+	web, ok := m["web_config"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("web_config 类型异常: %T", m["web_config"])
+	}
+	if web["enable"] != true || web["search_enabled"] != true ||
+		web["fetch_enabled"] != true || web["ui_enabled"] != true {
+		t.Fatalf("web_config 未写入: %v", web)
 	}
 }
 

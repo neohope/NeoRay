@@ -11,6 +11,9 @@ Current directory: {{ workspace_path }}
 ## Runtime
 {{ runtime }}
 
+## Capabilities
+{{ capabilities }}
+
 ## Principles
 - Solve by doing, not by describing what you would do
 - Keep responses short unless depth is asked for

@@ -43,11 +43,11 @@ var (
 // ======================================
 
 type WebSearchTool struct {
-	provider     string
-	apiKey       string
-	baseURL      string
-	maxResults   int
-	timeout      int
+	provider   string
+	apiKey     string
+	baseURL    string
+	maxResults int
+	timeout    int
 }
 
 type WebSearchArgs struct {
@@ -67,11 +67,11 @@ func NewWebSearchTool() *WebSearchTool {
 		provider = "bytedance" // 默认使用字节搜索
 	}
 	return &WebSearchTool{
-		provider:    provider,
-		apiKey:      os.Getenv("NEORAY_WEB_SEARCH_API_KEY"),
-		baseURL:     os.Getenv("NEORAY_WEB_SEARCH_BASE_URL"),
-		maxResults:  5,
-		timeout:     30,
+		provider:   provider,
+		apiKey:     os.Getenv("NEORAY_WEB_SEARCH_API_KEY"),
+		baseURL:    os.Getenv("NEORAY_WEB_SEARCH_BASE_URL"),
+		maxResults: 5,
+		timeout:    30,
 	}
 }
 
@@ -87,10 +87,10 @@ func (t *WebSearchTool) Parameters() json.RawMessage {
 	return ObjectParam(map[string]any{
 		"query": StringParam("Search query"),
 		"count": map[string]any{
-			"type": "integer",
+			"type":        "integer",
 			"description": "Results (1-10)",
-			"minimum": 1,
-			"maximum": 10,
+			"minimum":     1,
+			"maximum":     10,
 		},
 	}, []string{"query"})
 }
@@ -135,63 +135,91 @@ func (t *WebSearchTool) Execute(ctx context.Context, args json.RawMessage) (json
 	return json.Marshal(result)
 }
 
-func (t *WebSearchTool) effectiveProvider() string {
-	provider := strings.ToLower(strings.TrimSpace(t.provider))
-	if provider == "" {
-		provider = "bytedance"
+// WebSearchProviderInfo 描述 web_search 实际使用的搜索提供方。
+type WebSearchProviderInfo struct {
+	Configured string // 配置/环境变量里写的（可能是空 → 用默认值）
+	Effective  string // 真正会用的（缺 key 时回落 duckduckgo）
+	HasAPIKey  bool
+	BaseURL    string // searxng 之类的自建地址（脱敏后仅 host）
+}
+
+// ResolveWebSearchProvider 解析当前进程的搜索提供方。
+//
+// web_search 工具启动时读环境变量（NEORAY_WEB_SEARCH_PROVIDER 等），
+// 这里用同一套规则计算"实际会用哪个"，让 reflection 能如实回答
+// "你的搜索提供方是谁"，而不是只暴露一个 enable 布尔值。
+func ResolveWebSearchProvider() WebSearchProviderInfo {
+	configured := strings.TrimSpace(os.Getenv("NEORAY_WEB_SEARCH_PROVIDER"))
+	apiKey := os.Getenv("NEORAY_WEB_SEARCH_API_KEY")
+	baseURL := os.Getenv("NEORAY_WEB_SEARCH_BASE_URL")
+
+	normalized := strings.ToLower(configured)
+	if normalized == "" {
+		normalized = "bytedance"
 	}
 
-	switch provider {
+	effective := normalized
+	hasKey := apiKey != ""
+
+	switch normalized {
 	case "bytedance", "volcengine":
-		apiKey := t.apiKey
 		if apiKey == "" {
 			apiKey = os.Getenv("WEB_SEARCH_API_KEY")
 		}
-		if apiKey == "" {
-			return "duckduckgo"
+		hasKey = apiKey != ""
+		if !hasKey {
+			effective = "duckduckgo"
 		}
 	case "brave":
-		apiKey := t.apiKey
-		if apiKey == "" {
-			apiKey = os.Getenv("BRAVE_API_KEY")
-		}
-		if apiKey == "" {
-			return "duckduckgo"
+		apiKey = firstNonEmpty(apiKey, os.Getenv("BRAVE_API_KEY"))
+		hasKey = apiKey != ""
+		if !hasKey {
+			effective = "duckduckgo"
 		}
 	case "tavily":
-		apiKey := t.apiKey
-		if apiKey == "" {
-			apiKey = os.Getenv("TAVILY_API_KEY")
-		}
-		if apiKey == "" {
-			return "duckduckgo"
-		}
-	case "searxng":
-		baseURL := t.baseURL
-		if baseURL == "" {
-			baseURL = os.Getenv("SEARXNG_BASE_URL")
-		}
-		if baseURL == "" {
-			return "duckduckgo"
+		apiKey = firstNonEmpty(apiKey, os.Getenv("TAVILY_API_KEY"))
+		hasKey = apiKey != ""
+		if !hasKey {
+			effective = "duckduckgo"
 		}
 	case "jina":
-		apiKey := t.apiKey
-		if apiKey == "" {
-			apiKey = os.Getenv("JINA_API_KEY")
-		}
-		if apiKey == "" {
-			return "duckduckgo"
+		apiKey = firstNonEmpty(apiKey, os.Getenv("JINA_API_KEY"))
+		hasKey = apiKey != ""
+		if !hasKey {
+			effective = "duckduckgo"
 		}
 	case "kagi":
-		apiKey := t.apiKey
-		if apiKey == "" {
-			apiKey = os.Getenv("KAGI_API_KEY")
+		apiKey = firstNonEmpty(apiKey, os.Getenv("KAGI_API_KEY"))
+		hasKey = apiKey != ""
+		if !hasKey {
+			effective = "duckduckgo"
 		}
-		if apiKey == "" {
-			return "duckduckgo"
+	case "searxng":
+		baseURL = firstNonEmpty(baseURL, os.Getenv("SEARXNG_BASE_URL"))
+		if baseURL == "" {
+			effective = "duckduckgo"
 		}
 	}
-	return provider
+
+	return WebSearchProviderInfo{
+		Configured: configured,
+		Effective:  effective,
+		HasAPIKey:  hasKey,
+		BaseURL:    baseURL,
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func (t *WebSearchTool) effectiveProvider() string {
+	return ResolveWebSearchProvider().Effective
 }
 
 func (t *WebSearchTool) searchDuckDuckGo(query string, n int) string {
@@ -608,14 +636,14 @@ func (t *WebFetchTool) Parameters() json.RawMessage {
 	return ObjectParam(map[string]any{
 		"url": StringParam("URL to fetch"),
 		"extractMode": map[string]any{
-			"type": "string",
-			"enum": []string{"markdown", "text"},
+			"type":    "string",
+			"enum":    []string{"markdown", "text"},
 			"default": "markdown",
 		},
 		"maxChars": map[string]any{
-			"type": "integer",
+			"type":        "integer",
 			"description": "Maximum characters to return",
-			"minimum": 100,
+			"minimum":     100,
 		},
 	}, []string{"url"})
 }

@@ -17,6 +17,21 @@ func TestIdentityShowsModel(t *testing.T) {
 	}
 }
 
+// TestIdentityShowsCapabilities identity 的 Capabilities 段应说明搜索提供方
+func TestIdentityShowsCapabilities(t *testing.T) {
+	cb := NewContextBuilder(t.TempDir(), nil,
+		WithModelLabel("volcengine/glm-5.3"),
+		WithCapabilities("web_search: bytedance（已配置 API key）"),
+	)
+	prompt := cb.getIdentity("feishu")
+	if !strings.Contains(prompt, "## Capabilities") {
+		t.Fatal("identity 缺少 Capabilities 段")
+	}
+	if !strings.Contains(prompt, "web_search: bytedance") {
+		t.Fatalf("identity 未说明搜索提供方: %s", prompt)
+	}
+}
+
 // TestIdentityWithoutModel 未配置模型时不出现空标签
 func TestIdentityWithoutModel(t *testing.T) {
 	cb := NewContextBuilder(t.TempDir(), nil)

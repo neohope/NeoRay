@@ -12,6 +12,7 @@ import (
 	"neoray/internal/provider"
 	"neoray/internal/session"
 	"neoray/internal/skills"
+	"neoray/internal/tools"
 )
 
 // MemoryManager 统一管理记忆系统的所有组件
@@ -129,11 +130,21 @@ func (m *MemoryManager) Initialize(p provider.Provider, model string) {
 			modelLabel = name + "/" + modelLabel
 		}
 	}
+	// 搜索提供方与 web_search 工具用同一套解析，避免"报告的和实际用的不一致"
+	web := tools.ResolveWebSearchProvider()
+	capabilities := fmt.Sprintf("web_search: %s", web.Effective)
+	if web.Configured != "" && web.Configured != web.Effective {
+		capabilities = fmt.Sprintf("web_search: %s（配置为 %s，因缺少 key 回落）", web.Effective, web.Configured)
+	} else if web.HasAPIKey {
+		capabilities += "（已配置 API key）"
+	}
+
 	m.contextBuilder = NewContextBuilder(
 		m.workspace,
 		m.store,
 		WithSkillsLoader(m.skillsLoader),
 		WithModelLabel(modelLabel),
+		WithCapabilities(capabilities),
 	)
 
 	// 创建适配器

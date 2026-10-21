@@ -18,8 +18,13 @@ type RuntimeState struct {
 	workspace           string
 	providerRetryMode   string
 	maxToolResultChars  int
-	webConfigEnable     bool
+	webConfigEnable     bool // Web UI（cfg.Web.Enabled）
+	webSearchEnabled    bool // web_search 工具（cfg.Tools.WebSearch.Enabled）
+	webFetchEnabled     bool // web_fetch 工具（cfg.Tools.WebFetch.Enabled）
 	webConfig           map[string]interface{}
+	webSearchProvider   string
+	webSearchEffective  string
+	webSearchHasKey     bool
 	workspaceSandbox    string
 	subagents           map[string]interface{}
 	lastUsage           RuntimeTokenUsage
@@ -48,7 +53,12 @@ type RuntimeSeed struct {
 	ProviderRetryMode   string
 	MaxToolResultChars  int
 	WorkspaceSandbox    string
-	WebEnabled          bool
+	WebUIEnabled        bool
+	WebSearchEnabled    bool
+	WebFetchEnabled     bool
+	WebSearchProvider   string
+	WebSearchEffective  string
+	WebSearchHasKey     bool
 	Subagents           map[string]interface{}
 }
 
@@ -84,8 +94,23 @@ func (s *RuntimeState) Seed(seed RuntimeSeed) {
 	if seed.WorkspaceSandbox != "" {
 		s.workspaceSandbox = seed.WorkspaceSandbox
 	}
-	if seed.WebEnabled {
+	if seed.WebUIEnabled {
 		s.webConfigEnable = true
+	}
+	if seed.WebSearchEnabled {
+		s.webSearchEnabled = true
+	}
+	if seed.WebFetchEnabled {
+		s.webFetchEnabled = true
+	}
+	if seed.WebSearchProvider != "" {
+		s.webSearchProvider = seed.WebSearchProvider
+	}
+	if seed.WebSearchEffective != "" {
+		s.webSearchEffective = seed.WebSearchEffective
+	}
+	if seed.WebSearchHasKey {
+		s.webSearchHasKey = true
 	}
 	if len(seed.Subagents) > 0 {
 		s.subagents = seed.Subagents
@@ -270,7 +295,14 @@ func (s *RuntimeState) ToMap() map[string]interface{} {
 		"provider_retry_mode":   s.providerRetryMode,
 		"max_tool_result_chars": s.maxToolResultChars,
 		"web_config": map[string]interface{}{
-			"enable": s.webConfigEnable,
+			// enable 语义：web_search 是否开启（agent 最关心的那个）
+			"enable":             s.webSearchEnabled,
+			"search_enabled":     s.webSearchEnabled,
+			"fetch_enabled":      s.webFetchEnabled,
+			"ui_enabled":         s.webConfigEnable,
+			"search_provider":    s.webSearchProvider,
+			"effective_provider": s.webSearchEffective,
+			"has_api_key":        s.webSearchHasKey,
 		},
 		"workspace_sandbox":  s.workspaceSandbox,
 		"subagents":          s.subagents,
