@@ -180,6 +180,19 @@ make fmt          # 格式化代码
 launchctl kickstart -k gui/$(id -u)/ai.neoray.gateway
 ```
 
+### 升级三步（可直接复制）
+
+```bash
+cd ~/.dsh/im/NeoRay/neoray \
+  && git pull \
+  && make install \
+  && launchctl kickstart -k gui/$(id -u)/ai.neoray.gateway
+```
+
+三步分别保证：**代码最新** → **技能与二进制同步** → **服务真的换了新进程**。
+跳过第 2 步会出现"代码更新了但技能是旧的"，跳过第 3 步会出现
+"二进制换了但服务还跑旧进程"。
+
 ---
 
 ## 配置文件
