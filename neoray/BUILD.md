@@ -155,8 +155,29 @@ make linux        # 构建 Linux
 make test         # 运行测试
 make clean        # 清理
 make run          # 运行
-make install      # 安装到系统
+make install      # 安装到 ~/.local/bin 并同步内置技能
+make install-skills  # 只同步内置技能到 ~/.neoray/skills
 make fmt          # 格式化代码
+```
+
+### 安装做了什么
+
+`make install` 包含两步（`install-skills` 是它的前置依赖）：
+
+1. **同步内置技能** `skills/*` → `~/.neoray/skills/`
+   服务端按 `config.HomeDir/skills` 加载技能；不拷贝的话运行时会加载到
+   **0 个技能**，agent 会答不出"我有哪些技能"。
+2. **构建并安装二进制** → `$(BIN_DIR)/neoray`（默认 `~/.local/bin`）
+
+> 特意不用 `go install`：它会把二进制放到 `GOPATH/bin`，与 launchd 服务
+> 实际启动的路径不是同一个地方，升级后容易出现"装了但没生效"。
+> 自定义位置可用 `make install BIN_DIR=/usr/local/bin`，
+> 技能目录可用 `NEORAY_SKILLS_DIR=/path/to/skills` 覆盖。
+
+安装后需重启服务生效：
+
+```bash
+launchctl kickstart -k gui/$(id -u)/ai.neoray.gateway
 ```
 
 ---
