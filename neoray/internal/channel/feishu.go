@@ -406,6 +406,26 @@ func parseBotInfoResponse(body []byte) (openID string, code int, msg string, err
 	return openID, result.Code, result.Msg, nil
 }
 
+// tokenRefreshMargin 计算提前刷新 token 的窗口。
+//
+// 之前固定 10 分钟：若上游下发的有效期本来就只有 10~20 分钟，
+// 相当于每拿到 token 就立刻判定"需要刷新"，形成刷新风暴。
+// 现在按剩余有效期的 1/10 提前刷新，并夹在 [1min, 10min]。
+func tokenRefreshMargin(expiry time.Time) time.Duration {
+	ttl := time.Until(expiry)
+	if ttl <= 0 {
+		return 0
+	}
+	margin := ttl / 10
+	if margin < time.Minute {
+		margin = time.Minute
+	}
+	if margin > 10*time.Minute {
+		margin = 10 * time.Minute
+	}
+	return margin
+}
+
 func (f *FeishuChannel) fetchBotOpenID() error {
 	token, err := f.ensureToken()
 	if err != nil {
@@ -2560,7 +2580,7 @@ func (f *FeishuChannel) tokenRefreshLoop() {
 		select {
 		case <-ticker.C:
 			f.mu.RLock()
-			needsRefresh := f.tenantToken == "" || time.Now().Add(10*time.Minute).After(f.tokenExpiry)
+			needsRefresh := f.tenantToken == "" || time.Now().Add(tokenRefreshMargin(f.tokenExpiry)).After(f.tokenExpiry)
 			f.mu.RUnlock()
 
 			if needsRefresh {

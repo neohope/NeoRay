@@ -55,6 +55,10 @@ type ServerConfig struct {
 	// 必须大于 agent 自身的处理超时（内部为 5 分钟），否则长任务
 	// （多轮工具调用）会被外层先截断，导致 chat_end 无法下发。
 	WSMessageTimeout time.Duration `mapstructure:"ws_message_timeout"`
+	// WSWriteTimeout 单条 WebSocket 消息的写超时（默认 10s）
+	WSWriteTimeout time.Duration `mapstructure:"ws_write_timeout"`
+	// WSPingInterval 服务端心跳间隔（默认 30s）
+	WSPingInterval time.Duration `mapstructure:"ws_ping_interval"`
 	// CORS 跨域配置
 	CORS CORSConfig `mapstructure:"cors"`
 }

@@ -190,7 +190,9 @@ func (c *Consolidator) Archive(ctx context.Context, messages []interface{}) (str
 	}
 
 	// 保存摘要到历史
-	_, _ = c.store.AppendHistory(summary, ArchiveSummaryMaxChars)
+	if _, err := c.store.AppendHistory(summary, ArchiveSummaryMaxChars); err != nil {
+		logger.Warn("Failed to append consolidation summary to history", logger.ErrorField(err))
+	}
 	return summary, nil
 }
 

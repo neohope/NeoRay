@@ -139,10 +139,13 @@ func (rl *rateLimiter) allow(ip string) bool {
 
 // Client WebSocket 客户端
 type Client struct {
-	ID     string
-	Conn   *websocket.Conn
-	Send   chan []byte
-	Server *Server
+	// writeTimeout / pingInterval 由 Server 在握手时注入，便于按配置调整
+	writeTimeout time.Duration
+	pingInterval time.Duration
+	ID           string
+	Conn         *websocket.Conn
+	Send         chan []byte
+	Server       *Server
 
 	mu        sync.RWMutex
 	ChannelID string
@@ -334,6 +337,24 @@ func (s *Server) Start() error {
 // effectiveWSMessageTimeout 返回单条 WebSocket 消息的生效处理超时。
 // 优先取配置值；未配置或非法时回退到默认 10 分钟。
 // 抽取为方法是为了便于启动日志与 readPump 共用同一来源，避免两处不一致。
+// effectiveWSWriteTimeout 单条 WS 消息写超时（默认 10s）
+func (s *Server) effectiveWSWriteTimeout() time.Duration {
+	const defaultTimeout = 10 * time.Second
+	if cfg := s.getConfig(); cfg != nil && cfg.Server.WSWriteTimeout > 0 {
+		return cfg.Server.WSWriteTimeout
+	}
+	return defaultTimeout
+}
+
+// effectiveWSPingInterval 服务端 WS 心跳间隔（默认 30s）
+func (s *Server) effectiveWSPingInterval() time.Duration {
+	const defaultInterval = 30 * time.Second
+	if cfg := s.getConfig(); cfg != nil && cfg.Server.WSPingInterval > 0 {
+		return cfg.Server.WSPingInterval
+	}
+	return defaultInterval
+}
+
 func (s *Server) effectiveWSMessageTimeout() time.Duration {
 	const defaultTimeout = 10 * time.Minute
 	if cfg := s.getConfig(); cfg != nil && cfg.Server.WSMessageTimeout > 0 {
@@ -596,10 +617,12 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	clientID := generateClientID()
 	client := &Client{
-		ID:     clientID,
-		Conn:   conn,
-		Send:   make(chan []byte, 256),
-		Server: s,
+		ID:           clientID,
+		Conn:         conn,
+		Send:         make(chan []byte, 256),
+		Server:       s,
+		writeTimeout: s.effectiveWSWriteTimeout(),
+		pingInterval: s.effectiveWSPingInterval(),
 	}
 
 	s.clientsMu.Lock()
@@ -688,7 +711,15 @@ func (c *Client) readPump() {
 
 // writePump 写入消息到客户端
 func (c *Client) writePump() {
-	ticker := time.NewTicker(30 * time.Second)
+	writeTimeout := c.writeTimeout
+	if writeTimeout <= 0 {
+		writeTimeout = 10 * time.Second
+	}
+	pingInterval := c.pingInterval
+	if pingInterval <= 0 {
+		pingInterval = 30 * time.Second
+	}
+	ticker := time.NewTicker(pingInterval)
 	defer func() {
 		ticker.Stop()
 		c.Conn.Close()
@@ -697,7 +728,7 @@ func (c *Client) writePump() {
 	for {
 		select {
 		case message, ok := <-c.Send:
-			_ = c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			_ = c.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if !ok {
 				_ = c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
@@ -720,7 +751,7 @@ func (c *Client) writePump() {
 			}
 
 		case <-ticker.C:
-			_ = c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			_ = c.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}

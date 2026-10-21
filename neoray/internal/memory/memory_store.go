@@ -219,9 +219,12 @@ func (ms *MemoryStore) AppendHistory(content string, maxChars ...int) (int, erro
 		return 0, fmt.Errorf("failed to write history entry: %w", err)
 	}
 
-	// 更新 cursor 文件
+	// 更新 cursor 文件。
+	// 写失败不影响正确性（nextCursor 会回退到扫描历史），但必须留痕：
+	// 之前这里静默吞掉，出问题时既没有日志也没有指标，只能靠猜。
 	if err := os.WriteFile(ms.cursorFile, []byte(fmt.Sprintf("%d", cursor)), 0644); err != nil {
-		// 忽略错误
+		logger.Warn("Failed to persist memory cursor, will fall back to scanning history",
+			logger.ErrorField(err), logger.String("path", ms.cursorFile))
 	}
 
 	ms.dirty = true
@@ -537,12 +540,18 @@ func (ms *MemoryStore) maybeMigrateLegacyHistory() {
 	if len(entries) > 0 {
 		if err := ms.writeEntries(entries); err == nil {
 			lastCursor := entries[len(entries)-1].Cursor
-			_ = os.WriteFile(ms.cursorFile, []byte(fmt.Sprintf("%d", lastCursor)), 0644)
-			_ = os.WriteFile(ms.dreamCursorFile, []byte(fmt.Sprintf("%d", lastCursor)), 0644)
+			if err := os.WriteFile(ms.cursorFile, []byte(fmt.Sprintf("%d", lastCursor)), 0644); err != nil {
+				logger.Warn("Failed to write cursor during legacy migration", logger.ErrorField(err))
+			}
+			if err := os.WriteFile(ms.dreamCursorFile, []byte(fmt.Sprintf("%d", lastCursor)), 0644); err != nil {
+				logger.Warn("Failed to write dream cursor during legacy migration", logger.ErrorField(err))
+			}
 
 			// 备份旧文件
 			backupPath := ms.legacyHistoryFile + ".bak"
-			_ = os.Rename(ms.legacyHistoryFile, backupPath)
+			if err := os.Rename(ms.legacyHistoryFile, backupPath); err != nil {
+				logger.Warn("Failed to back up legacy history file", logger.ErrorField(err))
+			}
 		}
 	}
 }

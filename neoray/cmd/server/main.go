@@ -257,7 +257,7 @@ func main() {
 		logger.Info("ApplyPatch tool registered")
 	}
 	if cfg.Tools.WebSearch.Enabled {
-		toolRegistry.Register(tools.NewWebSearchTool())
+		toolRegistry.Register(tools.NewWebSearchTool(cfg))
 		logger.Info("WebSearch tool registered")
 	}
 	if cfg.Tools.WebFetch.Enabled {
@@ -408,23 +408,28 @@ func main() {
 
 			// 注册 Dream 处理任务
 			if cfg.Memory.DreamInterval != "" {
-				fmt.Printf("Registering dream job with interval: %s\n", cfg.Memory.DreamInterval)
-				dreamJob := cron.CronJob{
-					ID:      "dream-process",
-					Name:    "dream-process",
-					Enabled: true,
-					Schedule: cron.CronSchedule{
-						Kind: cron.ScheduleKindCron,
-						Expr: cfg.Memory.DreamInterval,
-					},
-					Payload: cron.CronPayload{
-						Kind:    cron.PayloadKindSystemEvent,
-						Message: "dream-process",
-					},
-					State: cron.CronJobState{},
+				schedule, scheduleErr := cron.BuildScheduleFromInterval(cfg.Memory.DreamInterval)
+				if scheduleErr != nil {
+					logger.Warn("Invalid memory.dream_interval, dream job disabled",
+						logger.String("value", cfg.Memory.DreamInterval),
+						logger.ErrorField(scheduleErr))
+				} else {
+					fmt.Printf("Registering dream job with interval: %s\n", cfg.Memory.DreamInterval)
+					dreamJob := cron.CronJob{
+						ID:       "dream-process",
+						Name:     "dream-process",
+						Enabled:  true,
+						Schedule: schedule,
+						Payload: cron.CronPayload{
+							Kind:    cron.PayloadKindSystemEvent,
+							Message: "dream-process",
+						},
+						State: cron.CronJobState{},
+					}
+					cronScheduler.RegisterSystemJob(dreamJob)
+					logger.Info("Dream system job registered",
+						logger.String("interval", cfg.Memory.DreamInterval))
 				}
-				cronScheduler.RegisterSystemJob(dreamJob)
-				logger.Info("Dream system job registered")
 			}
 
 			// 注册 AutoCompact 任务（每小时一次）

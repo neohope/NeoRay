@@ -47,7 +47,16 @@ type WebSearchTool struct {
 	apiKey     string
 	baseURL    string
 	maxResults int
-	timeout    int
+	// requestTimeout 来自 tools.web.timeout；为 0 时按各路径内置默认
+	requestTimeout time.Duration
+}
+
+// searchTimeout 返回搜索请求超时：配置优先，否则用 fallback
+func (t *WebSearchTool) searchTimeout(fallback time.Duration) time.Duration {
+	if t.requestTimeout > 0 {
+		return t.requestTimeout
+	}
+	return fallback
 }
 
 type WebSearchArgs struct {
@@ -61,18 +70,24 @@ type SearchResult struct {
 	Content string `json:"content"`
 }
 
-func NewWebSearchTool() *WebSearchTool {
+func NewWebSearchTool(cfgs ...*config.Config) *WebSearchTool {
 	provider := os.Getenv("NEORAY_WEB_SEARCH_PROVIDER")
 	if provider == "" {
 		provider = "bytedance" // 默认使用字节搜索
 	}
-	return &WebSearchTool{
+	tool := &WebSearchTool{
 		provider:   provider,
 		apiKey:     os.Getenv("NEORAY_WEB_SEARCH_API_KEY"),
 		baseURL:    os.Getenv("NEORAY_WEB_SEARCH_BASE_URL"),
 		maxResults: 5,
-		timeout:    30,
 	}
+	// 搜索与抓取共用 tools.web.timeout，避免"四个常量各自为政"
+	for _, c := range cfgs {
+		if c != nil && c.Tools.Web.Timeout > 0 {
+			tool.requestTimeout = c.Tools.Web.Timeout
+		}
+	}
+	return tool
 }
 
 func (t *WebSearchTool) Name() string {
@@ -237,7 +252,7 @@ func (t *WebSearchTool) searchBytedance(query string, n int) string {
 		return "Error: ByteDance web search requires WEB_SEARCH_API_KEY. Get it from https://console.volcengine.com/search-infinity/api-key"
 	}
 
-	client := &http.Client{Timeout: longSearchTimeout}
+	client := &http.Client{Timeout: t.searchTimeout(longSearchTimeout)}
 
 	// 构建请求体
 	reqBody := map[string]interface{}{
@@ -309,7 +324,7 @@ func (t *WebSearchTool) searchBrave(query string, n int) string {
 		return t.searchDuckDuckGo(query, n)
 	}
 
-	client := &http.Client{Timeout: defaultSearchTimeout}
+	client := &http.Client{Timeout: t.searchTimeout(defaultSearchTimeout)}
 	reqURL := fmt.Sprintf("https://api.search.brave.com/res/v1/web/search?q=%s&count=%d", url.QueryEscape(query), n)
 	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
@@ -358,7 +373,7 @@ func (t *WebSearchTool) searchTavily(query string, n int) string {
 		return t.searchDuckDuckGo(query, n)
 	}
 
-	client := &http.Client{Timeout: longSearchTimeout}
+	client := &http.Client{Timeout: t.searchTimeout(longSearchTimeout)}
 	reqBody := map[string]any{
 		"query":       query,
 		"max_results": n,
@@ -410,7 +425,7 @@ func (t *WebSearchTool) searchSearxng(query string, n int) string {
 	}
 
 	endpoint := fmt.Sprintf("%s/search", strings.TrimRight(baseURL, "/"))
-	client := &http.Client{Timeout: defaultSearchTimeout}
+	client := &http.Client{Timeout: t.searchTimeout(defaultSearchTimeout)}
 	reqURL := fmt.Sprintf("%s?q=%s&format=json", endpoint, url.QueryEscape(query))
 	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
@@ -455,7 +470,7 @@ func (t *WebSearchTool) searchJina(query string, n int) string {
 		return t.searchDuckDuckGo(query, n)
 	}
 
-	client := &http.Client{Timeout: longSearchTimeout}
+	client := &http.Client{Timeout: t.searchTimeout(longSearchTimeout)}
 	reqURL := fmt.Sprintf("https://s.jina.ai/%s", url.QueryEscape(query))
 	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
@@ -508,7 +523,7 @@ func (t *WebSearchTool) searchKagi(query string, n int) string {
 		return t.searchDuckDuckGo(query, n)
 	}
 
-	client := &http.Client{Timeout: defaultSearchTimeout}
+	client := &http.Client{Timeout: t.searchTimeout(defaultSearchTimeout)}
 	reqBody := map[string]any{
 		"query": query,
 		"limit": n,
