@@ -149,6 +149,18 @@ func (m *MemoryManager) Initialize(p provider.Provider, model string) {
 		if tz := strings.TrimSpace(m.cfg.Agent.Timezone); tz != "" {
 			capabilities += fmt.Sprintf(" · 时区: %s", tz)
 		}
+		// 技能清单写进系统提示：agent 不用调工具也知道自己会哪些技能
+		if m.skillsLoader != nil {
+			snap := m.skillsLoader.Snapshot()
+			if snap.Count > 0 {
+				capabilities += fmt.Sprintf("\n- 技能(%d): %s", snap.Count, strings.Join(snap.Names, "、"))
+				if len(snap.Unavailable) > 0 {
+					capabilities += fmt.Sprintf("；不可用: %s", strings.Join(snap.Unavailable, "、"))
+				}
+			} else {
+				capabilities += "\n- 技能: 未加载到任何技能（检查 skills 目录）"
+			}
+		}
 	}
 
 	m.contextBuilder = NewContextBuilder(
@@ -286,6 +298,14 @@ func (m *MemoryManager) GetAlwaysSkills() []string {
 		return m.skillsLoader.GetAlwaysSkills()
 	}
 	return nil
+}
+
+// SkillsSnapshot 返回技能清单快照（供 reflection 与系统提示使用）
+func (m *MemoryManager) SkillsSnapshot() skills.SkillSnapshot {
+	if m.skillsLoader == nil {
+		return skills.SkillSnapshot{}
+	}
+	return m.skillsLoader.Snapshot()
 }
 
 // BuildSystemPrompt 构建系统提示词

@@ -2054,6 +2054,7 @@ func (al *AgentLoop) seedRuntimeState() {
 	seed := tools.RuntimeSeed{
 		Workspace: config.GetWorkspace(),
 	}
+	skillCount := 0
 
 	if al.cfg != nil {
 		seed.MaxIterations = al.cfg.Agent.MaxIterations
@@ -2110,9 +2111,21 @@ func (al *AgentLoop) seedRuntimeState() {
 		seed.Subagents = map[string]interface{}{"enabled": true}
 	}
 
+	// 技能清单：agent 需要知道"我能用哪些技能"，而不是只知道有没有 shell
+	if al.memoryManager != nil {
+		snap := al.memoryManager.SkillsSnapshot()
+		seed.Skills = map[string]interface{}{
+			"count":       snap.Count,
+			"available":   snap.Names,
+			"unavailable": snap.Unavailable,
+			"always":      snap.Always,
+		}
+		skillCount = snap.Count
+	}
+
 	al.runtimeState.Seed(seed)
 	// 启动时打一行，方便确认 agent 自查到的是真实值（而不是全空）
-	logger.Infof("runtime state seeded: provider=%s model=%s workspace=%s web_search=%s max_iterations=%d context_window=%d",
-		seed.Provider, seed.Model, seed.Workspace, seed.WebSearchEffective,
+	logger.Infof("runtime state seeded: provider=%s model=%s workspace=%s web_search=%s skills=%d max_iterations=%d context_window=%d",
+		seed.Provider, seed.Model, seed.Workspace, seed.WebSearchEffective, skillCount,
 		al.runtimeState.GetMaxIterations(), al.runtimeState.GetContextWindowTokens())
 }

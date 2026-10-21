@@ -78,11 +78,59 @@ func WithDisabledSkills(disabled []string) SkillsLoaderOption {
 }
 
 // NewSkillsLoader 创建 skill 加载器
+// resolveBuiltinDir 把相对路径解析成真实存在的内置技能目录。
+//
+// 历史问题：默认值 "skills" 是相对 **进程 CWD** 的。服务以 ~/.neoray 为工作目录启动时，
+// 那里恰好有一个空的 skills/ 目录，于是内置技能一个都加载不到，
+// agent 也就"不知道自己有哪些技能"。这里按 exe 目录、仓库根等候选位置兜底。
+func resolveBuiltinDir(configured string) string {
+	if configured == "" {
+		return ""
+	}
+	if filepath.IsAbs(configured) {
+		return configured
+	}
+
+	candidates := []string{configured}
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		candidates = append(candidates,
+			filepath.Join(exeDir, configured),
+			filepath.Join(exeDir, "..", configured),
+			filepath.Join(exeDir, "..", "..", configured),
+		)
+	}
+
+	for _, dir := range candidates {
+		if hasSkillDirs(dir) {
+			return dir
+		}
+	}
+	return configured
+}
+
+// hasSkillDirs 判断目录下是否存在至少一个含 SKILL.md 的子目录
+func hasSkillDirs(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, e.Name(), "SKILL.md")); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 func NewSkillsLoader(cfg *config.Config, opts ...SkillsLoaderOption) *SkillsLoader {
 	l := &SkillsLoader{
 		cfg:          cfg,
 		workspaceDir: filepath.Join(cfg.Memory.Workspace, "skills"),
-		builtinDir:   DefaultBuiltinSkillsDir,
+		builtinDir:   resolveBuiltinDir(DefaultBuiltinSkillsDir),
 	}
 	for _, opt := range opts {
 		opt(l)
@@ -148,6 +196,33 @@ func (l *SkillsLoader) ListSkills(filterUnavailable bool) ([]SkillInfo, error) {
 }
 
 // LoadSkill 按名称加载 skill
+// SkillSnapshot 技能清单快照（供 reflection 与系统提示展示，只含名称）
+type SkillSnapshot struct {
+	Count       int      `json:"count"`
+	Names       []string `json:"names"`
+	Unavailable []string `json:"unavailable,omitempty"`
+	Always      []string `json:"always,omitempty"`
+}
+
+// Snapshot 返回当前加载到的技能概览
+func (l *SkillsLoader) Snapshot() SkillSnapshot {
+	skills, err := l.ListSkills(false)
+	if err != nil {
+		return SkillSnapshot{}
+	}
+
+	snap := SkillSnapshot{Count: len(skills)}
+	for _, s := range skills {
+		if s.Available {
+			snap.Names = append(snap.Names, s.Name)
+		} else {
+			snap.Unavailable = append(snap.Unavailable, s.Name)
+		}
+	}
+	snap.Always = l.GetAlwaysSkills()
+	return snap
+}
+
 func (l *SkillsLoader) LoadSkill(name string) (*Skill, error) {
 	// 防止路径遍历：名称不能包含路径分隔符或 ..
 	if strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {

@@ -24,18 +24,20 @@ type RuntimeState struct {
 
 	// 以下为「可公开的自我认知」：只放布尔/计数/路径/枚举，
 	// 密钥、token、完整 api_url 一律不进这个结构
-	appName            string
-	appVersion         string
-	appEnv             string
-	tools              map[string]bool
-	memoryPath         string
-	memoryGit          bool
-	sessionTTL         int
-	maxHistory         int
-	cronOn             bool
-	sandboxRestrict    bool
-	sandboxReadOnly    bool
-	sandboxPaths       int
+	appName         string
+	appVersion      string
+	appEnv          string
+	tools           map[string]bool
+	memoryPath      string
+	memoryGit       bool
+	sessionTTL      int
+	maxHistory      int
+	cronOn          bool
+	sandboxRestrict bool
+	sandboxReadOnly bool
+	sandboxPaths    int
+	// skills 技能清单（count/available/unavailable/always），只含名称不含内容
+	skills             map[string]interface{}
 	webConfig          map[string]interface{}
 	webSearchProvider  string
 	webSearchEffective string
@@ -88,6 +90,7 @@ type RuntimeSeed struct {
 	SandboxRestrict bool
 	SandboxReadOnly bool
 	SandboxPaths    int
+	Skills          map[string]interface{}
 }
 
 // Seed 用真实配置初始化运行时状态（只写入非零值，避免覆盖已有设置）
@@ -170,6 +173,9 @@ func (s *RuntimeState) Seed(seed RuntimeSeed) {
 	s.sandboxReadOnly = seed.SandboxReadOnly
 	if seed.SandboxPaths > 0 {
 		s.sandboxPaths = seed.SandboxPaths
+	}
+	if len(seed.Skills) > 0 {
+		s.skills = seed.Skills
 	}
 }
 
@@ -384,6 +390,7 @@ func (s *RuntimeState) ToMap() map[string]interface{} {
 		"cron": map[string]interface{}{
 			"enabled": s.cronOn,
 		},
+		"skills": s.skills,
 		"sandbox": map[string]interface{}{
 			"restrict_to_workspace": s.sandboxRestrict,
 			"read_only":             s.sandboxReadOnly,
