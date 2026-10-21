@@ -21,15 +21,30 @@ type RuntimeState struct {
 	webConfigEnable     bool // Web UI（cfg.Web.Enabled）
 	webSearchEnabled    bool // web_search 工具（cfg.Tools.WebSearch.Enabled）
 	webFetchEnabled     bool // web_fetch 工具（cfg.Tools.WebFetch.Enabled）
-	webConfig           map[string]interface{}
-	webSearchProvider   string
-	webSearchEffective  string
-	webSearchHasKey     bool
-	workspaceSandbox    string
-	subagents           map[string]interface{}
-	lastUsage           RuntimeTokenUsage
-	currentIteration    int
-	runtimeVars         map[string]interface{}
+
+	// 以下为「可公开的自我认知」：只放布尔/计数/路径/枚举，
+	// 密钥、token、完整 api_url 一律不进这个结构
+	appName            string
+	appVersion         string
+	appEnv             string
+	tools              map[string]bool
+	memoryPath         string
+	memoryGit          bool
+	sessionTTL         int
+	maxHistory         int
+	cronOn             bool
+	sandboxRestrict    bool
+	sandboxReadOnly    bool
+	sandboxPaths       int
+	webConfig          map[string]interface{}
+	webSearchProvider  string
+	webSearchEffective string
+	webSearchHasKey    bool
+	workspaceSandbox   string
+	subagents          map[string]interface{}
+	lastUsage          RuntimeTokenUsage
+	currentIteration   int
+	runtimeVars        map[string]interface{}
 }
 
 // RuntimeTokenUsage 运行时 Token 使用统计（与 agent.TokenUsage 区分）
@@ -60,6 +75,19 @@ type RuntimeSeed struct {
 	WebSearchEffective  string
 	WebSearchHasKey     bool
 	Subagents           map[string]interface{}
+
+	AppName         string
+	AppVersion      string
+	AppEnv          string
+	Tools           map[string]bool
+	MemoryPath      string
+	MemoryGit       bool
+	SessionTTL      int
+	MaxHistory      int
+	CronEnabled     bool
+	SandboxRestrict bool
+	SandboxReadOnly bool
+	SandboxPaths    int
 }
 
 // Seed 用真实配置初始化运行时状态（只写入非零值，避免覆盖已有设置）
@@ -114,6 +142,34 @@ func (s *RuntimeState) Seed(seed RuntimeSeed) {
 	}
 	if len(seed.Subagents) > 0 {
 		s.subagents = seed.Subagents
+	}
+	if seed.AppName != "" {
+		s.appName = seed.AppName
+	}
+	if seed.AppVersion != "" {
+		s.appVersion = seed.AppVersion
+	}
+	if seed.AppEnv != "" {
+		s.appEnv = seed.AppEnv
+	}
+	if len(seed.Tools) > 0 {
+		s.tools = seed.Tools
+	}
+	if seed.MemoryPath != "" {
+		s.memoryPath = seed.MemoryPath
+	}
+	if seed.SessionTTL > 0 {
+		s.sessionTTL = seed.SessionTTL
+	}
+	if seed.MaxHistory > 0 {
+		s.maxHistory = seed.MaxHistory
+	}
+	s.memoryGit = seed.MemoryGit
+	s.cronOn = seed.CronEnabled
+	s.sandboxRestrict = seed.SandboxRestrict
+	s.sandboxReadOnly = seed.SandboxReadOnly
+	if seed.SandboxPaths > 0 {
+		s.sandboxPaths = seed.SandboxPaths
 	}
 }
 
@@ -309,14 +365,37 @@ func (s *RuntimeState) ToMap() map[string]interface{} {
 		"_last_usage":        s.lastUsage,
 		"_current_iteration": s.currentIteration,
 		"scratchpad":         s.runtimeVars,
+
+		// 关于「我自己」的稳定事实：只放布尔/计数/路径/枚举，不放密钥
+		"app": map[string]interface{}{
+			"name":    s.appName,
+			"version": s.appVersion,
+			"env":     s.appEnv,
+		},
+		"tools": s.tools,
+		"memory": map[string]interface{}{
+			"workspace":   s.memoryPath,
+			"git_enabled": s.memoryGit,
+		},
+		"session": map[string]interface{}{
+			"ttl_minutes":         s.sessionTTL,
+			"max_history_entries": s.maxHistory,
+		},
+		"cron": map[string]interface{}{
+			"enabled": s.cronOn,
+		},
+		"sandbox": map[string]interface{}{
+			"restrict_to_workspace": s.sandboxRestrict,
+			"read_only":             s.sandboxReadOnly,
+			"allowed_paths":         s.sandboxPaths,
+		},
 	}
 }
 
 // MarshalJSON JSON 序列化
 func (s *RuntimeState) MarshalJSON() ([]byte, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	return json.Marshal(s.ToMap())
+
 }
 
 // FormatValue 格式化值显示

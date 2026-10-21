@@ -2064,6 +2064,31 @@ func (al *AgentLoop) seedRuntimeState() {
 		seed.WebUIEnabled = al.cfg.Web.Enabled
 		seed.WebSearchEnabled = al.cfg.Tools.WebSearch.Enabled
 		seed.WebFetchEnabled = al.cfg.Tools.WebFetch.Enabled
+
+		// 应用信息与工具开关（只放布尔值，不含任何密钥）
+		seed.AppName = al.cfg.App.Name
+		seed.AppVersion = al.cfg.App.Version
+		seed.AppEnv = al.cfg.App.Env
+		seed.Tools = map[string]bool{
+			"shell":          al.cfg.Tools.Shell.Enabled,
+			"filesystem":     al.cfg.Tools.Filesystem.Enabled,
+			"web_search":     al.cfg.Tools.WebSearch.Enabled,
+			"web_fetch":      al.cfg.Tools.WebFetch.Enabled,
+			"grep":           al.cfg.Tools.Grep.Enabled,
+			"find_files":     al.cfg.Tools.FindFiles.Enabled,
+			"apply_patch":    al.cfg.Tools.ApplyPatch.Enabled,
+			"cron":           al.cfg.Tools.Cron.Enabled,
+			"subagent":       al.cfg.Tools.Subagent.Enabled,
+			"sandbox_status": al.cfg.Tools.SandboxStatus.Enabled,
+		}
+		seed.MemoryPath = config.GetWorkspace()
+		seed.MemoryGit = al.cfg.Memory.GitEnabled
+		seed.SessionTTL = al.cfg.Memory.SessionTTLMinutes
+		seed.MaxHistory = al.cfg.Memory.MaxHistoryEntries
+		seed.CronEnabled = al.cfg.Tools.Cron.Enabled
+		seed.SandboxRestrict = al.cfg.Security.RestrictToWorkspace
+		seed.SandboxReadOnly = al.cfg.Tools.Workspace.ReadOnly
+		seed.SandboxPaths = len(al.cfg.Tools.Workspace.AllowedPaths)
 	}
 
 	// web_search 的提供方来自环境变量（工具有回落逻辑），用同一套解析函数，

@@ -130,13 +130,25 @@ func (m *MemoryManager) Initialize(p provider.Provider, model string) {
 			modelLabel = name + "/" + modelLabel
 		}
 	}
-	// 搜索提供方与 web_search 工具用同一套解析，避免"报告的和实际用的不一致"
+	// 搜索提供方与 web_search 工具用同一套解析，避免"报告的和实际用的不一致"；
+	// 这里只放能力与路径，不放任何密钥
 	web := tools.ResolveWebSearchProvider()
 	capabilities := fmt.Sprintf("web_search: %s", web.Effective)
 	if web.Configured != "" && web.Configured != web.Effective {
 		capabilities = fmt.Sprintf("web_search: %s（配置为 %s，因缺少 key 回落）", web.Effective, web.Configured)
 	} else if web.HasAPIKey {
-		capabilities += "（已配置 API key）"
+		capabilities += "（已配置 API key，不在此暴露）"
+	}
+	if m.cfg != nil {
+		capabilities += fmt.Sprintf(
+			"\n- shell: %v · filesystem: %v · cron: %v · subagent: %v",
+			m.cfg.Tools.Shell.Enabled, m.cfg.Tools.Filesystem.Enabled,
+			m.cfg.Tools.Cron.Enabled, m.cfg.Tools.Subagent.Enabled,
+		)
+		capabilities += fmt.Sprintf("\n- 记忆目录: %s（git: %v）", m.workspace, m.cfg.Memory.GitEnabled)
+		if tz := strings.TrimSpace(m.cfg.Agent.Timezone); tz != "" {
+			capabilities += fmt.Sprintf(" · 时区: %s", tz)
+		}
 	}
 
 	m.contextBuilder = NewContextBuilder(
