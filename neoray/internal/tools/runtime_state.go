@@ -13,6 +13,7 @@ type RuntimeState struct {
 	maxIterations       int
 	contextWindowTokens int
 	model               string
+	provider            string
 	modelPreset         string
 	workspace           string
 	providerRetryMode   string
@@ -30,6 +31,65 @@ type RuntimeState struct {
 type RuntimeTokenUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
+}
+
+// RuntimeSeed 用于把真实运行参数一次性灌入 RuntimeState。
+//
+// 之前 RuntimeState 只在 reflection 工具里被 set 修改，初始化时没有任何数据源，
+// 于是 agent 自查（reflection check）看到的是全空配置：model / workspace /
+// provider_retry_mode 都是零值，无法回答"我用的是什么模型"。
+type RuntimeSeed struct {
+	MaxIterations       int
+	ContextWindowTokens int
+	Model               string
+	Provider            string
+	ModelPreset         string
+	Workspace           string
+	ProviderRetryMode   string
+	MaxToolResultChars  int
+	WorkspaceSandbox    string
+	WebEnabled          bool
+	Subagents           map[string]interface{}
+}
+
+// Seed 用真实配置初始化运行时状态（只写入非零值，避免覆盖已有设置）
+func (s *RuntimeState) Seed(seed RuntimeSeed) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if seed.MaxIterations > 0 {
+		s.maxIterations = seed.MaxIterations
+	}
+	if seed.ContextWindowTokens > 0 {
+		s.contextWindowTokens = seed.ContextWindowTokens
+	}
+	if seed.Model != "" {
+		s.model = seed.Model
+	}
+	if seed.Provider != "" {
+		s.provider = seed.Provider
+	}
+	if seed.ModelPreset != "" {
+		s.modelPreset = seed.ModelPreset
+	}
+	if seed.Workspace != "" {
+		s.workspace = seed.Workspace
+	}
+	if seed.ProviderRetryMode != "" {
+		s.providerRetryMode = seed.ProviderRetryMode
+	}
+	if seed.MaxToolResultChars > 0 {
+		s.maxToolResultChars = seed.MaxToolResultChars
+	}
+	if seed.WorkspaceSandbox != "" {
+		s.workspaceSandbox = seed.WorkspaceSandbox
+	}
+	if seed.WebEnabled {
+		s.webConfigEnable = true
+	}
+	if len(seed.Subagents) > 0 {
+		s.subagents = seed.Subagents
+	}
 }
 
 // NewRuntimeState 创建运行时状态
@@ -204,6 +264,7 @@ func (s *RuntimeState) ToMap() map[string]interface{} {
 		"max_iterations":        s.maxIterations,
 		"context_window_tokens": s.contextWindowTokens,
 		"model":                 s.model,
+		"provider":              s.provider,
 		"model_preset":          s.modelPreset,
 		"workspace":             s.workspace,
 		"provider_retry_mode":   s.providerRetryMode,
@@ -211,11 +272,11 @@ func (s *RuntimeState) ToMap() map[string]interface{} {
 		"web_config": map[string]interface{}{
 			"enable": s.webConfigEnable,
 		},
-		"workspace_sandbox": s.workspaceSandbox,
-		"subagents":         s.subagents,
-		"_last_usage":       s.lastUsage,
+		"workspace_sandbox":  s.workspaceSandbox,
+		"subagents":          s.subagents,
+		"_last_usage":        s.lastUsage,
 		"_current_iteration": s.currentIteration,
-		"scratchpad":        s.runtimeVars,
+		"scratchpad":         s.runtimeVars,
 	}
 }
 

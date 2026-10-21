@@ -81,9 +81,9 @@ type providerSnapshotKey struct{}
 
 // ProviderSnapshot 提供者配置快照，用于在一次回合中保持一致的 provider 视图
 type ProviderSnapshot struct {
-	ProviderName   string
-	Model          string
-	Settings       provider.GenerationSettings
+	ProviderName string
+	Model        string
+	Settings     provider.GenerationSettings
 }
 
 // TurnContext 回合上下文
@@ -112,19 +112,19 @@ type TurnContext struct {
 	Outbound *bus.OutboundMessage
 
 	// 回调
-	OnProgress    func(ctx context.Context, data map[string]interface{}) error
-	OnStream      func(ctx context.Context, delta string) error
-	OnStreamEnd   func(ctx context.Context, resuming bool) error
-	OnRetryWait   func(ctx context.Context, message string) error
-	OnToolStart   func(ctx context.Context, toolName string) error
+	OnProgress  func(ctx context.Context, data map[string]interface{}) error
+	OnStream    func(ctx context.Context, delta string) error
+	OnStreamEnd func(ctx context.Context, resuming bool) error
+	OnRetryWait func(ctx context.Context, message string) error
+	OnToolStart func(ctx context.Context, toolName string) error
 
 	// 队列
 	PendingQueue chan *bus.InboundMessage
 
 	// 时间
-	TurnWallStartedAt  time.Time
+	TurnWallStartedAt   time.Time
 	VisibleRunStartedAt *time.Time
-	TurnLatencyMs      *int64
+	TurnLatencyMs       *int64
 
 	// 追踪
 	Trace []StateTraceEntry
@@ -136,12 +136,12 @@ type TurnContext struct {
 // NewTurnContext 创建新的回合上下文
 func NewTurnContext(msg *bus.InboundMessage, sessionKey string) *TurnContext {
 	return &TurnContext{
-		Msg:              msg,
-		SessionKey:       sessionKey,
-		State:            TurnStateRestore,
-		TurnID:           fmt.Sprintf("%s:%d", sessionKey, time.Now().UnixNano()),
+		Msg:               msg,
+		SessionKey:        sessionKey,
+		State:             TurnStateRestore,
+		TurnID:            fmt.Sprintf("%s:%d", sessionKey, time.Now().UnixNano()),
 		TurnWallStartedAt: time.Now(),
-		Trace:            make([]StateTraceEntry, 0),
+		Trace:             make([]StateTraceEntry, 0),
 	}
 }
 
@@ -173,8 +173,8 @@ type AgentLoop struct {
 	transitions map[TurnState]map[StateEvent]TurnState
 
 	// 并发控制
-	running       bool
-	sessionLocks  map[string]*sessionLockEntry
+	running         bool
+	sessionLocks    map[string]*sessionLockEntry
 	pendingQueues   map[string]chan *bus.InboundMessage
 	concurrencyGate chan struct{}
 
@@ -278,9 +278,9 @@ func NewAgentLoop(
 	// 创建 ContextBuilder
 	if al.memoryManager != nil {
 		al.contextBuilder = &ContextBuilder{
-			cfg:             cfg,
-			strategy:        StrategyRecent,
-			memoryManager:   al.memoryManager,
+			cfg:           cfg,
+			strategy:      StrategyRecent,
+			memoryManager: al.memoryManager,
 		}
 	} else {
 		al.contextBuilder = NewContextBuilder(cfg)
@@ -302,6 +302,7 @@ func NewAgentLoop(
 
 	// 初始化运行时状态和工具（从 Agent 迁移）
 	al.runtimeState = tools.NewRuntimeState()
+	al.seedRuntimeState()
 	al.goalManager = session.NewGoalManager(al.sessionMgr, al.msgBus)
 	al.fileStateStore = tools.NewFileStateStore()
 	al.execSessionManager = tools.NewExecSessionManager()
@@ -2039,4 +2040,45 @@ func (al *AgentLoop) executeToolCallsLocked(
 
 	wg.Wait()
 	return toolResponses
+}
+
+// seedRuntimeState 把真实配置灌入 RuntimeState。
+//
+// 不做这一步时，agent 用 reflection 自查看到的 model / workspace /
+// provider_retry_mode 全是空值，只能回答"不知道用的什么模型"。
+func (al *AgentLoop) seedRuntimeState() {
+	if al.runtimeState == nil {
+		return
+	}
+
+	seed := tools.RuntimeSeed{
+		Workspace: config.GetWorkspace(),
+	}
+
+	if al.cfg != nil {
+		seed.MaxIterations = al.cfg.Agent.MaxIterations
+		seed.ContextWindowTokens = al.cfg.Agent.ContextWindowTokens
+		seed.ProviderRetryMode = al.cfg.Agent.ProviderRetryMode
+		seed.MaxToolResultChars = al.cfg.Agent.MaxToolResultChars
+		seed.WorkspaceSandbox = al.cfg.Tools.Shell.Sandbox
+		seed.WebEnabled = al.cfg.Web.Enabled
+	}
+
+	if al.providerMgr != nil {
+		if p := al.providerMgr.DefaultProvider(); p != nil {
+			seed.Model = p.GetDefaultModel()
+			seed.Provider = p.Name()
+			seed.ModelPreset = p.Name()
+		}
+	}
+
+	if al.subagentManager != nil {
+		seed.Subagents = map[string]interface{}{"enabled": true}
+	}
+
+	al.runtimeState.Seed(seed)
+	// 启动时打一行，方便确认 agent 自查到的是真实值（而不是全空）
+	logger.Infof("runtime state seeded: provider=%s model=%s workspace=%s max_iterations=%d context_window=%d",
+		seed.Provider, seed.Model, seed.Workspace,
+		al.runtimeState.GetMaxIterations(), al.runtimeState.GetContextWindowTokens())
 }

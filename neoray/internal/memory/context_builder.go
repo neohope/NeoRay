@@ -23,10 +23,20 @@ type ContextBuilder struct {
 	memory       *MemoryStore
 	timezone     string
 	skillsLoader *skills.SkillsLoader
+	// modelLabel 形如 "anthropic/claude-3-sonnet"，写进 identity 的 Runtime 行，
+	// 让 agent 不查配置也知道自己在用什么模型
+	modelLabel string
 }
 
 // ContextBuilderOption 选项
 type ContextBuilderOption func(*ContextBuilder)
+
+// WithModelLabel 设置 Runtime 行展示的模型标签（provider/model）
+func WithModelLabel(label string) ContextBuilderOption {
+	return func(cb *ContextBuilder) {
+		cb.modelLabel = strings.TrimSpace(label)
+	}
+}
 
 // WithTimezone 设置时区
 func WithTimezone(timezone string) ContextBuilderOption {
@@ -173,6 +183,9 @@ func (cb *ContextBuilder) getIdentity(channel string) string {
 	runtimeStr := fmt.Sprintf("%s, Go", "unknown")
 	if osName := getOSName(); osName != "" {
 		runtimeStr = fmt.Sprintf("%s, Go", osName)
+	}
+	if cb.modelLabel != "" {
+		runtimeStr = fmt.Sprintf("%s · model=%s", runtimeStr, cb.modelLabel)
 	}
 
 	// 尝试从模板加载

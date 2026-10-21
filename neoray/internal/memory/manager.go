@@ -20,10 +20,10 @@ type MemoryManager struct {
 	workspace   string
 	initialized bool
 
-	store         *MemoryStore
-	dream         *Dream
-	consolidator  *Consolidator
-	autoCompact   *AutoCompact
+	store          *MemoryStore
+	dream          *Dream
+	consolidator   *Consolidator
+	autoCompact    *AutoCompact
 	contextBuilder *ContextBuilder
 	skillsLoader   *skills.SkillsLoader
 
@@ -123,7 +123,18 @@ func (m *MemoryManager) Initialize(p provider.Provider, model string) {
 	logger.Info("Skills loader initialized", logger.Bool("enabled", m.cfg.Skills.Enabled))
 
 	// 创建 ContextBuilder
-	m.contextBuilder = NewContextBuilder(m.workspace, m.store, WithSkillsLoader(m.skillsLoader))
+	modelLabel := strings.TrimSpace(model)
+	if p != nil {
+		if name := strings.TrimSpace(p.Name()); name != "" && modelLabel != "" {
+			modelLabel = name + "/" + modelLabel
+		}
+	}
+	m.contextBuilder = NewContextBuilder(
+		m.workspace,
+		m.store,
+		WithSkillsLoader(m.skillsLoader),
+		WithModelLabel(modelLabel),
+	)
 
 	// 创建适配器
 	adapter := NewProviderAdapter(p, model)
@@ -503,8 +514,8 @@ func sessionToMap(sess *session.Session) map[string]interface{} {
 			toolCalls := make([]map[string]interface{}, 0, len(msg.ToolCalls))
 			for _, tc := range msg.ToolCalls {
 				toolCalls = append(toolCalls, map[string]interface{}{
-					"id":       tc.ID,
-					"name":     tc.Name,
+					"id":        tc.ID,
+					"name":      tc.Name,
 					"arguments": tc.Arguments,
 				})
 			}
@@ -514,9 +525,9 @@ func sessionToMap(sess *session.Session) map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"id":        sess.ID,
-		"messages":  messages,
-		"metadata":  sess.Metadata,
+		"id":         sess.ID,
+		"messages":   messages,
+		"metadata":   sess.Metadata,
 		"updated_at": sess.UpdatedAt,
 	}
 }
