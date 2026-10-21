@@ -74,6 +74,14 @@ type = "file"
 max_sessions = 100
 max_messages_per_session = 1000
 
+[agent]
+# 单次工具调用的外层超时；0 = 按内层工具超时自动推算（推荐）
+# 若某些工具本身配置了更长超时（如 tools.shell.timeout = 120s），
+# 这里配成固定小值会让它们被提前掐断。
+tool_timeout = 0
+# 单条消息整轮处理超时（含多轮工具调用）；0 = 默认 10 分钟
+message_timeout = 0
+
 [tools]
 [tools.workspace]
 enabled = true

@@ -278,6 +278,10 @@ type AgentConfig struct {
 	MaxToolResultChars int `mapstructure:"max_tool_result_chars"`
 	// 提供者重试模式
 	ProviderRetryMode string `mapstructure:"provider_retry_mode"`
+	// 单次工具调用的外层超时；0 表示按内层工具超时自动推算
+	ToolTimeout time.Duration `mapstructure:"tool_timeout"`
+	// 单条消息整轮处理超时（含多轮工具调用）；0 表示默认 10 分钟
+	MessageTimeout time.Duration `mapstructure:"message_timeout"`
 	// 时区
 	Timezone string `mapstructure:"timezone"`
 	// 禁用的技能

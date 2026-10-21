@@ -58,13 +58,13 @@ const (
 
 // 代理循环常量
 const (
-	defaultMaxIterations     = 10
-	defaultPendingQueueSize  = 20
-	defaultStreamChanSize    = 100
-	goroutineTimeout         = 10 * time.Minute
-	compactThresholdMessages = 100
-	toolExecutionTimeout     = 30 * time.Second
-	maxConcurrentToolCalls   = 8 // 工具调用并发上限
+	defaultMaxIterations        = 10
+	defaultPendingQueueSize     = 20
+	defaultStreamChanSize       = 100
+	goroutineTimeout            = 10 * time.Minute
+	compactThresholdMessages    = 100
+	defaultToolExecutionTimeout = 30 * time.Second
+	maxConcurrentToolCalls      = 8 // 工具调用并发上限
 )
 
 // StateTraceEntry 状态追踪记录
@@ -163,6 +163,8 @@ type AgentLoop struct {
 	spawnTool       *subagent.SpawnTool
 
 	// 工具集成（从 Agent 迁移）
+	toolTimeout        time.Duration
+	messageTimeout     time.Duration
 	runtimeState       *tools.RuntimeState
 	goalManager        *session.GoalManager
 	fileStateStore     *tools.FileStateStore
@@ -299,6 +301,9 @@ func NewAgentLoop(
 	if al.continuationMgr == nil {
 		al.continuationMgr = NewContinuationManager() // 默认启用续轮
 	}
+
+	al.toolTimeout = effectiveToolTimeout(cfg)
+	al.messageTimeout = effectiveMessageTimeout(cfg)
 
 	// 初始化运行时状态和工具（从 Agent 迁移）
 	al.runtimeState = tools.NewRuntimeState()
@@ -528,7 +533,7 @@ func (al *AgentLoop) handleInboundMessage(ctx context.Context, msg *bus.InboundM
 		// 保留 logger/provider 值，但使用全局取消信号。
 		goroutineCtx := al.globalCtx
 		var cancel context.CancelFunc
-		goroutineCtx, cancel = context.WithTimeout(goroutineCtx, goroutineTimeout)
+		goroutineCtx, cancel = context.WithTimeout(goroutineCtx, al.messageTimeout)
 		defer cancel()
 
 		_, err := al.processMessage(goroutineCtx, msg, sessionKey)
@@ -1986,7 +1991,7 @@ func (al *AgentLoop) executeToolCallsLocked(
 				_ = onToolStart(ctx, tc.Name)
 			}
 
-			toolCtx, cancel := context.WithTimeout(ctx, toolExecutionTimeout)
+			toolCtx, cancel := context.WithTimeout(ctx, al.toolTimeout)
 			defer cancel()
 
 			// 记录工具调用开始
@@ -2128,4 +2133,42 @@ func (al *AgentLoop) seedRuntimeState() {
 	logger.Infof("runtime state seeded: provider=%s model=%s workspace=%s web_search=%s skills=%d max_iterations=%d context_window=%d",
 		seed.Provider, seed.Model, seed.Workspace, seed.WebSearchEffective, skillCount,
 		al.runtimeState.GetMaxIterations(), al.runtimeState.GetContextWindowTokens())
+}
+
+// effectiveToolTimeout 计算单次工具调用的外层超时。
+//
+// 之前是硬编码 30s：这会给内层工具套上"天花板"——比如
+// tools.shell.timeout 配了 60s，命令跑到 30s 就被外层 ctx 掐断；
+// web_fetch 的 readability 超时也是 30s，正好卡在边界上。
+func effectiveToolTimeout(cfg *config.Config) time.Duration {
+	if cfg != nil && cfg.Agent.ToolTimeout > 0 {
+		return cfg.Agent.ToolTimeout
+	}
+
+	timeout := defaultToolExecutionTimeout
+	if cfg == nil {
+		return timeout
+	}
+
+	// 内层工具超时 + 5s 余量，保证外层不会先于内层触发
+	for _, inner := range []time.Duration{cfg.Tools.Shell.Timeout, cfg.Tools.Web.Timeout} {
+		if inner <= 0 {
+			continue
+		}
+		if candidate := inner + 5*time.Second; candidate > timeout {
+			timeout = candidate
+		}
+	}
+	return timeout
+}
+
+// effectiveMessageTimeout 返回单条消息整轮处理的超时。
+//
+// 之前固定 10 分钟：一次"跑构建 + 多个工具"的长任务会被硬性掐断，
+// 而且用户没有任何旋钮可调。现在可用 agent.message_timeout 覆盖。
+func effectiveMessageTimeout(cfg *config.Config) time.Duration {
+	if cfg != nil && cfg.Agent.MessageTimeout > 0 {
+		return cfg.Agent.MessageTimeout
+	}
+	return goroutineTimeout
 }

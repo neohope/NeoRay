@@ -1,8 +1,8 @@
 package channel
 
 import (
-	"container/list"
 	"bytes"
+	"container/list"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -93,7 +93,7 @@ type FeishuChannel struct {
 	tenantToken         string
 	tokenExpiry         time.Time
 	httpClient          *http.Client
-	larkClient          *lark.Client  // 飞书 SDK 客户端
+	larkClient          *lark.Client // 飞书 SDK 客户端
 	wsClient            *larkws.Client
 	wsCancel            context.CancelFunc
 	botOpenID           string
@@ -263,7 +263,7 @@ func (o *orderedMap) add(key string) {
 
 type streamBuf struct {
 	text      string
-	messageID string   // 使用消息ID替代卡片ID
+	messageID string // 使用消息ID替代卡片ID
 	lastEdit  float64
 	createdAt time.Time
 }
@@ -371,6 +371,41 @@ func (f *FeishuChannel) Stop() error {
 	return nil
 }
 
+// botInfoResponse 兼容 Feishu /open-apis/bot/v3/info 的两种返回形态：
+//   - 官方：{"code":0,"msg":"ok","bot":{"open_id":"ou_..."}}   ← bot 在顶层
+//   - 旧文档/部分网关：{"data":{"bot":{"open_id":...}}}
+//
+// 历史上这里只解析了 data.bot，导致 botOpenID 永远是空字符串。
+type botInfoResponse struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+	Bot  *struct {
+		OpenID string `json:"open_id"`
+	} `json:"bot"`
+	Data *struct {
+		Bot *struct {
+			OpenID string `json:"open_id"`
+		} `json:"bot"`
+	} `json:"data"`
+}
+
+// parseBotInfoResponse 从响应体里取出 open_id / code / msg
+func parseBotInfoResponse(body []byte) (openID string, code int, msg string, err error) {
+	var result botInfoResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", 0, "", err
+	}
+
+	openID = ""
+	if result.Bot != nil {
+		openID = result.Bot.OpenID
+	}
+	if openID == "" && result.Data != nil && result.Data.Bot != nil {
+		openID = result.Data.Bot.OpenID
+	}
+	return openID, result.Code, result.Msg, nil
+}
+
 func (f *FeishuChannel) fetchBotOpenID() error {
 	token, err := f.ensureToken()
 	if err != nil {
@@ -392,29 +427,24 @@ func (f *FeishuChannel) fetchBotOpenID() error {
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
 
-	var result struct {
-		Code int    `json:"code"`
-		Msg  string `json:"msg"`
-		Data struct {
-			Bot struct {
-				OpenID string `json:"open_id"`
-			} `json:"bot"`
-		} `json:"data"`
-	}
-
-	if err := json.Unmarshal(respBody, &result); err != nil {
+	openID, code, msg, err := parseBotInfoResponse(respBody)
+	if err != nil {
 		return err
 	}
-
-	if result.Code != 0 {
-		return fmt.Errorf("get bot info error: %s (code: %d)", result.Msg, result.Code)
+	if code != 0 {
+		return fmt.Errorf("get bot info error: %s (code: %d)", msg, code)
 	}
 
 	f.mu.Lock()
-	f.botOpenID = result.Data.Bot.OpenID
+	f.botOpenID = openID
 	f.mu.Unlock()
 
-	logger.Info("Bot open_id fetched", logger.String("open_id", f.botOpenID))
+	if openID == "" {
+		// 空 open_id 会让群聊 @ 判断退化（见 isBotMentioned 的回退分支），必须显式告警
+		logger.Warn("Bot open_id is empty — group @-mention detection will fall back to heuristics")
+		return nil
+	}
+	logger.Info("Bot open_id fetched", logger.String("open_id", openID))
 	return nil
 }
 
@@ -700,10 +730,10 @@ func (f *FeishuChannel) sendStreamDelta(ctx context.Context, chatID string, delt
 
 	// Phase 1: 快照阶段（持有锁）—— 读取/创建 buffer，追加 delta
 	type snapshot struct {
-		text        string
-		messageID   string
-		needNewMsg  bool
-		needUpdate  bool
+		text       string
+		messageID  string
+		needNewMsg bool
+		needUpdate bool
 	}
 
 	var snap snapshot
@@ -1300,10 +1330,17 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 		sess = session.NewSession("feishu", userID)
 		sess.ID = sessID
 		sess.Title = "Feishu Chat"
-		_ = f.sessionMgr.SaveSession(sess)
+		if saveErr := f.sessionMgr.SaveSession(sess); saveErr != nil {
+			logger.Warn("Failed to save new Feishu session", logger.ErrorField(saveErr))
+		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	// 整轮处理超时：默认 10 分钟，可由 agent.message_timeout 覆盖
+	chatTimeout := 10 * time.Minute
+	if f.appConfig != nil && f.appConfig.Agent.MessageTimeout > 0 {
+		chatTimeout = f.appConfig.Agent.MessageTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), chatTimeout)
 	defer cancel()
 
 	result, err := f.agent.Chat(ctx, sess, content)
@@ -2540,8 +2577,8 @@ func (f *FeishuChannel) tokenRefreshLoop() {
 
 // feishuAPIResponse 飞书 API 通用响应结构
 type feishuAPIResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
+	Code int             `json:"code"`
+	Msg  string          `json:"msg"`
 	Data json.RawMessage `json:"data"`
 }
 
