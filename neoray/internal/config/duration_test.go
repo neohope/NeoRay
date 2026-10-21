@@ -27,8 +27,14 @@ idle_timeout = 120
 [security.auth]
 jwt_expiry = 86400
 
-[channels.websocket]
-ping_interval = 30
+[tools.web]
+timeout = 45
+
+[server.cors]
+allowed_origins = ["http://localhost:5173"]
+
+[channels.feishu]
+enabled = false
 `
 	if err := os.WriteFile(cfgPath, []byte(content), 0600); err != nil {
 		t.Fatal(err)
@@ -48,7 +54,7 @@ ping_interval = 30
 		{"字符串 write_timeout=90s", cfg.Server.WriteTimeout, 90 * time.Second},
 		{"整数 idle_timeout=120 → 120s", cfg.Server.IdleTimeout, 120 * time.Second},
 		{"整数 jwt_expiry=86400 → 24h", cfg.Security.Auth.JWTExpiry, 24 * time.Hour},
-		{"整数 ping_interval=30 → 30s", cfg.Channels.WebSocket.PingInterval, 30 * time.Second},
+		{"tools.web.timeout=45 → 45s", cfg.Tools.Web.Timeout, 45 * time.Second},
 	}
 
 	for _, c := range cases {

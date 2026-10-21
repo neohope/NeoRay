@@ -11,7 +11,6 @@ type Config struct {
 	App      AppConfig      `mapstructure:"app"`
 	Server   ServerConfig   `mapstructure:"server"`
 	Logger   LoggerConfig   `mapstructure:"logger"`
-	Database DatabaseConfig `mapstructure:"database"`
 	LLM      LLMConfig      `mapstructure:"llm"`
 	Memory   MemoryConfig   `mapstructure:"memory"`
 	Session  SessionConfig  `mapstructure:"session"`
@@ -25,6 +24,9 @@ type Config struct {
 	// 内部字段
 	HomeDir    string `mapstructure:"-"` // 用户数据目录 ~/.neoray
 	ConfigPath string `mapstructure:"-"` // 实际加载的配置文件路径（供写回使用）
+	// DeprecatedKeys 记录配置文件里仍然存在、但当前版本已移除/不生效的配置键，
+	// 启动时由 UnusedConfigWarnings() 输出，避免"设了没用"的静默忽略
+	DeprecatedKeys []string `mapstructure:"-"`
 }
 
 // AppConfig 应用配置
@@ -34,7 +36,15 @@ type AppConfig struct {
 	Env     string `mapstructure:"env"`
 }
 
-// ServerConfig 服务端配置
+// CORSConfig 跨域配置
+//
+// 只有 allowed_origins 与 allow_credentials 生效；
+// allowed_methods / allowed_headers 从未接线，已移除。
+type CORSConfig struct {
+	AllowedOrigins   []string `mapstructure:"allowed_origins"`
+	AllowCredentials bool     `mapstructure:"allow_credentials"`
+}
+
 type ServerConfig struct {
 	Host         string        `mapstructure:"host"`
 	Port         int           `mapstructure:"port"`
@@ -45,16 +55,8 @@ type ServerConfig struct {
 	// 必须大于 agent 自身的处理超时（内部为 5 分钟），否则长任务
 	// （多轮工具调用）会被外层先截断，导致 chat_end 无法下发。
 	WSMessageTimeout time.Duration `mapstructure:"ws_message_timeout"`
-	CORS             CORSConfig    `mapstructure:"cors"`
-}
-
-// CORSConfig CORS 配置
-type CORSConfig struct {
-	Enabled          bool     `mapstructure:"enabled"`
-	AllowedOrigins   []string `mapstructure:"allowed_origins"`
-	AllowedMethods   []string `mapstructure:"allowed_methods"`
-	AllowedHeaders   []string `mapstructure:"allowed_headers"`
-	AllowCredentials bool     `mapstructure:"allow_credentials"`
+	// CORS 跨域配置
+	CORS CORSConfig `mapstructure:"cors"`
 }
 
 // LoggerConfig 日志配置
@@ -73,28 +75,6 @@ type LoggerFileConfig struct {
 	MaxAge      int    `mapstructure:"max_age"`
 	Compress    bool   `mapstructure:"compress"`
 	RotateDaily bool   `mapstructure:"rotate_daily"`
-}
-
-// DatabaseConfig 数据库配置
-type DatabaseConfig struct {
-	Driver   string         `mapstructure:"driver"`
-	SQLite   SQLiteConfig   `mapstructure:"sqlite"`
-	Postgres PostgresConfig `mapstructure:"postgres"`
-}
-
-// SQLiteConfig SQLite 配置
-type SQLiteConfig struct {
-	Path string `mapstructure:"path"`
-}
-
-// PostgresConfig PostgreSQL 配置
-type PostgresConfig struct {
-	Host     string `mapstructure:"host"`
-	Port     int    `mapstructure:"port"`
-	User     string `mapstructure:"user"`
-	Password string `mapstructure:"password"`
-	DBName   string `mapstructure:"dbname"`
-	SSLMode  string `mapstructure:"sslmode"`
 }
 
 // LLMConfig LLM 配置
@@ -134,7 +114,7 @@ type MemoryConfig struct {
 	GitEnabled bool `mapstructure:"git_enabled"`
 	// Dream 处理间隔
 	DreamInterval string `mapstructure:"dream_interval"`
-	// 会话 TTL（分钟）
+	// 会话 TTL（分钟，0 表示不自动归档）
 	SessionTTLMinutes int `mapstructure:"session_ttl_minutes"`
 	// 最大历史条目数
 	MaxHistoryEntries int `mapstructure:"max_history_entries"`
@@ -146,19 +126,19 @@ type SessionConfig struct {
 	Context SessionContextConfig `mapstructure:"context"`
 }
 
+// SessionContextConfig 上下文配置
+//
+// 只有 max_tokens 生效（用于历史截断）；历史上的
+// compression_strategy / auto_summarize / summarize_threshold 从未接线，已移除。
+type SessionContextConfig struct {
+	MaxTokens int `mapstructure:"max_tokens"`
+}
+
 // SessionStorageConfig 会话存储配置
 type SessionStorageConfig struct {
 	Type                  string `mapstructure:"type"`
 	MaxSessions           int    `mapstructure:"max_sessions"`
 	MaxMessagesPerSession int    `mapstructure:"max_messages_per_session"`
-}
-
-// SessionContextConfig 会话上下文配置
-type SessionContextConfig struct {
-	MaxTokens           int     `mapstructure:"max_tokens"`
-	CompressionStrategy string  `mapstructure:"compression_strategy"`
-	AutoSummarize       bool    `mapstructure:"auto_summarize"`
-	SummarizeThreshold  float64 `mapstructure:"summarize_threshold"`
 }
 
 // ToolsConfig 工具配置
@@ -209,7 +189,6 @@ type FilesystemConfig struct {
 type ShellConfig struct {
 	Enabled         bool          `mapstructure:"enabled"`
 	Timeout         time.Duration `mapstructure:"timeout"`
-	AllowedCommands []string      `mapstructure:"allowed_commands"`
 	BlockedCommands []string      `mapstructure:"blocked_commands"`
 	WorkingDir      string        `mapstructure:"working_dir"`
 	Sandbox         string        `mapstructure:"sandbox"`
@@ -231,19 +210,11 @@ type CronConfig struct {
 }
 
 // ChannelsConfig 频道配置
+//
+// 只保留有实现的两个频道；历史上的 channels.websocket 从未落地
+// （Web UI 的浏览器 WS 属于 web 配置，与此无关），已从结构体中移除。
 type ChannelsConfig struct {
-	WebSocket WebSocketChannelConfig `mapstructure:"websocket"`
-	Feishu    FeishuChannelConfig    `mapstructure:"feishu"`
-}
-
-// WebSocketChannelConfig WebSocket 频道配置
-type WebSocketChannelConfig struct {
-	Enabled        bool          `mapstructure:"enabled"`
-	Path           string        `mapstructure:"path"`
-	PingInterval   time.Duration `mapstructure:"ping_interval"`
-	WriteWait      time.Duration `mapstructure:"write_wait"`
-	PongWait       time.Duration `mapstructure:"pong_wait"`
-	MaxMessageSize int64         `mapstructure:"max_message_size"`
+	Feishu FeishuChannelConfig `mapstructure:"feishu"`
 }
 
 // FeishuChannelConfig 飞书频道配置
@@ -267,7 +238,6 @@ type FeishuChannelConfig struct {
 type SecurityConfig struct {
 	Auth                         AuthConfig      `mapstructure:"auth"`
 	RateLimit                    RateLimitConfig `mapstructure:"rate_limit"`
-	Upload                       UploadConfig    `mapstructure:"upload"`
 	RestrictToWorkspace          bool            `mapstructure:"restrict_to_workspace"`
 	WebUIAllowLocalServiceAccess bool            `mapstructure:"webui_allow_local_service_access"`
 	SSRFWhitelist                []string        `mapstructure:"ssrf_whitelist"`
@@ -288,14 +258,6 @@ type RateLimitConfig struct {
 	Burst             int  `mapstructure:"burst"`
 }
 
-// UploadConfig 上传配置
-type UploadConfig struct {
-	Enabled      bool     `mapstructure:"enabled"`
-	MaxSize      int64    `mapstructure:"max_size"`
-	AllowedTypes []string `mapstructure:"allowed_types"`
-	TempDir      string   `mapstructure:"temp_dir"`
-}
-
 // SkillsConfig Skills 配置
 type SkillsConfig struct {
 	Enabled          bool     `mapstructure:"enabled"`
@@ -308,24 +270,14 @@ type SkillsConfig struct {
 type AgentConfig struct {
 	// 最大工具调用迭代次数
 	MaxIterations int `mapstructure:"max_iterations"`
-	// 是否使用统一会话
+	// 是否使用统一会话（所有来源共用一个会话）
 	UnifiedSession bool `mapstructure:"unified_session"`
-	// 工具提示最大长度
-	ToolHintMaxLength int `mapstructure:"tool_hint_max_length"`
 	// 上下文窗口大小
 	ContextWindowTokens int `mapstructure:"context_window_tokens"`
-	// 上下文块限制
-	ContextBlockLimit int `mapstructure:"context_block_limit"`
 	// 最大工具结果字符数
 	MaxToolResultChars int `mapstructure:"max_tool_result_chars"`
 	// 提供者重试模式
 	ProviderRetryMode string `mapstructure:"provider_retry_mode"`
-	// 会话 TTL（分钟）
-	SessionTTLMinutes int `mapstructure:"session_ttl_minutes"`
-	// 合并比例
-	ConsolidationRatio float64 `mapstructure:"consolidation_ratio"`
-	// 最大消息数
-	MaxMessages int `mapstructure:"max_messages"`
 	// 时区
 	Timezone string `mapstructure:"timezone"`
 	// 禁用的技能

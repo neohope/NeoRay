@@ -103,6 +103,7 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	cfg.HomeDir = homeDir
+	cfg.DeprecatedKeys = detectDeprecatedKeys(v)
 
 	// 记录实际生效的配置文件路径，供后续写回（如自动生成 Web 密钥）使用。
 	if used := v.ConfigFileUsed(); used != "" {
@@ -193,8 +194,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("logger.file.rotate_daily", false)
 
 	// Database
-	v.SetDefault("database.driver", "sqlite")
-	v.SetDefault("database.sqlite.path", "data/neoray.db")
 
 	// LLM
 	// ⚠️  不要在这里设置具体 provider 的默认值！
@@ -214,9 +213,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("session.storage.max_sessions", 1000)
 	v.SetDefault("session.storage.max_messages_per_session", 10000)
 	v.SetDefault("session.context.max_tokens", 128000)
-	v.SetDefault("session.context.compression_strategy", "truncate")
-	v.SetDefault("session.context.auto_summarize", true)
-	v.SetDefault("session.context.summarize_threshold", 0.8)
 
 	// Tools
 	v.SetDefault("tools.workspace.enabled", true)
@@ -244,12 +240,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("tools.subagent.max_tool_result_chars", 16000)
 
 	// Channels
-	v.SetDefault("channels.websocket.enabled", true)
-	v.SetDefault("channels.websocket.path", "/ws")
-	v.SetDefault("channels.websocket.ping_interval", "30s")
-	v.SetDefault("channels.websocket.write_wait", "10s")
-	v.SetDefault("channels.websocket.pong_wait", "60s")
-	v.SetDefault("channels.websocket.max_message_size", 4194304)
 	v.SetDefault("channels.feishu.enabled", false)
 	v.SetDefault("channels.feishu.domain", "feishu")
 	v.SetDefault("channels.feishu.group_policy", "mention")
@@ -265,9 +255,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("security.rate_limit.enabled", true)
 	v.SetDefault("security.rate_limit.requests_per_minute", 60)
 	v.SetDefault("security.rate_limit.burst", 100)
-	v.SetDefault("security.upload.enabled", true)
-	v.SetDefault("security.upload.max_size", 10485760)
-	v.SetDefault("security.upload.temp_dir", "tmp/uploads")
 	v.SetDefault("security.restrict_to_workspace", true)
 
 	// Skills
@@ -278,7 +265,6 @@ func setDefaults(v *viper.Viper) {
 	// Web
 	v.SetDefault("web.enabled", false)
 	v.SetDefault("web.static_dir", "")
-	v.SetDefault("web.index_path", "")
 	v.SetDefault("web.dev_origin", "")
 }
 

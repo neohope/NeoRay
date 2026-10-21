@@ -389,7 +389,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
-		writeJSON(w,map[string]interface{}{
+		writeJSON(w, map[string]interface{}{
 			"sessions": sessionList,
 		})
 
@@ -432,7 +432,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.WriteHeader(http.StatusCreated)
-		writeJSON(w,map[string]interface{}{
+		writeJSON(w, map[string]interface{}{
 			"id":         sess.ID,
 			"channel_id": sess.ChannelID,
 			"user_id":    sess.UserID,
@@ -488,7 +488,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeJSON(w,sess)
+		writeJSON(w, sess)
 
 	case http.MethodPost:
 		// 发送聊天消息 — 限制请求体大小防止 DoS
@@ -618,7 +618,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 				response["tool_calls"] = result.ToolCalls
 			}
 
-			writeJSON(w,response)
+			writeJSON(w, response)
 		}
 
 	case http.MethodDelete:
@@ -642,7 +642,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 // handleHealth 健康检查
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	writeJSON(w,map[string]interface{}{
+	writeJSON(w, map[string]interface{}{
 		"status": "ok",
 		"time":   time.Now().UTC(),
 	})
@@ -664,13 +664,13 @@ func (s *Server) buildConfigResponse() map[string]interface{} {
 	providers := make(map[string]interface{})
 	for name, p := range cfg.LLM.Providers {
 		providers[name] = map[string]interface{}{
-			"api_key":             maskAPIKey(p.APIKey),
-			"api_url":             p.APIURL,
-			"model":               p.Model,
-			"max_tokens":          p.MaxTokens,
-			"temperature":         p.Temperature,
-			"timeout":             p.Timeout.Seconds(),
-			"reasoning_effort":    p.ReasoningEffort,
+			"api_key":              maskAPIKey(p.APIKey),
+			"api_url":              p.APIURL,
+			"model":                p.Model,
+			"max_tokens":           p.MaxTokens,
+			"temperature":          p.Temperature,
+			"timeout":              p.Timeout.Seconds(),
+			"reasoning_effort":     p.ReasoningEffort,
 			"prompt_cache_enabled": p.PromptCacheEnabled,
 		}
 	}
@@ -688,14 +688,13 @@ func (s *Server) buildConfigResponse() map[string]interface{} {
 	}
 
 	// 构建 channels（掩码 secret）
+	// 注意：不返回已移除的 channels.websocket —— 它从未实现，
+	// 在状态接口里出现只会让人以为"有个 WS 频道可以开"
 	channels := map[string]interface{}{
-		"websocket": map[string]interface{}{
-			"enabled": cfg.Channels.WebSocket.Enabled,
-		},
 		"feishu": map[string]interface{}{
-			"enabled":     cfg.Channels.Feishu.Enabled,
-			"app_id":      cfg.Channels.Feishu.AppID,
-			"app_secret":  maskAPIKey(cfg.Channels.Feishu.AppSecret),
+			"enabled":    cfg.Channels.Feishu.Enabled,
+			"app_id":     cfg.Channels.Feishu.AppID,
+			"app_secret": maskAPIKey(cfg.Channels.Feishu.AppSecret),
 		},
 	}
 
@@ -750,7 +749,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		// 返回当前配置（敏感字段已掩码）
-		writeJSON(w,s.buildConfigResponse())
+		writeJSON(w, s.buildConfigResponse())
 
 	case http.MethodPut:
 		// 更新配置需要管理员权限 — 防止普通 API Key 修改 LLM provider 指向恶意服务器
@@ -892,10 +891,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		s.cfgMu.Unlock()
 
 		// 返回更新后的配置
-		writeJSON(w,s.buildConfigResponse())
+		writeJSON(w, s.buildConfigResponse())
 
 	default:
 		writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
 }
-
