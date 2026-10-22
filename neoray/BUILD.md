@@ -295,3 +295,20 @@ go mod tidy
 ## 下一步
 
 后端打包完成后，请参阅 [neoray_app/BUILD.md](../neoray_app/BUILD.md) 进行前端打包。
+
+---
+
+## 安全模型
+
+工具与路径访问策略（哪些目录可读写、shell 命令如何校验、新增工具怎么做）
+见 [SECURITY.md](SECURITY.md)。
+
+关键配置：
+
+```toml
+[security]
+restrict_to_workspace = true
+
+[tools.workspace]
+allowed_paths = ["~/.neoray", "/tmp/neoray"]
+```

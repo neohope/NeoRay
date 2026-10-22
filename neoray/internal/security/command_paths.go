@@ -18,7 +18,7 @@ import (
 // 再逐 token 校验路径；命令替换、反引号、换行等真正能"藏"路径的写法仍然拒绝。
 
 // deniedConstructs 这些写法可以把路径藏进解析阶段，一律拒绝
-var deniedConstructs = []string{"`", "$(", "${", "\n", "\r", ">(", "<("}
+var deniedConstructs = []string{"`", "$", "\n", "\r", ">(", "<("}
 
 // splitSegments 按 shell 操作符切分命令，返回每一段的 token 列表。
 // 支持引号（' " 与反斜杠转义），不处理 heredoc。
@@ -188,6 +188,13 @@ func checkTokenPath(token string, roots []string, requirePath bool) error {
 	isPathLike := requirePath || strings.ContainsAny(token, "/") || token == "." || token == ".."
 	if !isPathLike {
 		return nil
+	}
+
+	// 含括号又像路径的 token，通常是内联代码（python -c 'open("/etc/passwd")'）：
+	// 静态检查看不出它运行时真正打开的路径，直接拒绝。
+	if strings.ContainsAny(token, "()") && strings.Contains(token, "/") {
+		return &WorkspaceBoundaryError{Message: fmt.Sprintf(
+			"命令中包含疑似内联代码的路径片段 %q，无法静态校验路径安全性%s", token, WorkspaceBoundaryNote)}
 	}
 
 	candidate := token

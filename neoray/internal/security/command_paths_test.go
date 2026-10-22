@@ -94,3 +94,42 @@ func TestAllowedPathBoundary(t *testing.T) {
 func mkdirAll(p string) error {
 	return os.MkdirAll(p, 0o755)
 }
+
+// TestCheckCommandPathsBlocksBypasses 这些写法试图"看起来在内、实际在外"，必须拦
+func TestCheckCommandPathsBlocksBypasses(t *testing.T) {
+	ws := t.TempDir()
+	extra := t.TempDir()
+
+	bypasses := []string{
+		`cat $HOME/.ssh/id_rsa`,   // 变量展开
+		`cat ${HOME}/.ssh/id_rsa`, // 花括号展开
+		`ls $(pwd)/../../..`,      // 命令替换
+		"cat `id`",                // 反引号
+		`python3 -c 'print(open("/etc/passwd").read())'`, // 内联代码读文件
+		`python3 -c 'import os;os.system("cat /etc/passwd")'`,
+		"echo hi > /tmp/outside.txt", // 重定向到界外
+	}
+	for _, cmd := range bypasses {
+		if err := CheckCommandPaths(cmd, ws, []string{extra}); err == nil {
+			t.Fatalf("应拦截 %q，实际放行", cmd)
+		}
+	}
+}
+
+// TestCheckCommandPathsStillAllowsNormal 正常命令不受影响
+func TestCheckCommandPathsStillAllowsNormal(t *testing.T) {
+	ws := t.TempDir()
+	extra := t.TempDir()
+
+	ok := []string{
+		`grep -E "a(b|c)" file.txt`, // 正则里的括号，不是路径
+		`git log --format="%h %s" | head -5`,
+		`go test ./... -run 'TestX'`,
+		`ls -la`,
+	}
+	for _, cmd := range ok {
+		if err := CheckCommandPaths(cmd, ws, []string{extra}); err != nil {
+			t.Fatalf("不应拦截 %q: %v", cmd, err)
+		}
+	}
+}
