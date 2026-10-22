@@ -1242,9 +1242,15 @@ func (al *AgentLoop) stateSave(ctx context.Context, turnCtx *TurnContext) (State
 		logger.Warn("Failed to save session", logger.ErrorField(err))
 	}
 
-	// 后台触发空闲会话压缩检查
+	// 后台触发空闲会话压缩检查。
+	// 必须用独立 context：这里传的是回合级 ctx，回合结束即取消，
+	// 后台归档必然失败（且会静默），而"会话被截断"却已经发生。
 	if al.memoryManager != nil {
-		go al.memoryManager.CheckExpiredSessions(ctx)
+		go func() {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			al.memoryManager.CheckExpiredSessions(bgCtx)
+		}()
 	}
 
 	return StateEventOK, nil

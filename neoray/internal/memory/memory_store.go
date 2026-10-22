@@ -243,7 +243,7 @@ func (ms *MemoryStore) ReadUnprocessedHistory(sinceCursor int) []HistoryEntry {
 	defer f.Close()
 
 	var result []HistoryEntry
-	scanner := bufio.NewScanner(f)
+	scanner := newHistoryScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.TrimSpace(line) == "" {
@@ -256,6 +256,10 @@ func (ms *MemoryStore) ReadUnprocessedHistory(sinceCursor int) []HistoryEntry {
 		if entry.Cursor > sinceCursor {
 			result = append(result, entry)
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		logger.Warn("Failed to scan history file while reading unprocessed entries",
+			logger.ErrorField(err))
 	}
 	return result
 }
@@ -271,12 +275,19 @@ func (ms *MemoryStore) CompactHistory() error {
 
 	// Check if compaction is needed by counting lines (cheap seek)
 	totalLines := ms.countHistoryLines()
+	if totalLines < 0 {
+		// 行数读取失败：跳过本次压缩，避免用不完整数据覆盖历史文件
+		return fmt.Errorf("skip compaction: failed to count history lines")
+	}
 	if totalLines <= ms.maxHistoryEntries {
 		return nil
 	}
 
 	// Only read the tail we want to keep
 	kept := ms.tailEntries(ms.maxHistoryEntries)
+	if len(kept) == 0 {
+		return fmt.Errorf("skip compaction: no entries read back")
+	}
 	return ms.writeEntries(kept)
 }
 
@@ -289,11 +300,16 @@ func (ms *MemoryStore) countHistoryLines() int {
 	defer f.Close()
 
 	count := 0
-	scanner := bufio.NewScanner(f)
+	scanner := newHistoryScanner(f)
 	for scanner.Scan() {
 		if strings.TrimSpace(scanner.Text()) != "" {
 			count++
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		// 行数不准确会让压缩判断失真，这里明确返回 -1 让调用方跳过压缩
+		logger.Warn("Failed to count history lines", logger.ErrorField(err))
+		return -1
 	}
 	return count
 }
@@ -377,7 +393,7 @@ func (ms *MemoryStore) tailEntries(maxEntries int) []HistoryEntry {
 	ring := make([]HistoryEntry, 0, maxEntries)
 	pos := 0
 
-	scanner := bufio.NewScanner(f)
+	scanner := newHistoryScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.TrimSpace(line) == "" {
@@ -393,6 +409,13 @@ func (ms *MemoryStore) tailEntries(maxEntries int) []HistoryEntry {
 			ring[pos] = entry
 			pos = (pos + 1) % maxEntries
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		// 读不全时不能返回部分结果：调用方（CompactHistory）会拿它重写整个文件，
+		// 那会把未读到的后半段永久删掉。
+		logger.Warn("Failed to scan history file, aborting read", logger.ErrorField(err))
+		return nil
 	}
 
 	// Rotate so oldest is first
@@ -720,4 +743,18 @@ func removeTag(s, start, end string) string {
 		s = s[:startIdx] + s[endIdx:]
 	}
 	return s
+}
+
+// historyLineMaxBytes 历史记录单行的最大字节数。
+// 单条历史上限 64000 字符（见 AppendHistory），JSON 转义后可能到 70KB+，
+// 因此不能沿用 bufio.Scanner 默认的 64KB token 上限。
+const historyLineMaxBytes = 4 << 20 // 4 MB
+
+// newHistoryScanner 创建容量足够的历史文件扫描器。
+// 之前用 bufio.Scanner 默认值：单行超过 64KB 就返回 ErrTooLong，
+// 而调用方从不检查 scanner.Err()，于是一行超限后整个文件"读到一半"就停了。
+func newHistoryScanner(f *os.File) *bufio.Scanner {
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), historyLineMaxBytes)
+	return scanner
 }

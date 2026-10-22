@@ -6,6 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"neoray/internal/logger"
 )
 
 const (
@@ -187,6 +189,11 @@ func (ac *AutoCompact) archiveSession(ctx context.Context, key string) {
 	// 使用 consolidator 压缩空闲会话
 	summary, err := ac.consolidator.CompactIdleSession(ctx, key, DefaultRecentSuffixMessages)
 	if err != nil {
+		// 以前这里静默 return：ctx 已取消时归档永远失败，但会话仍被截断，
+		// 用户看到的是"历史莫名变短、摘要却没有"。
+		logger.Warn("AutoCompact failed to archive session",
+			logger.String("session", key),
+			logger.ErrorField(err))
 		return
 	}
 

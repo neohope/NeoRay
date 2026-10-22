@@ -90,10 +90,10 @@
 | R8 ✅ 已修 | `PUT /api/config` 只替换 `api.Server` 的 cfg 指针；agent/tools/provider 各自持有旧指针，且没有重载方法 → 换 key、关工具全都不生效（返回 200） | `api/handlers.go:954` | 代码复核（`al.cfg` 只赋一次） |
 | R9 ✅ 已修 | OpenAI 请求体（完整对话 + 工具输出）在 **Info** 级明文入日志，未过 `Redact` | `provider/openai.go:260` | 代码复核 |
 | R10 ✅ 已修 | Anthropic prompt caching 永不启用：`req.CacheEnabled` 全仓库没有赋值，`config.PromptCacheEnabled` 只被读来展示 | `provider/anthropic.go:261`、`agent/loop.go` 构造 ChatRequest 处 | grep 确认无赋值 |
-| R11 | dream 永远不会修改记忆文件：phase2 提示词说能读写文件，但 `BuildDreamTools` 只被测试引用、`ChatRequest` 不带 tools；却仍推进 cursor 并压缩历史 → 这段对话既没进记忆也从上下文消失 | `memory/dream.go:284`、`manager.go:444` | 代码复核 |
-| R12 | autocompact 用**回合级 ctx** 起后台归档，回合结束即取消 → 归档必失败；`if err != nil { return }` 无日志，且 Archive 失败后仍截断+保存会话 | `memory/autocompact.go:188`、`agent/loop.go:1243` | 代码链路复核 |
-| R13 | `git show -- <rev>:<path>` 的 `--` 让 revision 变成 pathspec → **返回空内容且退出码 0**；`git rev-parse -- HEAD^` 输出 `--`/`HEAD^` 而非 SHA | `memory/git_store.go:379,363` | **实测**（临时仓库） |
-| R14 | 历史文件读用 `bufio.Scanner`（默认 64KB 单行上限）且**不检查 `Err()`**；64000 字符的条目编码后可达 72KB → 读到一半静默停止，`CompactHistory` 用不完整结果重写会删掉后半段 | `memory/memory_store.go:380` | **实测**（JSON 编码 72,070 字节） |
+| R11 ✅ 已修 | dream 永远不会修改记忆文件：phase2 提示词说能读写文件，但 `BuildDreamTools` 只被测试引用、`ChatRequest` 不带 tools；却仍推进 cursor 并压缩历史 → 这段对话既没进记忆也从上下文消失 | `memory/dream.go:284`、`manager.go:444` | 代码复核 |
+| R12 ✅ 已修 | autocompact 用**回合级 ctx** 起后台归档，回合结束即取消 → 归档必失败；`if err != nil { return }` 无日志，且 Archive 失败后仍截断+保存会话 | `memory/autocompact.go:188`、`agent/loop.go:1243` | 代码链路复核 |
+| R13 ✅ 已修 | `git show -- <rev>:<path>` 的 `--` 让 revision 变成 pathspec → **返回空内容且退出码 0**；`git rev-parse -- HEAD^` 输出 `--`/`HEAD^` 而非 SHA | `memory/git_store.go:379,363` | **实测**（临时仓库） |
+| R14 ✅ 已修 | 历史文件读用 `bufio.Scanner`（默认 64KB 单行上限）且**不检查 `Err()`**；64000 字符的条目编码后可达 72KB → 读到一半静默停止，`CompactHistory` 用不完整结果重写会删掉后半段 | `memory/memory_store.go:380` | **实测**（JSON 编码 72,070 字节） |
 | R15 | `find_files` 的 `head_limit` 默认值不可达：缺省字段就是 0，而 `== 0` 被解释成"不限制"，`defaultFileHeadLimit` 永远用不上 | `tools/search.go:154` | 代码复核 |
 
 ---

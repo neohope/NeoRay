@@ -184,7 +184,8 @@ func (gs *GitStore) DiffCommits(sha1, sha2 string) string {
 		return ""
 	}
 
-	output, _ := gs.runGitCommandOutput("diff", "--", sha1, sha2)
+	// 注意：git diff 的两个 ref 之间不能插 "--"，否则它们会被当成 pathspec
+	output, _ := gs.runGitCommandOutput("diff", sha1, sha2)
 	return output
 }
 
@@ -360,7 +361,7 @@ func (gs *GitStore) getShortSHA() (string, error) {
 }
 
 func (gs *GitStore) resolveSHA(shortSHA string) string {
-	output, err := gs.runGitCommandOutput("rev-parse", "--", shortSHA)
+	output, err := gs.runGitCommandOutput("rev-parse", shortSHA)
 	if err != nil {
 		return ""
 	}
@@ -368,7 +369,7 @@ func (gs *GitStore) resolveSHA(shortSHA string) string {
 }
 
 func (gs *GitStore) getParentSHA(sha string) (string, error) {
-	output, err := gs.runGitCommandOutput("rev-parse", "--", sha+"^")
+	output, err := gs.runGitCommandOutput("rev-parse", sha+"^")
 	if err != nil {
 		return "", err
 	}
@@ -376,9 +377,19 @@ func (gs *GitStore) getParentSHA(sha string) (string, error) {
 }
 
 func (gs *GitStore) restoreFileFromCommit(commitSHA, filePath string) error {
-	content, err := gs.runGitCommandOutput("show", "--", commitSHA+":"+filePath)
+	// 关键：revision:path 之前不能加 "--"，否则会被当成 pathspec，
+	// git show 会输出空内容且退出码 0 —— 直接把记忆文件清空。
+	content, err := gs.runGitCommandOutput("show", commitSHA+":"+filePath)
 	if err != nil {
 		return err
+	}
+
+	// 双保险：即便是合法的空文件，也先确认目标文件当前不是"有内容被清空"
+	if content == "" {
+		fullPath := filepath.Join(gs.workspace, filePath)
+		if existing, readErr := os.ReadFile(fullPath); readErr == nil && len(existing) > 0 {
+			return fmt.Errorf("refusing to restore %s: git returned empty content (would wipe %d bytes)", filePath, len(existing))
+		}
 	}
 
 	fullPath := filepath.Join(gs.workspace, filePath)

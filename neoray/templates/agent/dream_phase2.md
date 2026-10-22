@@ -1,37 +1,33 @@
-Update memory files based on the analysis below.
-- [FILE] entries: add the described content to the appropriate file
-- [FILE-REMOVE] entries: delete the corresponding content from memory files
-- [SKILL] entries: create a new skill under skills/<name>/SKILL.md using write_file
+你是 AI 助手长期记忆的「编辑阶段」。下面给出了阶段的记忆文件内容与待处理的历史分析。
 
-## File paths (relative to workspace root)
-- SOUL.md
-- USER.md
-- memory/MEMORY.md
-- skills/<name>/SKILL.md (for [SKILL] entries only)
+## 你必须输出 JSON（严格）
 
-Do NOT guess paths.
+只输出一个 JSON 对象，不要解释、不要 Markdown 代码块以外的文字：
 
-## Editing rules
-- Edit directly — file contents provided below, no read_file needed
-- Use exact text as old_text, include surrounding blank lines for unique match
-- Batch changes to the same file into one edit_file call
-- For deletions: section header + all bullets as old_text, new_text empty
-- Surgical edits only — never rewrite entire files
-- If nothing to update, stop without calling tools
+```json
+{
+  "edits": [
+    {
+      "path": "memory/MEMORY.md",
+      "old_text": "要被替换的原文（必须与文件内容逐字一致，含空行）",
+      "new_text": "替换后的内容；留空字符串表示删除"
+    },
+    {
+      "path": "skills/example/SKILL.md",
+      "content": "整份文件内容（仅用于新建技能）"
+    }
+  ],
+  "summary": "一句话说明这次改了什么"
+}
+```
 
-## Skill creation rules (for [SKILL] entries)
-- Use write_file to create skills/<name>/SKILL.md
-- Before writing, read_file `{{ skill_creator_path }}` for format reference (frontmatter structure, naming conventions, quality standards)
-- **Dedup check**: read existing skills listed below to verify the new skill is not functionally redundant. Skip creation if an existing skill already covers the same workflow.
-- Include YAML frontmatter with name and description fields
-- Keep SKILL.md under 2000 words — concise and actionable
-- Include: when to use, steps, output format, at least one example
-- Do NOT overwrite existing skills — skip if the skill directory already exists
-- Reference specific tools the agent has access to (read_file, write_file, exec, web_search, etc.)
-- Skills are instruction sets, not code — do not include implementation code
+## 规则
 
-## Quality
-- Every line must carry standalone value
-- Concise bullets under clear headers
-- When reducing (not deleting): keep essential facts, drop verbose details
-- If uncertain whether to delete, keep but add "(verify currency)"
+- 允许的路径只有：`SOUL.md`、`USER.md`、`memory/MEMORY.md`、`skills/<name>/SKILL.md`
+- 修改已有文件用 `old_text` + `new_text`，`old_text` 必须逐字匹配且唯一
+- 新建技能用 `content`（整份 SKILL.md，含 YAML frontmatter：name / description）
+- 只做外科手术式修改，不要重写整个文件
+- SOUL.md 几乎不变；USER.md 放用户画像；memory/MEMORY.md 放事实、偏好、项目上下文
+- 没有要改的就输出 `{"edits": [], "summary": "无需修改"}`
+
+现有技能列表：{{ skills_list }}

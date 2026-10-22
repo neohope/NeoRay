@@ -279,13 +279,32 @@ func (d *Dream) phase2Edit(ctx context.Context, prompt string) (bool, error) {
 		return false, err
 	}
 
-	// 简单检测是否有变更
-	lowerResp := strings.ToLower(response)
-	hasChanges := len(response) > 0 && (strings.Contains(lowerResp, "update") ||
-		strings.Contains(lowerResp, "write") ||
-		strings.Contains(lowerResp, "edit"))
+	plan, parseErr := parseDreamEditPlan(response)
+	if parseErr != nil {
+		// 模型没按契约输出：明确记录，且不要把"没改动"当成成功
+		logger.Warn("Dream phase2 output is not valid JSON, no edits applied",
+			logger.ErrorField(parseErr),
+			logger.Int("response_bytes", len(response)))
+		return false, nil
+	}
 
-	return hasChanges, nil
+	applied, applyErr := applyDreamEdits(d.store, plan)
+	if applyErr != nil {
+		logger.Warn("Failed to apply dream edits",
+			logger.Int("applied", applied),
+			logger.ErrorField(applyErr))
+		return applied > 0, applyErr
+	}
+
+	if applied > 0 {
+		logger.Info("Dream applied memory edits",
+			logger.Int("edits", applied),
+			logger.String("summary", plan.Summary))
+	} else {
+		logger.Debug("Dream had no edits to apply", logger.String("summary", plan.Summary))
+	}
+
+	return applied > 0, nil
 }
 
 func renderDreamPhase1Prompt() string {

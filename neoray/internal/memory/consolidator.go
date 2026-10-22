@@ -333,7 +333,9 @@ func (c *Consolidator) CompactIdleSession(ctx context.Context, sessionKey string
 	if len(archiveMsgs) > 0 {
 		summary, err = c.Archive(ctx, archiveMsgs)
 		if err != nil {
-			summary = ""
+			// 归档失败时绝不能继续截断会话：那样用户的历史既没进记忆，
+			// 也从上下文里消失了（之前正是这么做的，且静默）。
+			return "", fmt.Errorf("archive failed, keeping session intact: %w", err)
 		}
 	}
 
