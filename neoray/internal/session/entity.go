@@ -220,17 +220,85 @@ func (s *Session) DeepCopy() *Session {
 		// mu 留零值，不复制原始 mutex
 	}
 
+	// 注意：只 copy slice 头是浅拷贝 —— Message 里的 ToolCalls / ToolResults /
+	// Metadata 仍与会话内部共享。FileStore.Get/Save 依赖 DeepCopy 做并发隔离，
+	// 任何一方修改嵌套 map 都会触发 concurrent map read/write（进程 panic）。
 	cp.Messages = make([]Message, len(s.Messages))
-	copy(cp.Messages, s.Messages)
+	for i, msg := range s.Messages {
+		cp.Messages[i] = copyMessage(msg)
+	}
 
 	if s.Metadata != nil {
-		cp.Metadata = make(map[string]any, len(s.Metadata))
-		for k, v := range s.Metadata {
-			cp.Metadata[k] = v
-		}
+		cp.Metadata = deepCopyValue(s.Metadata, 0).(map[string]any)
 	}
 
 	return cp
+}
+
+// copyMessage 复制单条消息，包含嵌套的 slice / map
+func copyMessage(msg Message) Message {
+	out := msg
+	if msg.ToolCalls != nil {
+		out.ToolCalls = make([]ToolCall, len(msg.ToolCalls))
+		copy(out.ToolCalls, msg.ToolCalls)
+	}
+	if msg.ToolResults != nil {
+		out.ToolResults = make([]ToolResult, len(msg.ToolResults))
+		copy(out.ToolResults, msg.ToolResults)
+	}
+	if msg.Metadata != nil {
+		out.Metadata = deepCopyValue(msg.Metadata, 0).(map[string]any)
+	}
+	return out
+}
+
+// maxDeepCopyDepth 防止异常数据结构（自引用）导致无限递归
+const maxDeepCopyDepth = 16
+
+// deepCopyValue 递归复制 map[string]any / []any / []string 等常见容器。
+// 标量（string/number/bool/time.Time 等）按值复制即可。
+func deepCopyValue(v any, depth int) any {
+	if depth > maxDeepCopyDepth {
+		return v
+	}
+	switch val := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(val))
+		for k, item := range val {
+			out[k] = deepCopyValue(item, depth+1)
+		}
+		return out
+	case map[string]string:
+		out := make(map[string]string, len(val))
+		for k, item := range val {
+			out[k] = item
+		}
+		return out
+	case []any:
+		out := make([]any, len(val))
+		for i, item := range val {
+			out[i] = deepCopyValue(item, depth+1)
+		}
+		return out
+	case []string:
+		out := make([]string, len(val))
+		copy(out, val)
+		return out
+	case []int:
+		out := make([]int, len(val))
+		copy(out, val)
+		return out
+	case []float64:
+		out := make([]float64, len(val))
+		copy(out, val)
+		return out
+	case []bool:
+		out := make([]bool, len(val))
+		copy(out, val)
+		return out
+	default:
+		return v
+	}
 }
 
 // generateID 生成唯一 ID

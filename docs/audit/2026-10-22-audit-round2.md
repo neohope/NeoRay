@@ -50,7 +50,7 @@
   每个任务完成后立即落盘；`Stop()` 等待上限 30s（可覆盖）并记录仍在跑的任务。
   顺带修掉 `-race` 暴露的 **logger 懒初始化竞态**（`Logger()/Sugar()` 无锁写全局）。
 
-#### N3. `Session.DeepCopy()` 是浅拷贝，嵌套引用被共享
+#### N3. `Session.DeepCopy()` 是浅拷贝，嵌套引用被共享 ✅ 已修（2026-10-22）
 
 - 位置：`internal/session/entity.go:209`（`copy(cp.Messages, s.Messages)` 在 224 行）
 - 说法：`cp.Messages = make(...); copy(...)` 只复制了 slice 头，
@@ -59,6 +59,11 @@
   都可能触发 `concurrent map read and map write`（Go 会直接 panic，无法 recover 到一致状态）。
   目前未复现，属**潜在**竞态，但代价是进程崩溃。
 - 修复要点：对 Messages 逐条复制嵌套字段（map/slice），或改为只存不可变快照。
+- **已实现**：逐条 `copyMessage`（ToolCalls / ToolResults / Metadata），
+  `deepCopyValue` 递归复制 map[string]any / []any / []string 等常见容器，
+  并设 16 层深度上限防止自引用无限递归；Session.Metadata 同样递归复制。
+  实测：修改拷贝的 6 类嵌套结构后，原会话全部保持不变；
+  20 goroutine 并发「拷贝 + 改嵌套 + 追加消息」在 -race 下无告警。
 
 ### P2｜行为与直觉不符
 
