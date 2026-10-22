@@ -18,10 +18,36 @@ type FileStore struct {
 	mu       sync.RWMutex
 	baseDir  string
 	sessions map[string]*Session
+	// maxMessagesPerSession 单个会话保留的最大消息数（0 = 不限制）。
+	// 之前只有内存存储实现了裁剪，默认的文件存储无限增长：
+	// 用久了会话文件越来越大，每次对话都要整份加载。
+	maxMessagesPerSession int
+}
+
+// FileStoreOption 文件存储选项
+type FileStoreOption func(*FileStore)
+
+// WithFileStoreMaxMessages 设置单会话最大消息数
+func WithFileStoreMaxMessages(n int) FileStoreOption {
+	return func(s *FileStore) {
+		if n > 0 {
+			s.maxMessagesPerSession = n
+		}
+	}
+}
+
+// trimMessages 保留最新 max 条消息；max<=0 时不裁剪
+func trimMessages(messages []Message, max int) []Message {
+	if max <= 0 || len(messages) <= max {
+		return messages
+	}
+	out := make([]Message, max)
+	copy(out, messages[len(messages)-max:])
+	return out
 }
 
 // NewFileStore 创建文件存储
-func NewFileStore(baseDir string) (*FileStore, error) {
+func NewFileStore(baseDir string, opts ...FileStoreOption) (*FileStore, error) {
 	// 确保目录存在
 	if err := os.MkdirAll(baseDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create session directory: %w", err)
@@ -30,6 +56,9 @@ func NewFileStore(baseDir string) (*FileStore, error) {
 	store := &FileStore{
 		baseDir:  baseDir,
 		sessions: make(map[string]*Session),
+	}
+	for _, opt := range opts {
+		opt(store)
 	}
 
 	// 加载现有会话
@@ -96,6 +125,9 @@ func (s *FileStore) Save(sess *Session) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// 裁剪过多的历史消息，避免会话文件无限增长
+	cp.Messages = trimMessages(cp.Messages, s.maxMessagesPerSession)
 
 	// 更新内存中的会话（深拷贝，外部修改不影响存储）
 	s.sessions[cp.ID] = cp

@@ -223,19 +223,17 @@ type ChannelsConfig struct {
 
 // FeishuChannelConfig 飞书频道配置
 type FeishuChannelConfig struct {
-	Enabled           bool   `mapstructure:"enabled"`
-	AppID             string `mapstructure:"app_id"`
-	AppSecret         string `mapstructure:"app_secret"`
-	VerificationToken string `mapstructure:"verification_token"`
-	EncryptKey        string `mapstructure:"encrypt_key"`
-	Domain            string `mapstructure:"domain"`           // "feishu" 或 "lark"
-	GroupPolicy       string `mapstructure:"group_policy"`     // "mention" 或 "open"
-	ReplyToMessage    bool   `mapstructure:"reply_to_message"` // 是否引用原消息回复
-	TopicIsolation    bool   `mapstructure:"topic_isolation"`  // 是否话题隔离
-	ReactEmoji        string `mapstructure:"react_emoji"`      // 处理中的表情，默认 "THINKING"
-	DoneEmoji         string `mapstructure:"done_emoji"`       // 完成时的表情
-	ToolHintPrefix    string `mapstructure:"tool_hint_prefix"` // 工具提示前缀，默认 "🔧"
-	Streaming         bool   `mapstructure:"streaming"`        // 是否启用流式响应
+	Enabled        bool   `mapstructure:"enabled"`
+	AppID          string `mapstructure:"app_id"`
+	AppSecret      string `mapstructure:"app_secret"`
+	Domain         string `mapstructure:"domain"`           // "feishu" 或 "lark"
+	GroupPolicy    string `mapstructure:"group_policy"`     // "mention" 或 "open"
+	ReplyToMessage bool   `mapstructure:"reply_to_message"` // 是否引用原消息回复
+	TopicIsolation bool   `mapstructure:"topic_isolation"`  // 是否话题隔离
+	ReactEmoji     string `mapstructure:"react_emoji"`      // 处理中的表情，默认 "THINKING"
+	DoneEmoji      string `mapstructure:"done_emoji"`       // 完成时的表情
+	ToolHintPrefix string `mapstructure:"tool_hint_prefix"` // 工具提示前缀，默认 "🔧"
+	Streaming      bool   `mapstructure:"streaming"`        // 是否启用流式响应
 }
 
 // SecurityConfig 安全配置

@@ -1885,6 +1885,26 @@ func (al *AgentLoop) refreshProviderSnapshot(ctx context.Context) context.Contex
 	return context.WithValue(ctx, providerSnapshotKey{}, snapshot)
 }
 
+// llmCallError 把 provider 返回的错误信息带进 error，便于日志与用户侧排查。
+// 之前只保留 "api error: 401 Unauthorized"，provider 给出的具体原因（如
+// "invalid api key"/"insufficient_quota"）全部丢失。
+func llmCallError(resp *provider.ChatResponse, err error) error {
+	if resp == nil {
+		return err
+	}
+	detail := strings.TrimSpace(resp.Content)
+	if detail == "" {
+		detail = resp.ErrorType
+	}
+	if detail == "" {
+		return err
+	}
+	if resp.ErrorStatusCode > 0 {
+		return fmt.Errorf("%w (status=%d, %s)", err, resp.ErrorStatusCode, detail)
+	}
+	return fmt.Errorf("%w (%s)", err, detail)
+}
+
 // callLLMWithRetry 带重试的 LLM 调用
 func (al *AgentLoop) callLLMWithRetry(
 	ctx context.Context,
@@ -1925,8 +1945,23 @@ func (al *AgentLoop) callLLMWithRetry(
 		}
 		lastErr = err
 
+		// 区分「重试有意义」和「重试也没用」的错误。
+		// 之前不分类型一律重试 3 次：401/403/400/欠费这类错误会白白多打两次、
+		// 多等 3 秒，还会把真正的错误原因淹没在重试日志里。
+		if resp != nil && provider.ShouldFallbackError(resp) == false && resp.ErrorStatusCode > 0 {
+			logger.Warn("LLM call failed with non-retryable error, not retrying",
+				logger.Int("status", resp.ErrorStatusCode),
+				logger.String("type", resp.ErrorType))
+			return nil, llmCallError(resp, err)
+		}
+
 		if attempt < maxRetries-1 {
 			delay := baseDelay * time.Duration(1<<attempt)
+			// 剩余时间不够时不要空等，直接失败让上层尽快反馈
+			if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= delay {
+				logger.Warn("Not enough time left for retry, giving up", logger.Duration("delay", delay))
+				return nil, llmCallError(resp, err)
+			}
 			logger.Debug("Waiting before retry", logger.Duration("delay", delay))
 			select {
 			case <-time.After(delay):
@@ -1936,7 +1971,7 @@ func (al *AgentLoop) callLLMWithRetry(
 		}
 	}
 
-	return nil, fmt.Errorf("LLM call failed after %d attempts: %w", maxRetries, lastErr)
+	return nil, llmCallError(nil, fmt.Errorf("LLM call failed after %d attempts: %w", maxRetries, lastErr))
 }
 
 // executeToolCallsLocked 执行工具调用（带并发限制和 panic 恢复）。

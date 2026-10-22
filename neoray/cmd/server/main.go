@@ -275,6 +275,12 @@ func main() {
 	var sessionStore session.Store
 	storageType := cfg.Session.Storage.Type
 
+	// 文件存储同样需要按配置裁剪历史消息（此前只有内存存储实现了裁剪）
+	fileOpts := []session.FileStoreOption{}
+	if cfg.Session.Storage.MaxMessagesPerSession > 0 {
+		fileOpts = append(fileOpts, session.WithFileStoreMaxMessages(cfg.Session.Storage.MaxMessagesPerSession))
+	}
+
 	switch storageType {
 	case "memory":
 		var memOpts []session.MemoryStoreOption
@@ -287,7 +293,7 @@ func main() {
 		sessionStore = session.NewMemoryStore(memOpts...)
 		logger.Info("Using memory session store")
 	case "file", "":
-		fileStore, fileErr := session.NewFileStore(sessionDir)
+		fileStore, fileErr := session.NewFileStore(sessionDir, fileOpts...)
 		if fileErr != nil {
 			logger.Warn("Failed to create file store, falling back to memory store", logger.ErrorField(fileErr))
 			sessionStore = session.NewMemoryStore()
@@ -296,7 +302,7 @@ func main() {
 		}
 	default:
 		logger.Warn("Unknown session storage type, using file store", logger.String("type", storageType))
-		fileStore, fileErr := session.NewFileStore(sessionDir)
+		fileStore, fileErr := session.NewFileStore(sessionDir, fileOpts...)
 		if fileErr != nil {
 			logger.Warn("Failed to create file store, falling back to memory store", logger.ErrorField(fileErr))
 			sessionStore = session.NewMemoryStore()
@@ -493,19 +499,17 @@ func main() {
 	fmt.Printf("  AppSecret present: %v\n", cfg.Channels.Feishu.AppSecret != "")
 
 	feishuConfig := &channel.FeishuConfig{
-		AppID:             cfg.Channels.Feishu.AppID,
-		AppSecret:         cfg.Channels.Feishu.AppSecret,
-		Enabled:           cfg.Channels.Feishu.Enabled,
-		VerificationToken: cfg.Channels.Feishu.VerificationToken,
-		EncryptKey:        cfg.Channels.Feishu.EncryptKey,
-		Domain:            cfg.Channels.Feishu.Domain,
-		GroupPolicy:       cfg.Channels.Feishu.GroupPolicy,
-		ReplyToMessage:    cfg.Channels.Feishu.ReplyToMessage,
-		TopicIsolation:    cfg.Channels.Feishu.TopicIsolation,
-		ReactEmoji:        cfg.Channels.Feishu.ReactEmoji,
-		DoneEmoji:         cfg.Channels.Feishu.DoneEmoji,
-		ToolHintPrefix:    cfg.Channels.Feishu.ToolHintPrefix,
-		Streaming:         cfg.Channels.Feishu.Streaming,
+		AppID:          cfg.Channels.Feishu.AppID,
+		AppSecret:      cfg.Channels.Feishu.AppSecret,
+		Enabled:        cfg.Channels.Feishu.Enabled,
+		Domain:         cfg.Channels.Feishu.Domain,
+		GroupPolicy:    cfg.Channels.Feishu.GroupPolicy,
+		ReplyToMessage: cfg.Channels.Feishu.ReplyToMessage,
+		TopicIsolation: cfg.Channels.Feishu.TopicIsolation,
+		ReactEmoji:     cfg.Channels.Feishu.ReactEmoji,
+		DoneEmoji:      cfg.Channels.Feishu.DoneEmoji,
+		ToolHintPrefix: cfg.Channels.Feishu.ToolHintPrefix,
+		Streaming:      cfg.Channels.Feishu.Streaming,
 	}
 	channelMgr.RegisterChannel(channel.NewFeishuChannel(feishuConfig, cfg, aiAgent, sessionMgr))
 

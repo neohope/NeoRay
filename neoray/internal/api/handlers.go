@@ -105,7 +105,7 @@ func (c *Client) handleChat(payload interface{}) {
 	})
 
 	// 调用 Agent 处理（带超时）
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), c.Server.effectiveChatTimeout())
 	defer cancel()
 
 	result, err := c.Server.agent.Chat(ctx, sess, chatPayload.Message)
@@ -148,7 +148,7 @@ func (c *Client) handleChatStream(payload interface{}) {
 	})
 
 	// 调用 Agent 流式处理（带超时）
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), c.Server.effectiveChatTimeout())
 	defer cancel()
 
 	streamChan, err := c.Server.agent.ChatStream(ctx, sess, chatPayload.Message)
@@ -526,7 +526,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// 使用请求 context 以便检测客户端断开连接
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+		ctx, cancel := context.WithTimeout(r.Context(), s.effectiveChatTimeout())
 		defer cancel()
 
 		if req.Stream {

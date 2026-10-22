@@ -337,6 +337,19 @@ func (s *Server) Start() error {
 // effectiveWSMessageTimeout 返回单条 WebSocket 消息的生效处理超时。
 // 优先取配置值；未配置或非法时回退到默认 10 分钟。
 // 抽取为方法是为了便于启动日志与 readPump 共用同一来源，避免两处不一致。
+// effectiveChatTimeout 单次对话处理的超时。
+//
+// 之前 Web UI 的三条路径各自写死 5 分钟：比 agent 自身 10 分钟的上限更短，
+// 长任务在 Web UI 会被提前取消，而飞书侧却能跑完。现在统一读
+// agent.message_timeout（0 时沿用 agent 默认 10 分钟）。
+func (s *Server) effectiveChatTimeout() time.Duration {
+	const fallback = 10 * time.Minute
+	if cfg := s.getConfig(); cfg != nil && cfg.Agent.MessageTimeout > 0 {
+		return cfg.Agent.MessageTimeout
+	}
+	return fallback
+}
+
 // effectiveWSWriteTimeout 单条 WS 消息写超时（默认 10s）
 func (s *Server) effectiveWSWriteTimeout() time.Duration {
 	const defaultTimeout = 10 * time.Second
