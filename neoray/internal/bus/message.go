@@ -4,7 +4,11 @@ import (
 	"context"
 	crypto_rand "crypto/rand"
 	"encoding/hex"
+	"fmt"
+	"sync/atomic"
 	"time"
+
+	"neoray/internal/logger"
 )
 
 // MessageType 定义消息类型
@@ -97,30 +101,30 @@ type OutboundMessage struct {
 // NewInboundMessage 创建入站消息
 func NewInboundMessage(channelID, chatID, userID, content string) *InboundMessage {
 	return &InboundMessage{
-		ID:         generateID(),
-		Type:       MessageTypeUser,
-		ChannelID:  channelID,
-		ChatID:     chatID,
-		UserID:     userID,
-		Content:    content,
-		Media:      []string{},
-		Metadata:   make(map[string]interface{}),
-		Timestamp:  time.Now(),
-		Context:    context.Background(),
+		ID:        generateID(),
+		Type:      MessageTypeUser,
+		ChannelID: channelID,
+		ChatID:    chatID,
+		UserID:    userID,
+		Content:   content,
+		Media:     []string{},
+		Metadata:  make(map[string]interface{}),
+		Timestamp: time.Now(),
+		Context:   context.Background(),
 	}
 }
 
 // NewOutboundMessage 创建出站消息
 func NewOutboundMessage(channelID, chatID, content string) *OutboundMessage {
 	return &OutboundMessage{
-		ID:         generateID(),
-		Type:       MessageTypeAssistant,
-		ChannelID:  channelID,
-		ChatID:     chatID,
-		Content:    content,
-		Media:      []string{},
-		Metadata:   make(map[string]interface{}),
-		Timestamp:  time.Now(),
+		ID:        generateID(),
+		Type:      MessageTypeAssistant,
+		ChannelID: channelID,
+		ChatID:    chatID,
+		Content:   content,
+		Media:     []string{},
+		Metadata:  make(map[string]interface{}),
+		Timestamp: time.Now(),
 	}
 }
 
@@ -166,10 +170,21 @@ func (m *OutboundMessage) WithMedia(media []string) *OutboundMessage {
 	return m
 }
 
-// generateID 生成唯一消息 ID（纯随机，128 位熵，与 session 包一致）
+// idFallbackSeq 熵源异常时的兜底序号
+var idFallbackSeq uint32
+
+// generateID 生成唯一消息 ID（纯随机，128 位熵，与 session 包一致）。
+//
+// 以前忽略 crypto/rand 的错误：熵源异常时会静默生成全零 ID，
+// 多条消息撞 ID 会导致去重/路由串线且毫无线索。
+// 现在失败即告警，并退化为「纳秒时间戳 + 自增序号」，至少保持唯一性。
 func generateID() string {
 	b := make([]byte, 16)
-	_, _ = crypto_rand.Read(b)
+	if _, err := crypto_rand.Read(b); err != nil {
+		logger.Error("crypto/rand failed, falling back to time-based message ID",
+			logger.ErrorField(err))
+		return fmt.Sprintf("%016x%08x", time.Now().UnixNano(), atomic.AddUint32(&idFallbackSeq, 1))
+	}
 	return hex.EncodeToString(b)
 }
 

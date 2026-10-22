@@ -9,14 +9,15 @@ import (
 	"strings"
 	"time"
 
+	"neoray/internal/logger"
 	"neoray/internal/templates"
 )
 
 const (
-	StaleThresholdDays = 14
-	MemoryFileMaxChars = 32000
-	SoulFileMaxChars   = 16000
-	UserFileMaxChars   = 16000
+	StaleThresholdDays          = 14
+	MemoryFileMaxChars          = 32000
+	SoulFileMaxChars            = 16000
+	UserFileMaxChars            = 16000
 	HistoryEntryPreviewMaxChars = 4000
 	DefaultDreamMaxBatchSize    = 20
 	DefaultDreamMaxIterations   = 10
@@ -24,13 +25,13 @@ const (
 
 // Dream 两阶段记忆处理器
 type Dream struct {
-	store            *MemoryStore
-	provider         DreamProvider
-	model            string
-	maxBatchSize     int
-	maxIterations    int
+	store              *MemoryStore
+	provider           DreamProvider
+	model              string
+	maxBatchSize       int
+	maxIterations      int
 	maxToolResultChars int
-	annotateLineAges bool
+	annotateLineAges   bool
 }
 
 // DreamProvider Dream 需要的 LLM 提供商接口
@@ -72,13 +73,13 @@ func WithDreamAnnotateLineAges(annotate bool) DreamOption {
 // NewDream 创建 Dream
 func NewDream(store *MemoryStore, provider DreamProvider, model string, opts ...DreamOption) *Dream {
 	d := &Dream{
-		store:            store,
-		provider:         provider,
-		model:            model,
-		maxBatchSize:     DefaultDreamMaxBatchSize,
-		maxIterations:    DefaultDreamMaxIterations,
+		store:              store,
+		provider:           provider,
+		model:              model,
+		maxBatchSize:       DefaultDreamMaxBatchSize,
+		maxIterations:      DefaultDreamMaxIterations,
 		maxToolResultChars: 16000,
-		annotateLineAges: true,
+		annotateLineAges:   true,
 	}
 
 	for _, opt := range opts {
@@ -171,8 +172,10 @@ func (d *Dream) Run(ctx context.Context) (bool, error) {
 		}
 	}
 
-	// 压缩历史
-	_ = d.store.CompactHistory()
+	// 压缩历史；失败会让历史文件持续膨胀并拖慢后续 dream
+	if err := d.store.CompactHistory(); err != nil {
+		logger.Warn("Failed to compact history after dream", logger.ErrorField(err))
+	}
 
 	// Git 自动提交
 	if changes && d.store.git.IsInitialized() {
@@ -341,32 +344,46 @@ func validateDreamPath(workspace, path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("path required")
 	}
-	// Clean the path to resolve any .. components
 	cleaned := filepath.Clean(path)
-	// If relative, join with workspace; if absolute, use as-is
 	var absPath string
 	if filepath.IsAbs(cleaned) {
 		absPath = cleaned
 	} else {
 		absPath = filepath.Join(workspace, cleaned)
 	}
-	// Resolve symlinks to prevent symlink-based escape
-	resolved, err := filepath.EvalSymlinks(absPath)
-	if err != nil {
-		// If file doesn't exist yet, resolve the parent directory
-		parent := filepath.Dir(absPath)
-		resolvedParent, perr := filepath.EvalSymlinks(parent)
-		if perr != nil {
-			return "", fmt.Errorf("cannot resolve path: %w", err)
+
+	// 解析软链：目标可能还不存在（新建 skills 子目录），
+	// 此时向上找到最近一个存在的祖先目录做 EvalSymlinks，再把剩余部分接回去。
+	// 旧实现只试了「自己」和「父目录」，于是 skills/新技能/SKILL.md 直接报
+	// "cannot resolve path"，dream 根本没法创建新技能目录。
+	resolved := absPath
+	existing := absPath
+	var tail []string
+	for {
+		if _, err := os.Lstat(existing); err == nil {
+			resolvedExisting, err := filepath.EvalSymlinks(existing)
+			if err != nil {
+				return "", fmt.Errorf("cannot resolve path: %w", err)
+			}
+			resolved = resolvedExisting
+			for i := len(tail) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, tail[i])
+			}
+			break
 		}
-		resolved = filepath.Join(resolvedParent, filepath.Base(absPath))
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return "", fmt.Errorf("cannot resolve path: %s", path)
+		}
+		tail = append(tail, filepath.Base(existing))
+		existing = parent
 	}
-	// Ensure workspace is also resolved for comparison
+
 	resolvedWorkspace, err := filepath.EvalSymlinks(workspace)
 	if err != nil {
 		return "", fmt.Errorf("cannot resolve workspace: %w", err)
 	}
-	// Check containment
+
 	rel, err := filepath.Rel(resolvedWorkspace, resolved)
 	if err != nil || strings.HasPrefix(rel, "..") {
 		return "", fmt.Errorf("path %q is outside workspace", path)
@@ -403,17 +420,25 @@ func BuildDreamTools(store *MemoryStore) []DreamTool {
 				if err != nil {
 					return "", err
 				}
-				// Ensure the resolved path is within the skills directory
+				// Ensure the resolved path is within the skills directory.
+				// skills 目录可能还不存在（第一次创建技能），此时不能直接 EvalSymlinks，
+				// 否则会报 "cannot resolve skills directory" —— 永远建不出第一个技能。
 				skillsDir := filepath.Join(store.workspace, "skills")
 				resolvedSkills, serr := filepath.EvalSymlinks(skillsDir)
 				if serr != nil {
-					return "", fmt.Errorf("cannot resolve skills directory: %w", serr)
+					resolvedWorkspace, werr := filepath.EvalSymlinks(store.workspace)
+					if werr != nil {
+						return "", fmt.Errorf("cannot resolve workspace: %w", werr)
+					}
+					resolvedSkills = filepath.Join(resolvedWorkspace, "skills")
 				}
 				rel, err := filepath.Rel(resolvedSkills, fullPath)
 				if err != nil || strings.HasPrefix(rel, "..") {
 					return "", fmt.Errorf("can only write to skills directory")
 				}
-				_ = os.MkdirAll(filepath.Dir(fullPath), 0755)
+				if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+					return "", fmt.Errorf("create skills directory: %w", err)
+				}
 				if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
 					return "", err
 				}

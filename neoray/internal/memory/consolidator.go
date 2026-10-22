@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	MaxConsolidationRounds = 5
-	SafetyBufferTokens     = 1024
+	MaxConsolidationRounds    = 5
+	SafetyBufferTokens        = 1024
 	DefaultConsolidationRatio = 0.5
 )
 
@@ -184,8 +184,13 @@ func (c *Consolidator) Archive(ctx context.Context, messages []interface{}) (str
 	// 使用 LLM 摘要
 	summary, err := c.summarizeWithLLM(ctx, formatted)
 	if err != nil {
-		// LLM 失败，原始归档
-		_ = c.store.RawArchive(messages)
+		// LLM 失败时退回原始归档；归档本身也可能失败（磁盘满/权限），
+		// 这种情况必须留痕，否则这批对话就彻底消失了
+		if archiveErr := c.store.RawArchive(messages); archiveErr != nil {
+			logger.Error("Failed to archive messages after summarization failure — history may be lost",
+				logger.ErrorField(archiveErr),
+				logger.Int("messages", len(messages)))
+		}
 		return "", err
 	}
 

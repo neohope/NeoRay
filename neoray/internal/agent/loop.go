@@ -521,7 +521,13 @@ func (al *AgentLoop) handleInboundMessage(ctx context.Context, msg *bus.InboundM
 				select {
 				case leftoverMsg := <-pendingQueue:
 					if al.msgBus != nil {
-						_ = al.msgBus.PublishInbound(leftoverMsg)
+						// 重投递失败会让这条消息彻底丢失，必须留痕
+						if err := al.msgBus.PublishInbound(leftoverMsg); err != nil {
+							logger.Error("Failed to requeue pending message — it will be lost",
+								logger.ErrorField(err),
+								logger.String("session_key", sessionKey),
+								logger.String("message_id", leftoverMsg.ID))
+						}
 					}
 				default:
 					return
