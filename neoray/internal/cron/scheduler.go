@@ -22,6 +22,9 @@ const (
 	storeVersion  = 1
 )
 
+// stopTimeout Stop() 等待在跑任务的上限（变量形式便于测试缩短）
+var stopTimeout = 30 * time.Second
+
 // JobHandler 任务执行回调函数类型
 type JobHandler func(ctx context.Context, job *CronJob) error
 
@@ -40,19 +43,22 @@ type CronScheduler struct {
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
 	maxSleepMS  int64
+	// runningJobs 记录正在执行的任务，防止同一任务重入
+	runningJobs map[string]bool
 }
 
 // NewCronScheduler 创建调度器
 func NewCronScheduler(storePath string, onJob JobHandler) *CronScheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &CronScheduler{
-		storePath:  storePath,
-		actionPath: filepath.Join(filepath.Dir(storePath), "action.jsonl"),
-		lockPath:   filepath.Join(filepath.Dir(storePath), "cron.lock"),
-		onJob:      onJob,
-		ctx:        ctx,
-		cancel:     cancel,
-		maxSleepMS: maxSleepMS,
+		storePath:   storePath,
+		actionPath:  filepath.Join(filepath.Dir(storePath), "action.jsonl"),
+		lockPath:    filepath.Join(filepath.Dir(storePath), "cron.lock"),
+		onJob:       onJob,
+		runningJobs: make(map[string]bool),
+		ctx:         ctx,
+		cancel:      cancel,
+		maxSleepMS:  maxSleepMS,
 	}
 }
 
@@ -63,13 +69,14 @@ func NewCronSchedulerWithConfig(storePath string, onJob JobHandler, maxSleepDura
 		maxSleepDuration = maxSleepMS
 	}
 	return &CronScheduler{
-		storePath:  storePath,
-		actionPath: filepath.Join(filepath.Dir(storePath), "action.jsonl"),
-		lockPath:   filepath.Join(filepath.Dir(storePath), "cron.lock"),
-		onJob:      onJob,
-		ctx:        ctx,
-		cancel:     cancel,
-		maxSleepMS: maxSleepDuration,
+		storePath:   storePath,
+		actionPath:  filepath.Join(filepath.Dir(storePath), "action.jsonl"),
+		lockPath:    filepath.Join(filepath.Dir(storePath), "cron.lock"),
+		onJob:       onJob,
+		runningJobs: make(map[string]bool),
+		ctx:         ctx,
+		cancel:      cancel,
+		maxSleepMS:  maxSleepDuration,
 	}
 }
 
@@ -179,8 +186,23 @@ func (cs *CronScheduler) Stop() {
 	}
 	cs.mu.Unlock()
 
-	cs.wg.Wait()
-	logger.Info("Cron scheduler stopped")
+	// 长任务（dream / agent turn）可能还在跑：给一个上限，
+	// 避免 Stop 无限阻塞（此前 wg.Wait 会一直等到任务结束）。
+	done := make(chan struct{})
+	go func() {
+		cs.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		logger.Info("Cron scheduler stopped")
+	case <-time.After(stopTimeout):
+		cs.mu.RLock()
+		stillRunning := len(cs.runningJobs)
+		cs.mu.RUnlock()
+		logger.Warn("Cron scheduler stop timed out, jobs still running",
+			logger.Int("running_jobs", stillRunning))
+	}
 }
 
 // runLoop 主循环
@@ -251,10 +273,15 @@ func (cs *CronScheduler) computeDelay() time.Duration {
 
 // onTimer 定时器触发处理
 func (cs *CronScheduler) onTimer() {
-	// 重新加载任务（合并外部操作）
-	if err := cs.loadStore(); err != nil {
-		logger.Warn("Failed to reload cron store", logger.ErrorField(err))
-		return
+	// 有任务在跑时不要重新加载 store：否则会把正在更新的状态覆盖掉
+	cs.mu.RLock()
+	busy := len(cs.runningJobs) > 0
+	cs.mu.RUnlock()
+	if !busy {
+		if err := cs.loadStore(); err != nil {
+			logger.Warn("Failed to reload cron store", logger.ErrorField(err))
+			return
+		}
 	}
 
 	cs.mu.Lock()
@@ -264,38 +291,74 @@ func (cs *CronScheduler) onTimer() {
 	}
 
 	now := nowMS()
-	var dueJobs []*CronJob
+	dueJobIDs := make([]string, 0, len(cs.store.Jobs))
 	for i := range cs.store.Jobs {
 		job := &cs.store.Jobs[i]
 		if job.Enabled && job.State.NextRunAtMS > 0 && now >= job.State.NextRunAtMS {
-			dueJobs = append(dueJobs, job)
+			dueJobIDs = append(dueJobIDs, job.ID)
 		}
 	}
 	cs.timerActive = true
 	cs.mu.Unlock()
 
-	// 执行到期任务
-	for _, job := range dueJobs {
-		cs.executeJob(job)
+	// 每个到期任务独立执行：此前是串行 for 循环，一个长任务
+	// （dream / agent turn，可能数分钟）会阻塞所有其它定时任务。
+	for _, jobID := range dueJobIDs {
+		cs.mu.Lock()
+		if cs.runningJobs[jobID] {
+			// 同一任务上一次还没跑完，跳过本次（不叠加执行）
+			cs.mu.Unlock()
+			logger.Warn("Cron job still running, skipping this occurrence", logger.String("id", jobID))
+			continue
+		}
+		cs.runningJobs[jobID] = true
+		cs.mu.Unlock()
+
+		cs.wg.Add(1)
+		go func(id string) {
+			defer cs.wg.Done()
+			defer func() {
+				cs.mu.Lock()
+				delete(cs.runningJobs, id)
+				cs.mu.Unlock()
+			}()
+			cs.executeJobByID(id)
+		}(jobID)
 	}
 
-	// 保存状态
 	cs.mu.Lock()
-	if err := cs.saveStore(); err != nil {
-		logger.Warn("Failed to save cron store", logger.ErrorField(err))
-	}
 	cs.timerActive = false
 	cs.mu.Unlock()
 }
 
 // executeJob 执行单个任务
-func (cs *CronScheduler) executeJob(job *CronJob) {
-	startMS := nowMS()
-	logger.Info("Executing cron job", logger.String("name", job.Name), logger.String("id", job.ID))
-
+// executeJobByID 按 ID 执行任务。
+//
+// 并发执行后不能长期持有 *CronJob 指针：store 可能被外部操作替换，
+// 指针会指向旧切片。这里先取一份快照交给 handler，执行完再按 ID 回写状态。
+func (cs *CronScheduler) executeJobByID(jobID string) {
 	cs.mu.RLock()
+	var snapshot CronJob
+	found := false
+	if cs.store != nil {
+		for i := range cs.store.Jobs {
+			if cs.store.Jobs[i].ID == jobID {
+				snapshot = cs.store.Jobs[i]
+				found = true
+				break
+			}
+		}
+	}
 	onJob := cs.onJob
 	cs.mu.RUnlock()
+
+	if !found {
+		logger.Warn("Cron job disappeared before execution", logger.String("id", jobID))
+		return
+	}
+
+	startMS := nowMS()
+	logger.Info("Executing cron job", logger.String("name", snapshot.Name), logger.String("id", jobID))
 
 	var err error
 	if onJob != nil {
@@ -305,11 +368,11 @@ func (cs *CronScheduler) executeJob(job *CronJob) {
 				if r := recover(); r != nil {
 					err = fmt.Errorf("job panicked: %v", r)
 					logger.Error("Cron job panicked",
-						logger.String("name", job.Name),
+						logger.String("name", snapshot.Name),
 						logger.String("panic", fmt.Sprintf("%v", r)))
 				}
 			}()
-			err = onJob(cs.ctx, job)
+			err = onJob(cs.ctx, &snapshot)
 		}()
 	}
 
@@ -318,7 +381,21 @@ func (cs *CronScheduler) executeJob(job *CronJob) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
-	// 更新执行状态
+	// 按 ID 重新定位任务（执行期间 store 可能被重载）
+	var job *CronJob
+	if cs.store != nil {
+		for i := range cs.store.Jobs {
+			if cs.store.Jobs[i].ID == jobID {
+				job = &cs.store.Jobs[i]
+				break
+			}
+		}
+	}
+	if job == nil {
+		logger.Warn("Cron job disappeared while running, dropping state update", logger.String("id", jobID))
+		return
+	}
+
 	if err != nil {
 		job.State.LastStatus = RunStatusError
 		job.State.LastError = err.Error()
@@ -332,7 +409,6 @@ func (cs *CronScheduler) executeJob(job *CronJob) {
 	job.State.LastRunAtMS = startMS
 	job.UpdatedAtMS = endMS
 
-	// 记录执行历史
 	record := CronRunRecord{
 		RunAtMS:    startMS,
 		Status:     job.State.LastStatus,
@@ -340,29 +416,29 @@ func (cs *CronScheduler) executeJob(job *CronJob) {
 		Error:      job.State.LastError,
 	}
 	job.State.RunHistory = append(job.State.RunHistory, record)
-	// 保留最近N条记录
 	if len(job.State.RunHistory) > maxRunHistory {
 		job.State.RunHistory = job.State.RunHistory[len(job.State.RunHistory)-maxRunHistory:]
 	}
 
-	// 处理一次性任务
 	if job.Schedule.Kind == ScheduleKindAt {
 		if job.DeleteAfterRun {
-			// 删除任务
 			cs.store.Jobs = removeJobByID(cs.store.Jobs, job.ID)
 		} else {
-			// 禁用任务
 			job.Enabled = false
 			job.State.NextRunAtMS = 0
 		}
 	} else {
-		// 计算下次执行时间
 		next := computeNextRun(job.Schedule, nowMS())
 		if next != nil {
 			job.State.NextRunAtMS = *next
 		} else {
 			job.State.NextRunAtMS = 0
 		}
+	}
+
+	// 每个任务完成后立即落盘，避免并发执行时状态丢失
+	if err := cs.saveStore(); err != nil {
+		logger.Warn("Failed to save cron store after job", logger.ErrorField(err))
 	}
 }
 
@@ -743,13 +819,27 @@ func (cs *CronScheduler) RunJob(jobID string, force bool) bool {
 		return false
 	}
 
+	// 同一任务正在执行时，手动触发也跳过（避免叠加执行）
+	if cs.runningJobs[jobID] {
+		cs.mu.Unlock()
+		logger.Warn("Cron job already running, manual trigger skipped", logger.String("id", jobID))
+		return false
+	}
+	cs.runningJobs[jobID] = true
+
 	// 临时启用
 	oldEnabled := job.Enabled
 	job.Enabled = true
 	cs.mu.Unlock()
 
-	// 执行
-	cs.executeJob(job)
+	defer func() {
+		cs.mu.Lock()
+		delete(cs.runningJobs, jobID)
+		cs.mu.Unlock()
+	}()
+
+	// 执行（同步路径，便于调用方等待结果）
+	cs.executeJobByID(jobID)
 
 	// 恢复状态 — 重新查找 job，因为 executeJob 可能替换了 slice（一次性任务）
 	cs.mu.Lock()

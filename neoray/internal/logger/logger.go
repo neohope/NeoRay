@@ -90,6 +90,7 @@ func (w *DailyWriter) Close() error {
 
 var (
 	globalLogger *zap.Logger
+	loggerMu     sync.RWMutex
 	sugar        *zap.SugaredLogger
 )
 
@@ -166,8 +167,10 @@ func Init(cfg *config.Config) error {
 	core := zapcore.NewTee(cores...)
 
 	// 创建 logger
+	loggerMu.Lock()
 	globalLogger = zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel))
 	sugar = globalLogger.Sugar()
+	loggerMu.Unlock()
 
 	return nil
 }
@@ -190,10 +193,22 @@ func parseLogLevel(level string) zapcore.LevelEnabler {
 	}
 }
 
-// Logger 获取全局 logger
+// Logger 获取全局 logger。
+//
+// 之前是裸的 if globalLogger == nil 懒加载：多个 goroutine 在 Init 之前
+// 同时打日志会并发写 globalLogger/sugar（-race 能直接抓到）。
+// 现在读走 RLock，初始化走写锁 + 双检。
 func Logger() *zap.Logger {
+	loggerMu.RLock()
+	l := globalLogger
+	loggerMu.RUnlock()
+	if l != nil {
+		return l
+	}
+
+	loggerMu.Lock()
+	defer loggerMu.Unlock()
 	if globalLogger == nil {
-		// 如果未初始化，返回一个默认的
 		var err error
 		globalLogger, err = zap.NewProduction()
 		if err != nil {
@@ -206,16 +221,26 @@ func Logger() *zap.Logger {
 
 // Sugar 获取 sugar logger
 func Sugar() *zap.SugaredLogger {
-	if sugar == nil {
-		_ = Logger()
+	loggerMu.RLock()
+	s := sugar
+	loggerMu.RUnlock()
+	if s != nil {
+		return s
 	}
+	_ = Logger()
+
+	loggerMu.RLock()
+	defer loggerMu.RUnlock()
 	return sugar
 }
 
 // Sync 刷新日志
 func Sync() error {
-	if globalLogger != nil {
-		return globalLogger.Sync()
+	loggerMu.RLock()
+	l := globalLogger
+	loggerMu.RUnlock()
+	if l != nil {
+		return l.Sync()
 	}
 	return nil
 }

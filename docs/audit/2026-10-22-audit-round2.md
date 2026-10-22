@@ -14,6 +14,10 @@
 
 ### P1｜会让功能悄悄失效或放大成本
 
+> 附：本轮测试过程中 `-race` 还抓到 `internal/logger` 的全局懒初始化竞态
+> （`Logger()` / `Sugar()` 在 Init 之前被并发调用会同时写 `globalLogger`/`sugar`），
+> 已一并修复（读写锁 + 双检）。
+
 #### N1. 主循环的工具结果完全不做长度限制（配置是摆设） ✅ 已修（2026-10-22）
 
 - 位置：`internal/agent/loop.go:2149`（`"content": string(result)`）
@@ -32,7 +36,7 @@
   主循环与子代理共用；配置默认值 16000，示例配置已补该项。
   实测 330,000 字符 → 16,000 字符（压缩 95.2%），头尾与提示均保留。
 
-#### N2. cron 任务是串行执行：一个长任务阻塞所有定时任务
+#### N2. cron 任务是串行执行：一个长任务阻塞所有定时任务 ✅ 已修（2026-10-22）
 
 - 位置：`internal/cron/scheduler.go:278`（`for _, job := range dueJobs { cs.executeJob(job) }`）
 - 说法：`executeJob` 直接调 `onJob`（agent 一整轮，可能数分钟）。同一循环里其它到期任务全部等待；
@@ -40,6 +44,11 @@
 - 影响：dream（每小时）+ 用户提醒 + autocompact 共用一条执行队列，dream 跑得久时提醒会迟到。
 - 修复要点：每个 job 起独立 goroutine + 同一 job 的重入保护（running 标记）；
   `Stop()` 增加超时，避免无限等待。
+- **已实现**：`onTimer` 改为每个到期任务独立 goroutine；`runningJobs` 防重入
+  （调度触发与手动 RunJob 都受保护）；有任务在跑时跳过 store 重载避免状态被覆盖；
+  执行改为「按 ID 取快照 → 执行 → 按 ID 回写」，避免长期持有切片指针；
+  每个任务完成后立即落盘；`Stop()` 等待上限 30s（可覆盖）并记录仍在跑的任务。
+  顺带修掉 `-race` 暴露的 **logger 懒初始化竞态**（`Logger()/Sugar()` 无锁写全局）。
 
 #### N3. `Session.DeepCopy()` 是浅拷贝，嵌套引用被共享
 
