@@ -233,6 +233,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("tools.web_search.enabled", true)
 	v.SetDefault("tools.web_fetch.enabled", true)
 	v.SetDefault("tools.sandbox_status.enabled", true)
+	// Agent（工具结果截断等）
+	v.SetDefault("agent.max_tool_result_chars", 16000)
+
 	// Subagent
 	v.SetDefault("tools.subagent.enabled", true)
 	v.SetDefault("tools.subagent.max_concurrent", 5)

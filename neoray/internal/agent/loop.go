@@ -161,6 +161,7 @@ type AgentLoop struct {
 
 	// 工具集成（从 Agent 迁移）
 	toolTimeout        time.Duration
+	maxToolResultChars int
 	messageTimeout     time.Duration
 	runtimeState       *tools.RuntimeState
 	goalManager        *session.GoalManager
@@ -354,6 +355,7 @@ func NewAgentLoop(
 	}
 
 	al.toolTimeout = effectiveToolTimeout(cfg)
+	al.maxToolResultChars = effectiveMaxToolResultChars(cfg)
 	al.messageTimeout = effectiveMessageTimeout(cfg)
 
 	// 初始化运行时状态和工具（从 Agent 迁移）
@@ -2146,7 +2148,9 @@ func (al *AgentLoop) executeToolCallsLocked(
 				mu.Lock()
 				toolResponses[idx] = map[string]interface{}{
 					"tool_use_id": tc.ID,
-					"content":     string(result),
+					// 进入上下文前按 agent.max_tool_result_chars 截断，
+					// 避免大输出把下一轮请求撑爆
+					"content": tools.TruncateToolResult(string(result), al.maxToolResultChars),
 				}
 				mu.Unlock()
 			}

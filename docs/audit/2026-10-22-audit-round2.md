@@ -14,7 +14,7 @@
 
 ### P1｜会让功能悄悄失效或放大成本
 
-#### N1. 主循环的工具结果完全不做长度限制（配置是摆设）
+#### N1. 主循环的工具结果完全不做长度限制（配置是摆设） ✅ 已修（2026-10-22）
 
 - 位置：`internal/agent/loop.go:2149`（`"content": string(result)`）
 - 说法：`agent.max_tool_result_chars` 存在，但**只被塞进 `RuntimeState` 供 reflection 展示**
@@ -28,6 +28,9 @@
   后果是 token 成本暴涨，或直接撞 context 上限返回 400，而用户只看到"AI 服务连接失败"。
 - 修复要点：在把 result 写入 tool 响应前统一截断（保留头尾 + 中间省略提示），
   阈值取 `agent.max_tool_result_chars`（默认 16000，与 subagent 的既有默认一致）。
+- **已实现**：`tools.TruncateToolResult`（头 2/3 + 尾部 1/3 + 截断提示，UTF-8 安全），
+  主循环与子代理共用；配置默认值 16000，示例配置已补该项。
+  实测 330,000 字符 → 16,000 字符（压缩 95.2%），头尾与提示均保留。
 
 #### N2. cron 任务是串行执行：一个长任务阻塞所有定时任务
 

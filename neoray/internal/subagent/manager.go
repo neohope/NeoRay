@@ -507,7 +507,8 @@ func (m *Manager) executeToolCalls(
 			status.AddToolEvent(tc.Name, "ok", "Completed successfully")
 			responses = append(responses, map[string]interface{}{
 				"tool_use_id": tc.ID,
-				"content":     string(result),
+				// 与主循环一致：超长输出进入上下文前截断
+				"content": tools.TruncateToolResult(string(result), m.maxToolResultChars),
 			})
 		}
 	}

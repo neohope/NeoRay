@@ -81,6 +81,9 @@ max_messages_per_session = 1000
 tool_timeout = 0
 # 单条消息整轮处理超时（含多轮工具调用）；0 = 默认 10 分钟
 message_timeout = 0
+# 单个工具结果进入上下文前的字符上限；0 = 默认 16000
+# 防止 cat/grep 这类命令的大输出把下一轮请求撑爆
+max_tool_result_chars = 16000
 
 [tools]
 [tools.workspace]
