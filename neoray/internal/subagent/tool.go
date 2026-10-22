@@ -19,9 +19,9 @@ type SpawnToolParams struct {
 
 // SpawnTool spawn工具
 type SpawnTool struct {
-	name         string
-	description  string
-	manager      *Manager
+	name        string
+	description string
+	manager     *Manager
 
 	mu           sync.RWMutex
 	originChanID string

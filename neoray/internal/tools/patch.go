@@ -255,7 +255,7 @@ func (t *ApplyPatchTool) Execute(ctx context.Context, args json.RawMessage) (jso
 				result := fmt.Sprintf("Error applying patch: old_text not found in %s", path)
 				return json.Marshal(result)
 			}
-			if strings.Index(normContent[pos+len(normOld):], normOld) >= 0 {
+			if strings.Contains(normContent[pos+len(normOld):], normOld) {
 				result := fmt.Sprintf("Error applying patch: old_text appears multiple times in %s", path)
 				return json.Marshal(result)
 			}

@@ -48,11 +48,11 @@ func (t *SandboxStatusTool) Execute(ctx context.Context, args json.RawMessage) (
 		"success": true,
 		"status":  sandboxStatus.AsDict(),
 		"config": map[string]any{
-			"sandbox":                      t.cfg.Tools.Shell.Sandbox,
-			"restrict_to_workspace":       t.cfg.Security.RestrictToWorkspace,
+			"sandbox":                          t.cfg.Tools.Shell.Sandbox,
+			"restrict_to_workspace":            t.cfg.Security.RestrictToWorkspace,
 			"webui_allow_local_service_access": t.cfg.Security.WebUIAllowLocalServiceAccess,
-			"ssrf_whitelist":              t.cfg.Security.SSRFWhitelist,
-			"workspace":                   workspace,
+			"ssrf_whitelist":                   t.cfg.Security.SSRFWhitelist,
+			"workspace":                        workspace,
 		},
 	}
 

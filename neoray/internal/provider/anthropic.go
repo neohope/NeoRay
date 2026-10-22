@@ -22,8 +22,8 @@ import (
 type AnthropicProvider struct {
 	name         string
 	cfg          *config.ProviderConfig
-	client       *http.Client       // 带超时，用于非流式请求
-	streamClient *http.Client       // 无超时，用于 SSE 流式请求（依赖 context 取消）
+	client       *http.Client // 带超时，用于非流式请求
+	streamClient *http.Client // 无超时，用于 SSE 流式请求（依赖 context 取消）
 
 	mu           sync.RWMutex
 	generation   GenerationSettings

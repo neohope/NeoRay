@@ -28,14 +28,14 @@ type LineAge struct {
 
 // GitStore Git 版本控制
 type GitStore struct {
-	workspace   string
+	workspace    string
 	trackedFiles []string
 }
 
 // NewGitStore 创建 GitStore
 func NewGitStore(workspace string, trackedFiles []string) *GitStore {
 	return &GitStore{
-		workspace:   workspace,
+		workspace:    workspace,
 		trackedFiles: trackedFiles,
 	}
 }

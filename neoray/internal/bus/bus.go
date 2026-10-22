@@ -51,10 +51,10 @@ type MessageBus struct {
 	outboundSubscribers map[string]chan<- *OutboundMessage
 
 	// 状态
-	mu         sync.RWMutex
-	running    bool
-	stopChan   chan struct{}
-	wg         sync.WaitGroup
+	mu       sync.RWMutex
+	running  bool
+	stopChan chan struct{}
+	wg       sync.WaitGroup
 
 	// 队列大小监控（原子操作，无需加锁）
 	inboundSize  atomic.Int64

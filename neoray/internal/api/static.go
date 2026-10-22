@@ -106,12 +106,60 @@ const placeholderPage = `<!DOCTYPE html>
 </body>
 </html>`
 
+// resolveDiskPath 把请求里的相对名解析成磁盘绝对路径，并确认结果仍在 diskDir 内。
+//
+// 原来只做 filepath.Clean("/"+name) 就拼接：路径穿越能挡住，但挡不住
+// **diskDir 内部的软链指向外部**（例如 dist/leak -> /etc）。这里在拼接后
+// 解析软链再比较一次，越界直接报错。
+func (h *staticHandler) resolveDiskPath(name string) (string, error) {
+	// 先用 Clean("/"+name) 消掉 ..，保证词法上不会跳出根目录
+	clean := filepath.Clean("/" + name)
+	full := filepath.Join(h.diskDir, clean)
+
+	resolvedRoot, err := filepath.EvalSymlinks(h.diskDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve static dir: %w", err)
+	}
+
+	// 目标或它的父目录都可能不存在（404 路径）：向上找最近存在的祖先做软链解析，
+	// 再把剩余部分接回去，避免 "lstat ... no such file" 把 404 变成 500。
+	resolved := full
+	existing := full
+	var tail []string
+	for {
+		if _, statErr := os.Lstat(existing); statErr == nil {
+			real, rerr := filepath.EvalSymlinks(existing)
+			if rerr != nil {
+				return "", fmt.Errorf("resolve static path: %w", rerr)
+			}
+			resolved = real
+			for i := len(tail) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, tail[i])
+			}
+			break
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			break
+		}
+		tail = append(tail, filepath.Base(existing))
+		existing = parent
+	}
+
+	rel, err := filepath.Rel(resolvedRoot, resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("static path outside root: %s", name)
+	}
+	return resolved, nil
+}
+
 // readFile 按当前模式读取指定相对路径的文件。
 func (h *staticHandler) readFile(name string) ([]byte, error) {
 	if h.diskDir != "" {
-		// 防目录穿越：清理后拼接，并校验结果仍在 diskDir 之内
-		clean := filepath.Clean("/" + name)
-		full := filepath.Join(h.diskDir, clean)
+		full, err := h.resolveDiskPath(name)
+		if err != nil {
+			return nil, err
+		}
 		return os.ReadFile(full)
 	}
 	return fs.ReadFile(h.embedded, name)
@@ -120,8 +168,10 @@ func (h *staticHandler) readFile(name string) ([]byte, error) {
 // openFile 打开指定相对路径的文件（用于 http.FileServer 语义或流式读取）。
 func (h *staticHandler) openFile(name string) (fs.File, error) {
 	if h.diskDir != "" {
-		clean := filepath.Clean("/" + name)
-		full := filepath.Join(h.diskDir, clean)
+		full, err := h.resolveDiskPath(name)
+		if err != nil {
+			return nil, err
+		}
 		return os.Open(full)
 	}
 	return h.embedded.Open(name)
@@ -130,8 +180,10 @@ func (h *staticHandler) openFile(name string) (fs.File, error) {
 // stat 返回文件信息。
 func (h *staticHandler) stat(name string) (fs.FileInfo, error) {
 	if h.diskDir != "" {
-		clean := filepath.Clean("/" + name)
-		full := filepath.Join(h.diskDir, clean)
+		full, err := h.resolveDiskPath(name)
+		if err != nil {
+			return nil, err
+		}
 		return os.Stat(full)
 	}
 	return fs.Stat(h.embedded, name)

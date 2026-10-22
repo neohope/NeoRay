@@ -27,24 +27,24 @@ const (
 
 // ToolEvent 工具调用事件
 type ToolEvent struct {
-	Name      string `json:"name"`
-	Status    string `json:"status"` // "ok" 或 "error"
-	Detail    string `json:"detail"`
+	Name      string    `json:"name"`
+	Status    string    `json:"status"` // "ok" 或 "error"
+	Detail    string    `json:"detail"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
 // SubagentStatus 子代理实时状态
 type SubagentStatus struct {
-	TaskID          string            `json:"task_id"`
-	Label           string            `json:"label"`
-	TaskDescription string            `json:"task_description"`
-	StartedAt       time.Time         `json:"started_at"`
-	Phase           SubagentPhase    `json:"phase"`
-	Iteration       int               `json:"iteration"`
-	ToolEvents      []ToolEvent       `json:"tool_events"`
-	Usage           *provider.Usage    `json:"usage"` // token usage
-	StopReason      string            `json:"stop_reason,omitempty"`
-	Error           string            `json:"error,omitempty"`
+	TaskID          string          `json:"task_id"`
+	Label           string          `json:"label"`
+	TaskDescription string          `json:"task_description"`
+	StartedAt       time.Time       `json:"started_at"`
+	Phase           SubagentPhase   `json:"phase"`
+	Iteration       int             `json:"iteration"`
+	ToolEvents      []ToolEvent     `json:"tool_events"`
+	Usage           *provider.Usage `json:"usage"` // token usage
+	StopReason      string          `json:"stop_reason,omitempty"`
+	Error           string          `json:"error,omitempty"`
 
 	mu sync.RWMutex
 }

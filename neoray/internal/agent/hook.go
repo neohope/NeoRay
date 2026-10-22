@@ -89,13 +89,15 @@ func (ch *CompositeHook) Name() string { return "composite" }
 // BaseHook 基础 Hook 实现，提供空方法，方便嵌入
 type BaseHook struct{ name string }
 
-func NewBaseHook(name string) *BaseHook { return &BaseHook{name: name} }
+func NewBaseHook(name string) *BaseHook                                          { return &BaseHook{name: name} }
 func (bh *BaseHook) BeforeIter(ctx context.Context, sess *session.Session) error { return nil }
-func (bh *BaseHook) AfterIter(ctx context.Context, sess *session.Session, result *ChatResult) error { return nil }
+func (bh *BaseHook) AfterIter(ctx context.Context, sess *session.Session, result *ChatResult) error {
+	return nil
+}
 func (bh *BaseHook) BeforeStream(ctx context.Context, sess *session.Session) error { return nil }
-func (bh *BaseHook) OnStreamDelta(ctx context.Context, delta string) error { return nil }
-func (bh *BaseHook) AfterStream(ctx context.Context, sess *session.Session) error { return nil }
-func (bh *BaseHook) Name() string { return bh.name }
+func (bh *BaseHook) OnStreamDelta(ctx context.Context, delta string) error         { return nil }
+func (bh *BaseHook) AfterStream(ctx context.Context, sess *session.Session) error  { return nil }
+func (bh *BaseHook) Name() string                                                  { return bh.name }
 
 // TraceHook 将事件推送到 TraceManager
 type TraceHook struct {
@@ -158,7 +160,9 @@ func (ph *ProgressHook) AfterIter(ctx context.Context, sess *session.Session, re
 }
 
 func (ph *ProgressHook) publishProgress(sess *session.Session, status, message string) {
-	if ph.bus == nil { return }
+	if ph.bus == nil {
+		return
+	}
 	msg := bus.NewOutboundMessage(sess.ChannelID, sess.ID, message)
 	msg.Type = bus.MessageTypeProgress
 	msg.SessionID = sess.ID
@@ -178,7 +182,9 @@ func (ph *ProgressHook) OnToolStart(ctx context.Context, sess *session.Session, 
 
 // publishToolHint 发布工具调用提示消息（带 _tool_hint 标记）
 func (ph *ProgressHook) publishToolHint(sess *session.Session, hint string) {
-	if ph.bus == nil { return }
+	if ph.bus == nil {
+		return
+	}
 	msg := bus.NewOutboundMessage(sess.ChannelID, sess.ID, hint)
 	msg.Type = bus.MessageTypeProgress
 	msg.SessionID = sess.ID
@@ -193,14 +199,14 @@ func (ph *ProgressHook) publishToolHint(sess *session.Session, hint string) {
 // toolDisplayName 将工具名转为用户友好的中文描述
 func toolDisplayName(name string) string {
 	names := map[string]string{
-		"web_search":    "搜索网页",
-		"shell":         "执行命令",
-		"read_file":     "读取文件",
-		"write_file":    "写入文件",
-		"edit_file":     "编辑文件",
-		"list_files":    "列出文件",
-		"memory":        "读取记忆",
-		"exec_session":  "执行命令",
+		"web_search":   "搜索网页",
+		"shell":        "执行命令",
+		"read_file":    "读取文件",
+		"write_file":   "写入文件",
+		"edit_file":    "编辑文件",
+		"list_files":   "列出文件",
+		"memory":       "读取记忆",
+		"exec_session": "执行命令",
 	}
 	if display, ok := names[name]; ok {
 		return display

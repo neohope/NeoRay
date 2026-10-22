@@ -42,10 +42,10 @@ type MemoryStore struct {
 	dreamCursorFile   string
 	maxHistoryEntries int
 
-	git      *GitStore
-	mu       sync.RWMutex
-	dirty    bool
-	initErr  error // 初始化时的错误（如目录创建失败）
+	git     *GitStore
+	mu      sync.RWMutex
+	dirty   bool
+	initErr error // 初始化时的错误（如目录创建失败）
 }
 
 // InitError 返回初始化时的错误（如目录创建失败），nil 表示正常

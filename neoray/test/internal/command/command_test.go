@@ -199,6 +199,10 @@ func TestModelCommand(t *testing.T) {
 	if !isCmd {
 		t.Fatal("/model nonexistent not recognized")
 	}
+	// 该分支应返回错误提示而不是崩溃；err 内容只做日志
+	if err != nil {
+		t.Logf("/model nonexistent returned err: %v", err)
+	}
 	// 应该返回错误信息，但不应该崩溃
 	t.Logf("/model nonexistent response:\n%s", resp)
 }

@@ -13,9 +13,9 @@ import (
 
 // CronIntegration integrates cron with Agent and MessageBus
 type CronIntegration struct {
-	agent          agent.AgentInterface
-	sessionMgr     *session.Manager
-	msgBus         *bus.MessageBus
+	agent         agent.AgentInterface
+	sessionMgr    *session.Manager
+	msgBus        *bus.MessageBus
 	memoryManager *memory.MemoryManager
 }
 

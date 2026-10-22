@@ -9,32 +9,32 @@ import (
 
 // Message LLM 消息
 type Message struct {
-	Role          string                 `json:"role"`
-	Content       string                 `json:"content"`
-	ToolCalls     []ToolCall             `json:"tool_calls,omitempty"`
-	ThinkingBlocks []ThinkingBlock       `json:"thinking_blocks,omitempty"`
-	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	Role           string                 `json:"role"`
+	Content        string                 `json:"content"`
+	ToolCalls      []ToolCall             `json:"tool_calls,omitempty"`
+	ThinkingBlocks []ThinkingBlock        `json:"thinking_blocks,omitempty"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // ThinkingBlock 思考块
 type ThinkingBlock struct {
-	Type      string `json:"type"`       // "thinking"
-	Thinking  string `json:"thinking"`   // 思考内容
-	Signature string `json:"signature"`  // 签名（可选）
+	Type      string `json:"type"`      // "thinking"
+	Thinking  string `json:"thinking"`  // 思考内容
+	Signature string `json:"signature"` // 签名（可选）
 }
 
 // ToolCall 工具调用
 type ToolCall struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
 }
 
 // Tool 工具定义
 type Tool struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	InputSchema interface{} `json:"input_schema"`
+	Name         string        `json:"name"`
+	Description  string        `json:"description"`
+	InputSchema  interface{}   `json:"input_schema"`
 	CacheControl *CacheControl `json:"cache_control,omitempty"`
 }
 
@@ -45,56 +45,56 @@ type CacheControl struct {
 
 // ChatRequest 聊天请求
 type ChatRequest struct {
-	Model            string          `json:"model"`
-	Messages         []Message       `json:"messages"`
-	Tools            []Tool          `json:"tools,omitempty"`
-	MaxTokens        int             `json:"max_tokens,omitempty"`
-	Temperature      float64         `json:"temperature,omitempty"`
-	Stream           bool            `json:"stream,omitempty"`
-	ReasoningEffort string          `json:"reasoning_effort,omitempty"` // "low", "medium", "high", "adaptive", "none"
-	ToolChoice       string          `json:"tool_choice,omitempty"`
-	CacheEnabled     bool            `json:"cache_enabled,omitempty"`
+	Model           string    `json:"model"`
+	Messages        []Message `json:"messages"`
+	Tools           []Tool    `json:"tools,omitempty"`
+	MaxTokens       int       `json:"max_tokens,omitempty"`
+	Temperature     float64   `json:"temperature,omitempty"`
+	Stream          bool      `json:"stream,omitempty"`
+	ReasoningEffort string    `json:"reasoning_effort,omitempty"` // "low", "medium", "high", "adaptive", "none"
+	ToolChoice      string    `json:"tool_choice,omitempty"`
+	CacheEnabled    bool      `json:"cache_enabled,omitempty"`
 }
 
 // Usage 使用量
 type Usage struct {
-	InputTokens            int `json:"input_tokens"`
-	OutputTokens           int `json:"output_tokens"`
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
 	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
-	CachedTokens           int `json:"cached_tokens,omitempty"`
+	CachedTokens             int `json:"cached_tokens,omitempty"`
 }
 
 // ChatResponse 聊天响应
 type ChatResponse struct {
-	Content         string
-	ToolCalls       []ToolCall
-	ThinkingBlocks []ThinkingBlock
-	FinishReason    string
-	Usage          *Usage
-	RetryAfter     time.Duration
-	ErrorStatusCode int
-	ErrorType      string
-	ErrorCode      string
+	Content          string
+	ToolCalls        []ToolCall
+	ThinkingBlocks   []ThinkingBlock
+	FinishReason     string
+	Usage            *Usage
+	RetryAfter       time.Duration
+	ErrorStatusCode  int
+	ErrorType        string
+	ErrorCode        string
 	ErrorShouldRetry bool
 }
 
 // StreamChatResponse 流式聊天响应
 type StreamChatResponse struct {
-	Content         string
-	ThinkingDelta   string
-	ToolCalls       []ToolCall
-	FinishReason    string
-	Error          error
+	Content       string
+	ThinkingDelta string
+	ToolCalls     []ToolCall
+	FinishReason  string
+	Error         error
 }
 
 // ProviderError 带重试信息的提供商错误
 type ProviderError struct {
-	Err             error
-	RetryAfter      time.Duration
+	Err              error
+	RetryAfter       time.Duration
 	ErrorShouldRetry bool
-	ErrorType       string
-	StatusCode      int
+	ErrorType        string
+	StatusCode       int
 }
 
 func (e *ProviderError) Error() string { return e.Err.Error() }
@@ -102,8 +102,8 @@ func (e *ProviderError) Unwrap() error { return e.Err }
 
 // GenerationSettings 生成设置
 type GenerationSettings struct {
-	Temperature      float64
-	MaxTokens        int
+	Temperature     float64
+	MaxTokens       int
 	ReasoningEffort string
 }
 
@@ -132,24 +132,24 @@ type StreamToolProvider interface {
 
 // FallbackConfig Fallback 配置
 type FallbackConfig struct {
-	Model            string
-	Provider         string
-	MaxTokens        int
-	Temperature      float64
+	Model           string
+	Provider        string
+	MaxTokens       int
+	Temperature     float64
 	ReasoningEffort string
 }
 
 // ProviderManager 提供商管理器
 type ProviderManager struct {
 	defaultProvider Provider
-	providers      map[string]Provider
+	providers       map[string]Provider
 }
 
 // NewProviderManager 创建提供商管理器
 func NewProviderManager(defaultProvider Provider) *ProviderManager {
 	return &ProviderManager{
 		defaultProvider: defaultProvider,
-		providers:      make(map[string]Provider),
+		providers:       make(map[string]Provider),
 	}
 }
 
@@ -220,23 +220,23 @@ func ShouldFallbackError(resp *ChatResponse) bool {
 		return false
 	}
 	nonFallbackTypes := map[string]bool{
-		"authentication": true,
-		"auth": true,
-		"permission": true,
-		"content_filter": true,
-		"refusal": true,
-		"context_length": true,
+		"authentication":  true,
+		"auth":            true,
+		"permission":      true,
+		"content_filter":  true,
+		"refusal":         true,
+		"context_length":  true,
 		"invalid_request": true,
 	}
 	if nonFallbackTypes[resp.ErrorType] {
 		return false
 	}
 	fallbackTypes := map[string]bool{
-		"timeout": true,
-		"connection": true,
+		"timeout":      true,
+		"connection":   true,
 		"server_error": true,
-		"rate_limit": true,
-		"overloaded": true,
+		"rate_limit":   true,
+		"overloaded":   true,
 	}
 	if fallbackTypes[resp.ErrorType] {
 		return true

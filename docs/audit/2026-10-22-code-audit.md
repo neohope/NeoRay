@@ -43,7 +43,12 @@
 > F12 去重表批量落盘 + Stop 刷盘。
 >
 > 状态更新（2026-10-22 第 4 批已修复）：F13 会话锁带超时（并用「上一条还在处理」
-> 提示替代无限排队）、F14 日志脱敏。剩 F15–F17 待处理。
+> 提示替代无限排队）、F14 日志脱敏。
+>
+> 状态更新（2026-10-22 第 5 批已修复）：F16 静态资源软链校验、F17 CI（gofmt /
+> vet / test -race / build / staticcheck / govulncheck）。
+> F15（身份从请求参数改为认证上下文）按计划**暂不做**：改动面涉及前端约定，
+> 而单用户单密钥部署的实际收益有限，留作多用户改造时一并处理。
 
 | ID | 问题 | 位置 | 证据 | 影响 |
 |---|---|---|---|---|
@@ -61,9 +66,9 @@
 |---|---|---|---|
 | F13 | 会话锁是无超时的 `sync.Mutex` | `internal/agent/loop.go:452,483` | 一个卡住的回合会让该会话后续消息全部排队，goroutine 只增不减 | ✅ 已修 |
 | F14 | 工具参数原文入日志 | `internal/agent/loop.go:1055,2048`、`internal/provider/openai.go:327` | 命令里若含 token/密钥会落到磁盘日志 | ✅ 已修 |
-| F15 | 请求方自称身份 | `internal/api/handlers.go:449` | `channel_id`/`user_id` 来自 query/header，持密钥者可按 ID 读任意会话（单用户部署可接受，多用户即 IDOR） |
-| F16 | 静态资源仅靠 `filepath.Clean` | `internal/api/static.go:110` | 未校验软链；`static_dir` 内有软链时可越界 |
-| F17 | **仓库没有任何 CI** | 仓库根目录无 `.github/` | 无自动 `go test` / `go vet` / lint，回归全靠人肉 |
+| F15 | 请求方自称身份 | `internal/api/handlers.go:449` | `channel_id`/`user_id` 来自 query/header，持密钥者可按 ID 读任意会话（单用户部署可接受，多用户即 IDOR） ⏸ 暂不做：需与前端一起改约定 |
+| F16 | 静态资源仅靠 `filepath.Clean` | `internal/api/static.go:110` | 未校验软链；`static_dir` 内有软链时可越界 | ✅ 已修 |
+| F17 | **仓库没有任何 CI** | 仓库根目录无 `.github/` | 无自动 `go test` / `go vet` / lint，回归全靠人肉 | ✅ 已修 |
 
 ---
 

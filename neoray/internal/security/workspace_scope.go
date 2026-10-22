@@ -18,8 +18,8 @@ const (
 const WorkspaceScopeMetadataKey = "workspace_scope"
 
 var (
-	trueValues  = map[string]bool{"1": true, "true": true, "yes": true, "on": true, "enabled": true}
-	falseValues = map[string]bool{"0": true, "false": true, "no": true, "off": true, "disabled": true, "": true}
+	trueValues     = map[string]bool{"1": true, "true": true, "yes": true, "on": true, "enabled": true}
+	falseValues    = map[string]bool{"0": true, "false": true, "no": true, "off": true, "disabled": true, "": true}
 	providerLabels = map[string]string{
 		"none":              "None",
 		"unknown":           "Unknown system sandbox",
@@ -64,11 +64,11 @@ func (s *WorkspaceSandboxStatus) AsDict() map[string]interface{} {
 
 // WorkspaceScope represents the effective project root and access mode for one agent turn.
 type WorkspaceScope struct {
-	ProjectPath         string                `json:"project_path"`
-	AccessMode          WorkspaceAccessMode   `json:"access_mode"`
-	RestrictToWorkspace bool                  `json:"restrict_to_workspace"`
+	ProjectPath         string                  `json:"project_path"`
+	AccessMode          WorkspaceAccessMode     `json:"access_mode"`
+	RestrictToWorkspace bool                    `json:"restrict_to_workspace"`
 	SandboxStatus       *WorkspaceSandboxStatus `json:"sandbox_status"`
-	SourceChannel       string                `json:"source_channel,omitempty"`
+	SourceChannel       string                  `json:"source_channel,omitempty"`
 }
 
 // ProjectName returns the name of the project.
@@ -87,9 +87,9 @@ func (s *WorkspaceScope) Metadata() map[string]string {
 // Payload returns the scope as a payload map.
 func (s *WorkspaceScope) Payload() map[string]interface{} {
 	result := map[string]interface{}{
-		"project_path":         s.ProjectPath,
-		"access_mode":          string(s.AccessMode),
-		"project_name":         s.ProjectName(),
+		"project_path":          s.ProjectPath,
+		"access_mode":           string(s.AccessMode),
+		"project_name":          s.ProjectName(),
 		"restrict_to_workspace": s.RestrictToWorkspace,
 	}
 	if s.SandboxStatus != nil {
@@ -115,9 +115,9 @@ func (t *ToolWorkspace) AllowedRoot() string {
 
 // WorkspaceScopeResolver resolves the effective workspace scope at an agent turn boundary.
 type WorkspaceScopeResolver struct {
-	DefaultWorkspace          string
+	DefaultWorkspace           string
 	DefaultRestrictToWorkspace bool
-	ScopedChannel             string
+	ScopedChannel              string
 }
 
 // NewWorkspaceScopeResolver creates a new WorkspaceScopeResolver.
@@ -130,9 +130,9 @@ func NewWorkspaceScopeResolver(
 		scopedChannel = "websocket"
 	}
 	return &WorkspaceScopeResolver{
-		DefaultWorkspace:          defaultWorkspace,
+		DefaultWorkspace:           defaultWorkspace,
 		DefaultRestrictToWorkspace: defaultRestrictToWorkspace,
-		ScopedChannel:             scopedChannel,
+		ScopedChannel:              scopedChannel,
 	}
 }
 

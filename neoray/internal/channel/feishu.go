@@ -1133,14 +1133,13 @@ func (f *FeishuChannel) startSDKWebSocket(ctx context.Context) {
 	f.mu.Unlock()
 
 	go func() {
-		if err := client.Start(ctx); err != nil {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				logger.Error("Feishu WebSocket client stopped", logger.ErrorField(err))
-			}
+		// SDK 的 Start 在正常关闭时也会返回错误，因此用 ctx 状态区分
+		// 「主动停止」与「异常断开」（原先的 err != nil 判断恒为真）
+		err := client.Start(ctx)
+		if ctx.Err() != nil {
+			return
 		}
+		logger.Error("Feishu WebSocket client stopped unexpectedly", logger.ErrorField(err))
 	}()
 }
 

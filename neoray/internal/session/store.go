@@ -29,10 +29,10 @@ const (
 
 // MemoryStore 内存存储实现
 type MemoryStore struct {
-	mu                     sync.RWMutex
-	sessions               map[string]*Session
-	maxSessions            int
-	maxMessagesPerSession  int
+	mu                    sync.RWMutex
+	sessions              map[string]*Session
+	maxSessions           int
+	maxMessagesPerSession int
 }
 
 // MemoryStoreOption MemoryStore 配置选项

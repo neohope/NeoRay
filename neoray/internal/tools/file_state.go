@@ -12,11 +12,11 @@ import (
 
 // ReadState 跟踪单个文件的读取状态
 type ReadState struct {
-	Mtime         time.Time
-	Offset        int
-	Limit         *int
-	ContentHash   string
-	CanDedup      bool
+	Mtime       time.Time
+	Offset      int
+	Limit       *int
+	ContentHash string
+	CanDedup    bool
 }
 
 // FileStates 每个会话的文件读写状态跟踪器
@@ -235,15 +235,15 @@ func (fs *FileStates) Clear() {
 
 // fileStateEntry 带访问时间的 FileStates 条目
 type fileStateEntry struct {
-	fs       *FileStates
+	fs         *FileStates
 	lastAccess time.Time
 }
 
 // FileStateStore 每个会话的文件读写状态查找表
 type FileStateStore struct {
-	mu           sync.RWMutex
-	statesByKey  map[string]*fileStateEntry
-	maxSessions  int
+	mu          sync.RWMutex
+	statesByKey map[string]*fileStateEntry
+	maxSessions int
 }
 
 const defaultMaxFileStateSessions = 200

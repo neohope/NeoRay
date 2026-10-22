@@ -10,13 +10,13 @@ import (
 
 // Session 会话实体
 type Session struct {
-	ID        string    `json:"id"`
-	ChannelID string    `json:"channel_id"` // 频道标识符
-	UserID    string    `json:"user_id"`    // 用户标识符
-	Title     string    `json:"title"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Messages  []Message `json:"messages"`
+	ID        string         `json:"id"`
+	ChannelID string         `json:"channel_id"` // 频道标识符
+	UserID    string         `json:"user_id"`    // 用户标识符
+	Title     string         `json:"title"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	Messages  []Message      `json:"messages"`
 	Metadata  map[string]any `json:"metadata,omitempty"`
 
 	mu sync.RWMutex `json:"-"`
@@ -37,10 +37,10 @@ func (s *Session) RUnlock() { s.mu.RUnlock() }
 // Message 消息实体
 type Message struct {
 	ID          string         `json:"id"`
-	ChannelID   string         `json:"channel_id"`   // 频道标识符
-	UserID      string         `json:"user_id"`      // 用户标识符
-	SessionID   string         `json:"session_id"`   // 会话标识符
-	Role        string         `json:"role"`         // user, assistant, system, tool
+	ChannelID   string         `json:"channel_id"` // 频道标识符
+	UserID      string         `json:"user_id"`    // 用户标识符
+	SessionID   string         `json:"session_id"` // 会话标识符
+	Role        string         `json:"role"`       // user, assistant, system, tool
 	Content     string         `json:"content"`
 	Timestamp   time.Time      `json:"timestamp"`
 	ToolCalls   []ToolCall     `json:"tool_calls,omitempty"`
@@ -50,8 +50,8 @@ type Message struct {
 
 // ToolCall 工具调用
 type ToolCall struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
 	Arguments string `json:"arguments"` // JSON string
 }
 

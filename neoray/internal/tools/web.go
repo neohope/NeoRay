@@ -994,16 +994,20 @@ func toMarkdownFunc(htmlContent string) string {
 		return m
 	})
 
-	// Convert headers
-	headerRe := regexp.MustCompile(`<h([1-6])[^>]*>([\s\S]*?)</h\1>`)
-	text = headerRe.ReplaceAllStringFunc(text, func(m string) string {
-		matches := headerRe.FindStringSubmatch(m)
-		if len(matches) == 3 {
-			level := matches[1]
-			return fmt.Sprintf("\n%s %s\n", strings.Repeat("#", int(level[0]-'0')), stripTagsFunc(matches[2]))
-		}
-		return m
-	})
+	// Convert headers。
+	// 注意：Go 的 regexp 是 RE2，不支持反向引用，原先的 `</h\1>` 会让
+	// MustCompile 直接 panic。这里按层级逐个替换。
+	for level := 1; level <= 6; level++ {
+		headerRe := regexp.MustCompile(fmt.Sprintf(`(?is)<h%d[^>]*>([\s\S]*?)</h%d>`, level, level))
+		prefix := "\n" + strings.Repeat("#", level) + " "
+		text = headerRe.ReplaceAllStringFunc(text, func(m string) string {
+			matches := headerRe.FindStringSubmatch(m)
+			if len(matches) == 2 {
+				return prefix + stripTagsFunc(matches[1]) + "\n"
+			}
+			return m
+		})
+	}
 
 	// Convert list items
 	liRe := regexp.MustCompile(`<li[^>]*>([\s\S]*?)</li>`)

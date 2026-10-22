@@ -10,9 +10,9 @@ import (
 
 // TemplateLoader 模板加载器
 type TemplateLoader struct {
-	templates    map[string]string
-	templateDir  string
-	mu           sync.RWMutex
+	templates   map[string]string
+	templateDir string
+	mu          sync.RWMutex
 }
 
 var (

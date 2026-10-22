@@ -389,7 +389,7 @@ func NewAgentLoop(
 	// 初始化子代理管理器
 	if al.subagentManager == nil && al.toolRegistry != nil {
 		enabled := true
-		if al.cfg != nil && al.cfg.Tools.Subagent.Enabled == false {
+		if al.cfg != nil && !al.cfg.Tools.Subagent.Enabled {
 			enabled = false
 		}
 
@@ -2035,7 +2035,7 @@ func (al *AgentLoop) callLLMWithRetry(
 		// 区分「重试有意义」和「重试也没用」的错误。
 		// 之前不分类型一律重试 3 次：401/403/400/欠费这类错误会白白多打两次、
 		// 多等 3 秒，还会把真正的错误原因淹没在重试日志里。
-		if resp != nil && provider.ShouldFallbackError(resp) == false && resp.ErrorStatusCode > 0 {
+		if resp != nil && !provider.ShouldFallbackError(resp) && resp.ErrorStatusCode > 0 {
 			logger.Warn("LLM call failed with non-retryable error, not retrying",
 				logger.Int("status", resp.ErrorStatusCode),
 				logger.String("type", resp.ErrorType))

@@ -156,4 +156,3 @@ func (m *Manager) GetChannel(name string) (Channel, bool) {
 	ch, ok := m.channels[name]
 	return ch, ok
 }
-

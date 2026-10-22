@@ -33,22 +33,22 @@ type CheckpointCallback func(payload map[string]interface{})
 
 // Manager 子代理管理器
 type Manager struct {
-	cfg                *config.Config
-	providerMgr        *provider.ProviderManager
-	msgBus             *bus.MessageBus
-	toolRegistry       *tools.Registry
-	memoryManager      *memory.MemoryManager
-	templateLoader     *templates.TemplateLoader
+	cfg            *config.Config
+	providerMgr    *provider.ProviderManager
+	msgBus         *bus.MessageBus
+	toolRegistry   *tools.Registry
+	memoryManager  *memory.MemoryManager
+	templateLoader *templates.TemplateLoader
 
 	maxConcurrent      int
 	maxIterations      int
 	maxToolResultChars int
 
-	runningTasks       map[string]*SubagentTask
-	taskStatuses       map[string]*SubagentStatus
-	sessionTasks       map[string][]string // sessionKey -> taskIDs
+	runningTasks map[string]*SubagentTask
+	taskStatuses map[string]*SubagentStatus
+	sessionTasks map[string][]string // sessionKey -> taskIDs
 
-	mu                 sync.RWMutex
+	mu sync.RWMutex
 }
 
 // SubagentTask 子代理任务
@@ -62,13 +62,13 @@ type SubagentTask struct {
 
 // SubagentResult 子代理执行结果
 type SubagentResult struct {
-	TaskID      string
-	Label       string
-	Task        string
-	Result      string
-	Status      string // "ok" 或 "error"
-	ToolEvents  []ToolEvent
-	StopReason  string
+	TaskID     string
+	Label      string
+	Task       string
+	Result     string
+	Status     string // "ok" 或 "error"
+	ToolEvents []ToolEvent
+	StopReason string
 }
 
 // NewManager 创建子代理管理器
@@ -204,7 +204,6 @@ func (m *Manager) runSubagent(
 	logger.Debug("Subagent starting execution",
 		logger.String("task_id", taskID),
 		logger.String("label", label))
-
 
 	// 构建子代理的工具注册表（与主代理相同的工具）
 	subToolRegistry := m.buildSubagentToolRegistry()
@@ -383,12 +382,12 @@ mainLoop:
 // 只包含安全的文件操作和搜索工具，排除递归生成、消息发送、调度等敏感工具
 func (m *Manager) buildSubagentToolRegistry() *tools.Registry {
 	return m.toolRegistry.CloneFiltered(
-		"filesystem",    // 文件读写
-		"find_files",    // 文件搜索
-		"grep",          // 内容搜索
-		"apply_patch",   // 补丁应用
-		"web_search",    // 网页搜索
-		"web_fetch",     // 网页获取
+		"filesystem",     // 文件读写
+		"find_files",     // 文件搜索
+		"grep",           // 内容搜索
+		"apply_patch",    // 补丁应用
+		"web_search",     // 网页搜索
+		"web_fetch",      // 网页获取
 		"sandbox_status", // 沙箱状态
 	)
 }
@@ -527,10 +526,10 @@ func (m *Manager) announceResult(
 ) {
 	// 渲染结果消息
 	vars := map[string]string{
-		"label":        label,
-		"status_text":  "completed successfully",
-		"task":         task,
-		"result":       result,
+		"label":       label,
+		"status_text": "completed successfully",
+		"task":        task,
+		"result":      result,
 	}
 
 	if status != "ok" {
@@ -567,10 +566,10 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
 			msg.Metadata["origin_message_id"] = origin.MessageID
 		}
 
-		// 如果提供了session_key，使用它来路由结果
-		if origin.SessionKey != "" {
-			msg.Metadata["session_key_override"] = origin.SessionKey
-		}
+		// 用算好的 sessionKey 路由结果（origin 没带时回退到 channel:chat）。
+		// 之前只判断 origin.SessionKey 非空才设置，导致上面算出的回退值从未被使用，
+		// 结果可能落到另一个会话（话题隔离场景尤其明显）。
+		msg.Metadata["session_key_override"] = sessionKey
 
 		if err := m.msgBus.PublishInbound(msg); err != nil {
 			logger.Warn("Failed to publish subagent result",

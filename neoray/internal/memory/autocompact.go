@@ -25,9 +25,9 @@ type AutoCompact struct {
 	consolidator      *Consolidator
 	sessionTTLMinutes int
 
-	archiving      sync.Map // session key -> struct{}
-	summaries      sync.Map // session key -> summaryInfo
-	summaryCount   int32    // atomic counter for summaries map size
+	archiving    sync.Map // session key -> struct{}
+	summaries    sync.Map // session key -> summaryInfo
+	summaryCount int32    // atomic counter for summaries map size
 }
 
 // AutoCompactSessionManager 会话管理器接口

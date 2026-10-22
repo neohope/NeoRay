@@ -41,7 +41,7 @@ func initBlockedNetworks() {
 		netip.MustParsePrefix("::1/128"),
 		// Private / reserved
 		netip.MustParsePrefix("10.0.0.0/8"),
-		netip.MustParsePrefix("100.64.0.0/10"),  // CGNAT
+		netip.MustParsePrefix("100.64.0.0/10"), // CGNAT
 		netip.MustParsePrefix("172.16.0.0/12"),
 		netip.MustParsePrefix("192.168.0.0/16"),
 		// Link-local

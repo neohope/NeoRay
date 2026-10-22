@@ -78,10 +78,10 @@ func (f *DefaultProviderFactory) BuildFallbackConfigs() []FallbackConfig {
 	configs := make([]FallbackConfig, 0, len(llmCfg.FallbackModels))
 	for _, fb := range llmCfg.FallbackModels {
 		configs = append(configs, FallbackConfig{
-			Model:            fb.Model,
-			Provider:         fb.Provider,
-			MaxTokens:        fb.MaxTokens,
-			Temperature:      fb.Temperature,
+			Model:           fb.Model,
+			Provider:        fb.Provider,
+			MaxTokens:       fb.MaxTokens,
+			Temperature:     fb.Temperature,
 			ReasoningEffort: fb.ReasoningEffort,
 		})
 	}
@@ -123,9 +123,9 @@ func (f *DefaultProviderFactory) createFallbackProviderFromConfig(fbConfig Fallb
 	} else {
 		// 创建一个基本配置
 		cfg = &config.ProviderConfig{
-			Model:            fbConfig.Model,
-			MaxTokens:        fbConfig.MaxTokens,
-			Temperature:      fbConfig.Temperature,
+			Model:           fbConfig.Model,
+			MaxTokens:       fbConfig.MaxTokens,
+			Temperature:     fbConfig.Temperature,
 			ReasoningEffort: fbConfig.ReasoningEffort,
 		}
 	}
