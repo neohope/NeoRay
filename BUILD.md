@@ -290,3 +290,9 @@ cd webui && npm run dev
 - [后端打包文档](neoray/BUILD.md)
 - [前端打包文档](neoray_app/BUILD.md)
 - [项目 README](README.md)
+
+---
+
+## 代码审计
+
+三轮代码审计（问题、修复提交、验证方式）见 [docs/audit/README.md](docs/audit/README.md)。

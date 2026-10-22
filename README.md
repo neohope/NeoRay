@@ -114,4 +114,8 @@ cd neoray && ./scripts/build-macos.sh
 
 BSD 3-Clause License - see [LICENSE](LICENSE) file for details
 
+---
 
+## 代码审计
+
+三轮代码审计（问题、修复提交、验证方式）见 [docs/audit/README.md](docs/audit/README.md)。
