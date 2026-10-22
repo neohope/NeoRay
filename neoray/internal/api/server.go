@@ -457,14 +457,6 @@ func (s *Server) subscribeToBus() {
 	logger.Info("API server subscribed to message bus")
 }
 
-// publishToBus 发布入站消息到总线
-func (s *Server) publishToBus(msg *bus.InboundMessage) error {
-	if s.msgBus == nil {
-		return nil
-	}
-	return s.msgBus.PublishInbound(msg)
-}
-
 // getConfig 返回当前配置指针。使用 copy-on-write 模式：
 // handleConfig 替换整个指针而非原地修改字段，因此读取方无需深拷贝。
 func (s *Server) getConfig() *config.Config {

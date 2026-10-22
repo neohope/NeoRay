@@ -3,7 +3,6 @@ package command
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -313,48 +312,4 @@ func RegisterStopCommand(router *CommandRouter, stopMgr StopManager) {
 		Description: "Cancel active tasks for this chat.",
 		Icon:        "square",
 	})
-}
-
-// 启动时间（用于 status）
-var startTime = time.Now()
-
-// cmdStatusInternal 内部状态函数（供扩展使用）
-func cmdStatusInternal(ctx *CommandContext, extra map[string]interface{}) string {
-	var sb strings.Builder
-
-	// 运行时间
-	uptime := time.Since(startTime)
-	sb.WriteString(fmt.Sprintf("⌛ Uptime: %s\n", formatDuration(uptime)))
-
-	// 处理额外的状态信息
-	if extra != nil {
-		// 可以在这里添加更多状态信息
-		keys := make([]string, 0, len(extra))
-		for k := range extra {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			sb.WriteString(fmt.Sprintf("- %s: %v\n", k, extra[k]))
-		}
-	}
-
-	return sb.String()
-}
-
-func formatDuration(d time.Duration) string {
-	d = d.Round(time.Second)
-	h := d / time.Hour
-	d -= h * time.Hour
-	m := d / time.Minute
-	d -= m * time.Minute
-	s := d / time.Second
-
-	if h > 0 {
-		return fmt.Sprintf("%dh%dm%ds", h, m, s)
-	}
-	if m > 0 {
-		return fmt.Sprintf("%dm%ds", m, s)
-	}
-	return fmt.Sprintf("%ds", s)
 }

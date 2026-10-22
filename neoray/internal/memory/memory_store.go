@@ -341,36 +341,6 @@ func (ms *MemoryStore) RawArchive(messages []interface{}) error {
 
 // 内部方法
 
-func (ms *MemoryStore) readFile(path string) string {
-	data, _ := os.ReadFile(path)
-	return string(data)
-}
-
-func (ms *MemoryStore) nextCursor() int {
-	// 尝试读取 cursor 文件
-	if data, err := os.ReadFile(ms.cursorFile); err == nil {
-		var cursor int
-		if _, err := fmt.Sscanf(string(data), "%d", &cursor); err == nil {
-			return cursor + 1
-		}
-	}
-
-	// 读取最后一条记录的 cursor
-	if last := ms.readLastEntry(); last != nil {
-		return last.Cursor + 1
-	}
-
-	// 扫描最后一批记录找最大 cursor（避免全量读取）
-	entries := ms.tailEntries(1000)
-	maxCursor := 0
-	for _, entry := range entries {
-		if entry.Cursor > maxCursor {
-			maxCursor = entry.Cursor
-		}
-	}
-	return maxCursor + 1
-}
-
 // nextCursorFromTail reads only the last portion of the history file
 // to find the max cursor, avoiding loading the entire file into memory.
 // NOTE: Caller must hold ms.mu (read or write lock).
@@ -433,43 +403,6 @@ func (ms *MemoryStore) tailEntries(maxEntries int) []HistoryEntry {
 		return rotated
 	}
 	return ring
-}
-
-func (ms *MemoryStore) readLastEntry() *HistoryEntry {
-	f, err := os.Open(ms.historyFile)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-
-	stat, err := f.Stat()
-	if err != nil || stat.Size() == 0 {
-		return nil
-	}
-
-	// 读取文件末尾
-	bufSize := min(4096, stat.Size())
-	buf := make([]byte, bufSize)
-	_, err = f.ReadAt(buf, stat.Size()-bufSize)
-	if err != nil {
-		return nil
-	}
-
-	// 找到最后一行
-	lines := strings.Split(string(buf), "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if line == "" {
-			continue
-		}
-
-		var entry HistoryEntry
-		if err := json.Unmarshal([]byte(line), &entry); err == nil {
-			return &entry
-		}
-	}
-
-	return nil
 }
 
 func (ms *MemoryStore) writeEntries(entries []HistoryEntry) error {
@@ -787,11 +720,4 @@ func removeTag(s, start, end string) string {
 		s = s[:startIdx] + s[endIdx:]
 	}
 	return s
-}
-
-func min(a, b int64) int64 {
-	if a < b {
-		return a
-	}
-	return b
 }

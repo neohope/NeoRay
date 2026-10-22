@@ -139,19 +139,6 @@ type openaiResponse struct {
 	} `json:"usage"`
 }
 
-// openaiStreamResponse 流式响应
-type openaiStreamResponse struct {
-	Choices []struct {
-		Delta struct {
-			Role      string               `json:"role"`
-			Content   string               `json:"content"`
-			ToolCalls []openaiToolCallItem `json:"tool_calls,omitempty"`
-		} `json:"delta"`
-		FinishReason string `json:"finish_reason"`
-		Index        int    `json:"index"`
-	} `json:"choices"`
-}
-
 // Chat 发送聊天请求
 func (p *GenericProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	if p.cfg.APIKey == "" {

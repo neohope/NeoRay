@@ -293,42 +293,6 @@ func (o *orderedMap) addIfNew(key string) bool {
 	return true
 }
 
-func (o *orderedMap) has(key string) bool {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if elem, ok := o.data[key]; ok {
-		// LRU：访问时提升到末尾（最近使用）
-		o.order.MoveToBack(elem)
-		return true
-	}
-	return false
-}
-
-func (o *orderedMap) add(key string) {
-	o.mu.Lock()
-	if elem, ok := o.data[key]; ok {
-		// 已存在，提升到末尾
-		o.order.MoveToBack(elem)
-		o.mu.Unlock()
-		return
-	}
-	// 容量已满，淘汰最久未使用的（链表头部）
-	if o.order.Len() >= o.cap {
-		oldest := o.order.Front()
-		if oldest != nil {
-			if key, ok := oldest.Value.(string); ok {
-				delete(o.data, key)
-			}
-			o.order.Remove(oldest)
-		}
-	}
-	elem := o.order.PushBack(key)
-	o.data[key] = elem
-	o.mu.Unlock()
-
-	o.markDirty()
-}
-
 type streamBuf struct {
 	text      string
 	messageID string // 使用消息ID替代卡片ID
@@ -1193,33 +1157,6 @@ type FeishuMessageEvent struct {
 			Mentions    []FeishuMention `json:"mentions"`
 		} `json:"message"`
 	} `json:"event"`
-}
-
-func (f *FeishuChannel) handleEvent(data []byte) {
-	var event FeishuEvent
-	if err := json.Unmarshal(data, &event); err != nil {
-		logger.Error("Failed to parse event", logger.ErrorField(err))
-		return
-	}
-
-	switch event.Header.EventType {
-	case "im.message.receive_v1":
-		f.handleMessageEvent(data)
-	case "im.message.reaction.created_v1":
-		logger.Debug("Reaction created event", logger.String("event_id", event.Header.EventID))
-	case "im.message.reaction.deleted_v1":
-		logger.Debug("Reaction deleted event", logger.String("event_id", event.Header.EventID))
-	case "im.message.message_read_v1":
-		logger.Debug("Message read event", logger.String("event_id", event.Header.EventID))
-	case "im.chat.access_event.bot_p2p_chat_entered_v1":
-		logger.Debug("Bot entered p2p chat", logger.String("event_id", event.Header.EventID))
-	case "im.chat.member.bot_added_v1":
-		logger.Debug("Bot added to chat", logger.String("event_id", event.Header.EventID))
-	case "im.chat.member.bot_deleted_v1":
-		logger.Debug("Bot removed from chat", logger.String("event_id", event.Header.EventID))
-	default:
-		logger.Debug("Unhandled event type", logger.String("event_type", event.Header.EventType))
-	}
 }
 
 func (f *FeishuChannel) isBotMentioned(messageContent string, mentions []FeishuMention) bool {
@@ -2789,57 +2726,6 @@ func (f *FeishuChannel) doAPIRequestOnce(ctx context.Context, method, url string
 	}
 
 	return nil
-}
-
-// doAPIGet 执行飞书 GET 请求，解析通用响应结构并将 Data 反序列化到 result
-func (f *FeishuChannel) doAPIGet(ctx context.Context, url string, result interface{}) error {
-	return f.doAPIRequest(ctx, http.MethodGet, url, nil, result)
-}
-
-// doAPIGetRaw 执行飞书 GET 请求，返回原始响应字节和 HTTP 状态码
-// 用于下载文件、图片等二进制内容
-func (f *FeishuChannel) doAPIGetRaw(ctx context.Context, url string) ([]byte, int, error) {
-	body, status, err := f.doAPIGetRawOnce(ctx, url)
-	if err != nil {
-		return nil, status, err
-	}
-	// 二进制接口的 token 失效通常体现为 HTTP 4xx + JSON body，
-	// 这里做一次轻量判断：若 body 能解析出 token 失效码，刷新后重试
-	if status >= 400 {
-		var probe struct {
-			Code int `json:"code"`
-		}
-		if json.Unmarshal(body, &probe) == nil && isInvalidTenantToken(probe.Code) {
-			logger.Warn("Feishu token invalid on binary download, refreshing and retrying",
-				logger.Int("code", probe.Code), logger.String("url", url))
-			if refreshErr := f.refreshToken(); refreshErr == nil {
-				return f.doAPIGetRawOnce(ctx, url)
-			}
-		}
-	}
-	return body, status, nil
-}
-
-func (f *FeishuChannel) doAPIGetRawOnce(ctx context.Context, url string) ([]byte, int, error) {
-	token, err := f.ensureToken()
-	if err != nil {
-		return nil, 0, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, 0, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := f.httpClient.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
-	return body, resp.StatusCode, nil
 }
 
 func truncateString(s string, max int) string {

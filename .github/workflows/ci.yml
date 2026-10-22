@@ -56,10 +56,9 @@ jobs:
         run: go install honnef.co/go/tools/cmd/staticcheck@latest
 
       - name: Run staticcheck
-        # 排除项说明：
-        #   U1000  未使用代码 —— 存量死代码待清理（共 21 处），不影响行为
-        #   ST1018 字符串里的零宽连接符 —— 默认 SOUL 文案里的 emoji，属有意为之
-        run: staticcheck -checks "inherit,-U1000,-ST1018" ./...
+        # 仅排除 ST1018：默认 SOUL 文案里的 emoji 含零宽连接符，属有意为之。
+        # 未使用代码（U1000）已于 2026-10-22 清理完毕，不再豁免。
+        run: staticcheck -checks "inherit,-ST1018" ./...
 
   govulncheck:
     name: govulncheck (informational)

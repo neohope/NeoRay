@@ -128,9 +128,6 @@ type TurnContext struct {
 
 	// 追踪
 	Trace []StateTraceEntry
-
-	// 内部状态
-	saveSkip int
 }
 
 // NewTurnContext 创建新的回合上下文
@@ -175,10 +172,9 @@ type AgentLoop struct {
 	transitions map[TurnState]map[StateEvent]TurnState
 
 	// 并发控制
-	running         bool
-	sessionLocks    map[string]*sessionLockEntry
-	pendingQueues   map[string]chan *bus.InboundMessage
-	concurrencyGate chan struct{}
+	running       bool
+	sessionLocks  map[string]*sessionLockEntry
+	pendingQueues map[string]chan *bus.InboundMessage
 
 	// 工具绑定锁 — 保护 wireToolsForSession + 工具执行的原子性
 	toolWireMu sync.Mutex
@@ -908,14 +904,6 @@ func (al *AgentLoop) cleanInvalidMessageSequence(sess *session.Session, sessionK
 		logger.String("session_key", sessionKey),
 		logger.Int("removed", len(removeIdx)),
 		logger.Int("remaining", len(cleaned)))
-}
-
-// wireToolsForSession 将 FileStateStore 和 ExecSessionManager 绑定到当前会话。
-// 使用 toolWireMu 保证绑定的原子性，防止不同 session 并发修改共享工具状态。
-func (al *AgentLoop) wireToolsForSession(sessionID string) {
-	al.toolWireMu.Lock()
-	defer al.toolWireMu.Unlock()
-	al.wireToolsForSessionLocked(sessionID)
 }
 
 // wireToolsForSessionLocked 内部方法，调用者必须持有 toolWireMu。
