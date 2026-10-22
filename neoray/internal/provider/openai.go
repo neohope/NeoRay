@@ -16,9 +16,9 @@ import (
 
 // GenericProvider 通用 OpenAI 兼容提供商
 type GenericProvider struct {
-	name      string
-	cfg       *config.ProviderConfig
-	client    *http.Client
+	name         string
+	cfg          *config.ProviderConfig
+	client       *http.Client
 	streamClient *http.Client // 无超时，用于 SSE 流式请求
 
 	mu         sync.RWMutex
@@ -78,19 +78,19 @@ func (p *GenericProvider) GetDefaultModel() string {
 
 // openaiRequest OpenAI API 请求
 type openaiRequest struct {
-	Model             string               `json:"model"`
-	Messages          []openaiMessage      `json:"messages"`
-	Tools             []openaiTool         `json:"tools,omitempty"`
-	MaxTokens         int                  `json:"max_tokens,omitempty"`
-	Temperature       float64              `json:"temperature,omitempty"`
-	Stream            bool                 `json:"stream,omitempty"`
-	ReasoningEffort  string               `json:"reasoning_effort,omitempty"` // 一些 OpenAI 兼容 API 支持
+	Model           string          `json:"model"`
+	Messages        []openaiMessage `json:"messages"`
+	Tools           []openaiTool    `json:"tools,omitempty"`
+	MaxTokens       int             `json:"max_tokens,omitempty"`
+	Temperature     float64         `json:"temperature,omitempty"`
+	Stream          bool            `json:"stream,omitempty"`
+	ReasoningEffort string          `json:"reasoning_effort,omitempty"` // 一些 OpenAI 兼容 API 支持
 }
 
 // openaiTool OpenAI 工具定义
 type openaiTool struct {
-	Type     string                 `json:"type"`
-	Function openaiFunction         `json:"function"`
+	Type     string         `json:"type"`
+	Function openaiFunction `json:"function"`
 }
 
 // openaiFunction 工具函数定义
@@ -324,7 +324,7 @@ func (p *GenericProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 		logger.Info("LLM tool call",
 			logger.String("id", tc.ID),
 			logger.String("name", tc.Function.Name),
-			logger.String("arguments", tc.Function.Arguments))
+			logger.String("arguments", logger.Redact(tc.Function.Arguments)))
 		toolCalls = append(toolCalls, ToolCall{
 			ID:        tc.ID,
 			Name:      tc.Function.Name,
@@ -334,8 +334,8 @@ func (p *GenericProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 
 	// 构建使用量
 	usage := &Usage{
-		InputTokens:            apiResp.Usage.PromptTokens,
-		OutputTokens:           apiResp.Usage.CompletionTokens,
+		InputTokens:              apiResp.Usage.PromptTokens,
+		OutputTokens:             apiResp.Usage.CompletionTokens,
 		CacheCreationInputTokens: apiResp.Usage.CacheCreationInputTokens,
 		CacheReadInputTokens:     apiResp.Usage.CacheReadInputTokens,
 	}
@@ -347,7 +347,7 @@ func (p *GenericProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 		Content:      choice.Message.Content,
 		ToolCalls:    toolCalls,
 		FinishReason: choice.FinishReason,
-		Usage:       usage,
+		Usage:        usage,
 	}
 
 	logger.Debug("API response",
@@ -578,7 +578,7 @@ func (p *GenericProvider) processStreamChunk(data string, ch chan<- StreamChatRe
 			Delta struct {
 				Content   string `json:"content"`
 				ToolCalls []struct {
-					Index    int `json:"index"`
+					Index    int    `json:"index"`
 					ID       string `json:"id,omitempty"`
 					Type     string `json:"type,omitempty"`
 					Function struct {
@@ -617,7 +617,7 @@ func (p *GenericProvider) processStreamChunk(data string, ch chan<- StreamChatRe
 // handleError 处理错误
 func (p *GenericProvider) handleError(err error) *ChatResponse {
 	errResp := &ChatResponse{
-		Content:       fmt.Sprintf("Error calling LLM: %v", err),
+		Content:      fmt.Sprintf("Error calling LLM: %v", err),
 		FinishReason: "error",
 	}
 

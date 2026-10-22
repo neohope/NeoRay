@@ -197,6 +197,61 @@ type sessionLockEntry struct {
 	ref int
 }
 
+// lockSession 带超时获取会话锁；超时返回错误（调用方负责告知用户）
+func (al *AgentLoop) lockSession(lock *sessionLockEntry, sessionKey string, ctx context.Context) error {
+	wait := al.lockWaitTimeout()
+	if lock.acquire(ctx, wait) {
+		return nil
+	}
+	al.releaseSessionLock(sessionKey)
+	return fmt.Errorf("session busy: previous turn still running (waited %s)", wait)
+}
+
+// notifySessionBusy 告知用户"上一条还在处理"，避免消息石沉大海
+func (al *AgentLoop) notifySessionBusy(msg *bus.InboundMessage, sessionKey string) {
+	if al.msgBus == nil || msg == nil {
+		return
+	}
+	out := bus.NewOutboundMessage(msg.ChannelID, msg.ChatID, "⏳ 上一条还在处理中，请稍后再发一次。")
+	out.SessionID = sessionKey
+	out.Metadata = map[string]interface{}{"session": sessionKey, "status": "busy"}
+	if err := al.msgBus.PublishOutbound(out); err != nil {
+		logger.Warn("Failed to notify session busy", logger.ErrorField(err))
+	}
+}
+
+// acquire 在给定超时内尝试获取会话锁。
+//
+// 原来是 lock.mu.Lock()：只要某个回合卡住（工具阻塞、模型不返回），
+// 该会话之后的所有消息会永久排队，goroutine 只增不减，且用户看不到任何反馈。
+// 现在超过超时返回 false，由调用方告知用户"上一条还在处理"。
+func (l *sessionLockEntry) acquire(ctx context.Context, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if l.mu.TryLock() {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
+// lockWaitTimeout 返回等待会话锁的上限：
+// 至少留出「一轮完整处理」的时间，否则正常长任务会被误判为卡死。
+func (al *AgentLoop) lockWaitTimeout() time.Duration {
+	base := al.messageTimeout
+	if base <= 0 {
+		base = goroutineTimeout
+	}
+	return base + 30*time.Second
+}
+
 // AgentLoopOption 代理循环配置选项
 type AgentLoopOption func(*AgentLoop)
 
@@ -449,9 +504,11 @@ func (al *AgentLoop) ProcessDirect(
 	}
 
 	lock := al.getSessionLock(sessionKey)
-	lock.mu.Lock()
-	defer lock.mu.Unlock()
+	if err := al.lockSession(lock, sessionKey, ctx); err != nil {
+		return nil, err
+	}
 	defer al.releaseSessionLock(sessionKey)
+	defer lock.mu.Unlock()
 
 	result, err := al.processMessage(ctx, msg, sessionKey)
 
@@ -491,7 +548,15 @@ func (al *AgentLoop) handleInboundMessage(ctx context.Context, msg *bus.InboundM
 	// 启动新任务处理 — 派生独立 context，避免捕获短生命周期的请求 context
 	// 锁顺序约定：始终先获取 al.mu 再获取 lock.mu，防止死锁
 	go func() {
-		lock.mu.Lock()
+		lockWait := al.lockWaitTimeout()
+		if !lock.acquire(al.globalCtx, lockWait) {
+			logger.Error("Timed out waiting for session lock — previous turn may be stuck",
+				logger.String("session_key", sessionKey),
+				logger.Duration("waited", lockWait))
+			al.notifySessionBusy(msg, sessionKey)
+			al.releaseSessionLock(sessionKey)
+			return
+		}
 		lockAcquiredAt := time.Now()
 		defer func() {
 			lockHeld := time.Since(lockAcquiredAt)
@@ -1058,7 +1123,7 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 				logger.Info("LLM requested tool call",
 					logger.String("tool", tc.Name),
 					logger.String("tool_id", tc.ID),
-					logger.String("arguments", tc.Arguments))
+					logger.String("arguments", logger.Redact(tc.Arguments)))
 			}
 		}
 		turnCtx.Session.AddMessage(assistantMsg)
@@ -1315,9 +1380,11 @@ func (al *AgentLoop) Chat(ctx context.Context, sess *session.Session, userInput 
 
 	sessionKey := sess.ID
 	lock := al.getSessionLock(sessionKey)
-	lock.mu.Lock()
-	defer lock.mu.Unlock()
+	if err := al.lockSession(lock, sessionKey, ctx); err != nil {
+		return nil, err
+	}
 	defer al.releaseSessionLock(sessionKey)
+	defer lock.mu.Unlock()
 
 	// 创建 Trace
 	trace := al.traceManager.GetOrCreateSession(sess.ID)
@@ -1438,7 +1505,9 @@ func (al *AgentLoop) ChatStream(ctx context.Context, sess *session.Session, user
 	// 获取 session 锁，保证整个流式处理期间 session 状态的一致性
 	sessionKey := sess.ID
 	lock := al.getSessionLock(sessionKey)
-	lock.mu.Lock()
+	if err := al.lockSession(lock, sessionKey, ctx); err != nil {
+		return nil, err
+	}
 
 	// 设置当前会话
 	al.mu.Lock()
@@ -2051,7 +2120,7 @@ func (al *AgentLoop) executeToolCallsLocked(
 			logger.Info("Tool call started",
 				logger.String("tool", tc.Name),
 				logger.String("tool_id", tc.ID),
-				logger.String("arguments", tc.Arguments))
+				logger.String("arguments", logger.Redact(tc.Arguments)))
 
 			toolStart := time.Now()
 			result, err := al.toolRegistry.Execute(toolCtx, tc.Name, json.RawMessage(tc.Arguments))
@@ -2074,7 +2143,7 @@ func (al *AgentLoop) executeToolCallsLocked(
 				}
 				mu.Unlock()
 			} else {
-				resultStr := string(result)
+				resultStr := logger.Redact(string(result))
 				if len(resultStr) > 500 {
 					resultStr = resultStr[:500] + "..."
 				}

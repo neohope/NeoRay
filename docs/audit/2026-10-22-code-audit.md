@@ -40,7 +40,10 @@
 > 并顺带修掉 dream 无法创建新技能目录的两个缺陷。
 >
 > 状态更新（2026-10-22 第 3 批已修复）：F11 token 失效自动刷新重试、
-> F12 去重表批量落盘 + Stop 刷盘。剩 F13–F17 待处理。
+> F12 去重表批量落盘 + Stop 刷盘。
+>
+> 状态更新（2026-10-22 第 4 批已修复）：F13 会话锁带超时（并用「上一条还在处理」
+> 提示替代无限排队）、F14 日志脱敏。剩 F15–F17 待处理。
 
 | ID | 问题 | 位置 | 证据 | 影响 |
 |---|---|---|---|---|
@@ -56,8 +59,8 @@
 
 | ID | 问题 | 位置 | 说明 |
 |---|---|---|---|
-| F13 | 会话锁是无超时的 `sync.Mutex` | `internal/agent/loop.go:452,483` | 一个卡住的回合会让该会话后续消息全部排队，goroutine 只增不减 |
-| F14 | 工具参数原文入日志 | `internal/agent/loop.go:1055,2048`、`internal/provider/openai.go:327` | 命令里若含 token/密钥会落到磁盘日志 |
+| F13 | 会话锁是无超时的 `sync.Mutex` | `internal/agent/loop.go:452,483` | 一个卡住的回合会让该会话后续消息全部排队，goroutine 只增不减 | ✅ 已修 |
+| F14 | 工具参数原文入日志 | `internal/agent/loop.go:1055,2048`、`internal/provider/openai.go:327` | 命令里若含 token/密钥会落到磁盘日志 | ✅ 已修 |
 | F15 | 请求方自称身份 | `internal/api/handlers.go:449` | `channel_id`/`user_id` 来自 query/header，持密钥者可按 ID 读任意会话（单用户部署可接受，多用户即 IDOR） |
 | F16 | 静态资源仅靠 `filepath.Clean` | `internal/api/static.go:110` | 未校验软链；`static_dir` 内有软链时可越界 |
 | F17 | **仓库没有任何 CI** | 仓库根目录无 `.github/` | 无自动 `go test` / `go vet` / lint，回归全靠人肉 |
