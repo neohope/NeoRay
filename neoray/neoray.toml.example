@@ -85,6 +85,9 @@ message_timeout = 0
 [tools]
 [tools.workspace]
 enabled = true
+# security.restrict_to_workspace = true 时，shell 命令里的路径必须落在
+# workspace 或下面这些目录内；不在列表里的绝对路径会被拒绝。
+# 支持 ~ 前缀，可写多个目录。
 allowed_paths = ["~/.neoray/workspace"]
 read_only = false
 

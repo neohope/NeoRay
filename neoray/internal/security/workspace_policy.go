@@ -291,6 +291,10 @@ func containsShellMeta(command string) bool {
 }
 
 // FilterCommandForPathSafety filters a command for potentially unsafe path access.
+//
+// Deprecated: 该实现把任何 shell 元字符（管道、引号、glob）都判为非法，
+// 导致 `git log | head`、`grep "a b"` 这类正常命令无法使用。
+// 新代码请用 CheckCommandPaths（支持分段解析 + allowed_paths）。
 func FilterCommandForPathSafety(command string, workspace string) (string, error) {
 	// Check for path traversal patterns first
 	if ContainsPathTraversal(command) {

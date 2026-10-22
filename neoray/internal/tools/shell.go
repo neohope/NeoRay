@@ -98,10 +98,10 @@ func (t *ShellTool) Parameters() json.RawMessage {
 // Execute 执行工具
 func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.RawMessage, error) {
 	var params struct {
-		Command         string  `json:"command"`
-		Timeout         float64 `json:"timeout,omitempty"`
-		YieldTimeMs     int     `json:"yield_time_ms,omitempty"`
-		MaxOutputChars  int     `json:"max_output_chars,omitempty"`
+		Command        string  `json:"command"`
+		Timeout        float64 `json:"timeout,omitempty"`
+		YieldTimeMs    int     `json:"yield_time_ms,omitempty"`
+		MaxOutputChars int     `json:"max_output_chars,omitempty"`
 	}
 
 	if err := json.Unmarshal(args, &params); err != nil {
@@ -176,8 +176,21 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 	var finalCommand string = command
 	if t.cfg.Security.RestrictToWorkspace {
 		var err error
-		// Filter the original command first
-		filteredCmd, err := security.FilterCommandForPathSafety(command, t.workspace)
+		// 校验命令里的路径：允许 workspace + tools.workspace.allowed_paths。
+		// 旧的 FilterCommandForPathSafety 会因 shell 元字符把整条命令拒掉
+		// （管道、引号、glob 全不能用），这里换成支持 allowlist 的解析器。
+		if err := security.CheckCommandPaths(command, t.workspace, t.cfg.Tools.Workspace.AllowedPaths); err != nil {
+			result := map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			}
+			res, _ := json.Marshal(result)
+			return res, nil
+		}
+		filteredCmd := command
+		if filteredCmd == "" {
+			filteredCmd = command
+		}
 		if err != nil {
 			result := map[string]interface{}{
 				"success": false,

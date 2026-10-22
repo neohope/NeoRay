@@ -30,7 +30,7 @@ const (
 	MaxMaxOutput       = 50000
 	MaxSessions        = 8
 	IdleTimeoutSeconds = 1800
-	MaxChunks          = 4096   // max chunks per exec session to prevent unbounded memory growth
+	MaxChunks          = 4096    // max chunks per exec session to prevent unbounded memory growth
 	MaxMergedChunkSize = 1 << 20 // 1 MiB — cap for merged chunk to prevent OOM
 )
 
@@ -542,9 +542,7 @@ func spawnCommand(ctx context.Context, command string, cwd string, cfg *config.C
 
 	// 应用安全检查
 	if cfg.Security.RestrictToWorkspace {
-		var err error
-		command, err = security.FilterCommandForPathSafety(command, workspace)
-		if err != nil {
+		if err := security.CheckCommandPaths(command, workspace, cfg.Tools.Workspace.AllowedPaths); err != nil {
 			return nil, "", err
 		}
 
