@@ -76,7 +76,7 @@ type FindFilesArgs struct {
 	Type        string `json:"type"`
 	IncludeDirs bool   `json:"include_dirs"`
 	Sort        string `json:"sort"`
-	HeadLimit   int    `json:"head_limit"`
+	HeadLimit   *int   `json:"head_limit"`
 	Offset      int    `json:"offset"`
 }
 
@@ -150,11 +150,14 @@ func (t *FindFilesTool) Execute(ctx context.Context, args json.RawMessage) (json
 		sortMode = "path"
 	}
 
+	// 未传 head_limit → 用默认值；显式传 0 → 不限制。
+	// 之前用 int 无法区分两者，缺省即 0，导致默认值形同虚设、大仓库全量返回。
 	limit := defaultFileHeadLimit
-	if input.HeadLimit > 0 {
-		limit = input.HeadLimit
-	} else if input.HeadLimit == 0 {
-		limit = 0 // 0 means no limit
+	if input.HeadLimit != nil {
+		limit = *input.HeadLimit
+		if limit < 0 {
+			limit = 0
+		}
 	}
 
 	root := target
@@ -337,7 +340,7 @@ type GrepArgs struct {
 	ContextAfter    int    `json:"context_after"`
 	MaxMatches      int    `json:"max_matches"`
 	MaxResults      int    `json:"max_results"`
-	HeadLimit       int    `json:"head_limit"`
+	HeadLimit       *int   `json:"head_limit"`
 	Offset          int    `json:"offset"`
 }
 
@@ -390,7 +393,7 @@ func (t *GrepTool) Parameters() json.RawMessage {
 		},
 		"head_limit": map[string]any{
 			"type":        "integer",
-			"description": "Maximum number of results to return",
+			"description": "Maximum number of results to return (default 250; pass 0 for no limit)",
 			"minimum":     0,
 			"maximum":     1000,
 		},
@@ -440,15 +443,18 @@ func (t *GrepTool) Execute(ctx context.Context, args json.RawMessage) (json.RawM
 		return json.Marshal(fmt.Sprintf("Error: invalid regex pattern: %v", err))
 	}
 
-	// Determine limit
+	// Determine limit：优先 head_limit（显式传才算），其次按输出模式的专用上限，
+	// 都没有就落在默认值上。
 	limit := defaultHeadLimit
-	if input.HeadLimit > 0 {
-		limit = input.HeadLimit
-	} else if input.HeadLimit == 0 {
-		limit = 0
-	} else if input.OutputMode == "content" && input.MaxMatches > 0 {
+	switch {
+	case input.HeadLimit != nil:
+		limit = *input.HeadLimit
+		if limit < 0 {
+			limit = 0
+		}
+	case input.OutputMode == "content" && input.MaxMatches > 0:
 		limit = input.MaxMatches
-	} else if input.OutputMode != "content" && input.MaxResults > 0 {
+	case input.OutputMode != "content" && input.MaxResults > 0:
 		limit = input.MaxResults
 	}
 

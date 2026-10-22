@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/binary"
@@ -265,9 +264,12 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 		cmd.Stdin = strings.NewReader(finalCommand)
 	}
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	// 输出上限：一次性执行也必须有界，否则 `cat` 大文件 / `yes` 会撑爆内存
+	captureLimit := clampInt(params.MaxOutputChars, DefaultMaxOutput, 1000, MaxMaxOutput)
+	var stdout = newCappedBuffer(captureLimit)
+	var stderr = newCappedBuffer(captureLimit)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	startTime := time.Now()
 	err := cmd.Run()
@@ -279,6 +281,11 @@ func (t *ShellTool) Execute(ctx context.Context, args json.RawMessage) (json.Raw
 		"stdout":      stdout.String(),
 		"stderr":      stderr.String(),
 		"duration_ms": duration.Milliseconds(),
+	}
+	if dropped := stdout.Dropped() + stderr.Dropped(); dropped > 0 {
+		result["truncated"] = true
+		result["dropped_bytes"] = dropped
+		result["hint"] = "输出超过 max_output_chars 已被截断；如需完整内容，减少输出或改用长任务会话分段读取"
 	}
 
 	if err != nil {

@@ -84,7 +84,7 @@
 | 编号 | 问题 | 位置 | 验证方式 |
 |---|---|---|---|
 | R4 ✅ 已修 | `exec_session` 的长任务在工具返回瞬间被 SIGKILL：`sessMgr.Start(ctx, ...)` 传的是工具 ctx，`Execute` 一返回 `defer cancel()` 就生效，而进程是 `exec.CommandContext(ctx,...)` 起的 | `tools/shell.go:141`、`exec_session.go:599` | 代码链路复核 |
-| R5 | 一次性 shell 执行把输出全读进 `bytes.Buffer`，`max_output_chars` 只对 session 分支生效 → `cat 大文件`/`yes` 可把进程撑爆 | `tools/shell.go:268` | 代码复核（无上限 writer） |
+| R5 ✅ 已修 | 一次性 shell 执行把输出全读进 `bytes.Buffer`，`max_output_chars` 只对 session 分支生效 → `cat 大文件`/`yes` 可把进程撑爆 | `tools/shell.go:268` | 代码复核（无上限 writer） |
 | R6 ✅ 已修 | `MessageTool.restrictToWorkspace` 全仓库只有声明和一处读取、**从不赋值** → 附件路径校验整段是死代码，模型可把 `/etc/passwd` 当附件发出 | `tools/message.go:29,319` | grep 全仓确认无赋值 |
 | R7 ✅ 已修 | 飞书 token 刷新判定恒不成立：`now+margin > expiry` 等价于 `margin > ttl`，而 margin 是 `clamp(ttl/10,1m,10m)`，只在剩余 <1 分钟时才为真；ticker 又是 30 分钟一次 | `channel/feishu.go:2635` | 数学推导 + 代码复核 |
 | R8 ✅ 已修 | `PUT /api/config` 只替换 `api.Server` 的 cfg 指针；agent/tools/provider 各自持有旧指针，且没有重载方法 → 换 key、关工具全都不生效（返回 200） | `api/handlers.go:954` | 代码复核（`al.cfg` 只赋一次） |
@@ -94,7 +94,7 @@
 | R12 ✅ 已修 | autocompact 用**回合级 ctx** 起后台归档，回合结束即取消 → 归档必失败；`if err != nil { return }` 无日志，且 Archive 失败后仍截断+保存会话 | `memory/autocompact.go:188`、`agent/loop.go:1243` | 代码链路复核 |
 | R13 ✅ 已修 | `git show -- <rev>:<path>` 的 `--` 让 revision 变成 pathspec → **返回空内容且退出码 0**；`git rev-parse -- HEAD^` 输出 `--`/`HEAD^` 而非 SHA | `memory/git_store.go:379,363` | **实测**（临时仓库） |
 | R14 ✅ 已修 | 历史文件读用 `bufio.Scanner`（默认 64KB 单行上限）且**不检查 `Err()`**；64000 字符的条目编码后可达 72KB → 读到一半静默停止，`CompactHistory` 用不完整结果重写会删掉后半段 | `memory/memory_store.go:380` | **实测**（JSON 编码 72,070 字节） |
-| R15 | `find_files` 的 `head_limit` 默认值不可达：缺省字段就是 0，而 `== 0` 被解释成"不限制"，`defaultFileHeadLimit` 永远用不上 | `tools/search.go:154` | 代码复核 |
+| R15 ✅ 已修 | `find_files` 的 `head_limit` 默认值不可达：缺省字段就是 0，而 `== 0` 被解释成"不限制"，`defaultFileHeadLimit` 永远用不上 | `tools/search.go:154` | 代码复核 |
 
 ---
 
@@ -102,8 +102,8 @@
 
 | 编号 | 问题 | 位置 |
 |---|---|---|
-| R16 | WS `handleMessage(ctx,…)` 从不使用 ctx；各 handler 自建 Background ctx → `ws_message_timeout` 无法中断 agent，超时后同连接仍可并发处理 | `api/server.go:805`、`api/handlers.go:112,155` |
-| R17 | 限流器整数除法丢掉亚令牌零头却推进 `lastSeen` → 每 900ms 请求一次会让该 IP 永久 429（rate=60/min 时） | `api/server.go:128` |
+| R16 ✅ 已修 | WS `handleMessage(ctx,…)` 从不使用 ctx；各 handler 自建 Background ctx → `ws_message_timeout` 无法中断 agent，超时后同连接仍可并发处理 | `api/server.go:805`、`api/handlers.go:112,155` |
+| R17 ✅ 已修 | 限流器整数除法丢掉亚令牌零头却推进 `lastSeen` → 每 900ms 请求一次会让该 IP 永久 429（rate=60/min 时） | `api/server.go:128` |
 | R18 ✅ 已修 | fallback 全失败时返回 `nil` error + `FinishReason:"error"` → agent 把这句英文诊断当成正常回答落盘并展示 | `provider/fallback.go:404` |
 | R19 | 飞书处理失败提示复用**已到期**的 ctx 且 `_ =` 丢弃错误 → 用户既收不到回复也收不到失败提示 | `channel/feishu.go:1425` |
 | R20 | `replyMessage` 的 `replyInThread` 参数从未使用 → 话题隔离下回复落到主楼，话题外成员看到串台 | `channel/feishu.go:2065` |

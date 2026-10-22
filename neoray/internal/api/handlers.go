@@ -109,7 +109,7 @@ func (c *Client) parseAndPrepareChat(payload interface{}) (*ChatPayload, *sessio
 }
 
 // handleChat 处理聊天消息
-func (c *Client) handleChat(payload interface{}) {
+func (c *Client) handleChat(ctx context.Context, payload interface{}) {
 	chatPayload, sess, ok := c.parseAndPrepareChat(payload)
 	if !ok {
 		return
@@ -120,11 +120,12 @@ func (c *Client) handleChat(payload interface{}) {
 		"session_id": sess.ID,
 	})
 
-	// 调用 Agent 处理（带超时）
-	ctx, cancel := context.WithTimeout(context.Background(), c.Server.effectiveChatTimeout())
+	// 调用 Agent 处理。ctx 来自 WS 读取循环（ws_message_timeout），
+	// 超时或连接断开时能真正中断 agent；此前的 Background ctx 让上层超时形同虚设。
+	callCtx, cancel := context.WithTimeout(ctx, c.Server.effectiveChatTimeout())
 	defer cancel()
 
-	result, err := c.Server.agent.Chat(ctx, sess, chatPayload.Message)
+	result, err := c.Server.agent.Chat(callCtx, sess, chatPayload.Message)
 	if err != nil {
 		logger.Error("Agent chat failed", logger.ErrorField(err))
 		c.sendError("agent_error", "An internal error occurred while processing your request")
@@ -152,7 +153,7 @@ func (c *Client) handleChat(payload interface{}) {
 }
 
 // handleChatStream 处理流式聊天消息
-func (c *Client) handleChatStream(payload interface{}) {
+func (c *Client) handleChatStream(ctx context.Context, payload interface{}) {
 	chatPayload, sess, ok := c.parseAndPrepareChat(payload)
 	if !ok {
 		return
@@ -163,11 +164,11 @@ func (c *Client) handleChatStream(payload interface{}) {
 		"session_id": sess.ID,
 	})
 
-	// 调用 Agent 流式处理（带超时）
-	ctx, cancel := context.WithTimeout(context.Background(), c.Server.effectiveChatTimeout())
+	// 调用 Agent 流式处理；同样继承 WS 的 ctx，保证超时/断开可中断
+	streamCtx, cancel := context.WithTimeout(ctx, c.Server.effectiveChatTimeout())
 	defer cancel()
 
-	streamChan, err := c.Server.agent.ChatStream(ctx, sess, chatPayload.Message)
+	streamChan, err := c.Server.agent.ChatStream(streamCtx, sess, chatPayload.Message)
 	if err != nil {
 		logger.Error("Agent chat stream failed", logger.ErrorField(err))
 		c.sendError("agent_error", "An internal error occurred while processing your request")

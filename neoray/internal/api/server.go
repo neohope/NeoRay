@@ -53,7 +53,10 @@ type rateLimiter struct {
 }
 
 type visitor struct {
-	tokens   int
+	// tokens 用 float 保存：整数除法会把亚令牌零头丢掉，
+	// 而 lastSeen 已经推进 → 间隔不够一个令牌周期的请求永远补不上令牌，
+	// 一个每 900ms 请求一次的客户端会撞上"永久 429"。
+	tokens   float64
 	lastSeen time.Time
 }
 
@@ -116,21 +119,20 @@ func (rl *rateLimiter) allow(ip string) bool {
 
 	v, exists := rl.visitors[ip]
 	if !exists {
-		rl.visitors[ip] = &visitor{tokens: rl.burst - 1, lastSeen: time.Now()}
+		rl.visitors[ip] = &visitor{tokens: float64(rl.burst - 1), lastSeen: time.Now()}
 		return true
 	}
 
-	// Refill tokens based on elapsed time.
-	// P2-fix: use integer arithmetic to avoid float precision loss on small intervals.
+	// Refill tokens based on elapsed time (fractional to avoid losing remainders).
 	elapsed := time.Since(v.lastSeen)
 	v.lastSeen = time.Now()
-	// elapsed.Milliseconds() * rate / (window in ms) — all integer, no float rounding
-	v.tokens += int(elapsed.Milliseconds() * int64(rl.rate) / rl.window.Milliseconds())
-	if v.tokens > rl.burst {
-		v.tokens = rl.burst
+	perMs := float64(rl.rate) / float64(rl.window.Milliseconds())
+	v.tokens += float64(elapsed.Milliseconds()) * perMs
+	if v.tokens > float64(rl.burst) {
+		v.tokens = float64(rl.burst)
 	}
 
-	if v.tokens <= 0 {
+	if v.tokens < 1 {
 		return false
 	}
 	v.tokens--
@@ -729,6 +731,7 @@ func (c *Client) readPump() {
 		case <-done:
 			// 消息处理完成
 		case <-handleCtx.Done():
+			// handleCtx 已到期：handler 内部继承了这个 ctx，会被真正中断
 			logger.Warn("WebSocket message handling timed out",
 				logger.String("client_id", c.ID),
 				logger.Int("message_bytes", len(message)),
@@ -811,9 +814,9 @@ func (c *Client) handleMessage(ctx context.Context, data []byte) {
 
 	switch msg.Type {
 	case "chat":
-		c.handleChat(msg.Payload)
+		c.handleChat(ctx, msg.Payload)
 	case "chat_stream":
-		c.handleChatStream(msg.Payload)
+		c.handleChatStream(ctx, msg.Payload)
 	case "create_session":
 		c.handleCreateSession(msg.Payload)
 	case "join_session":
