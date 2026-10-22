@@ -119,7 +119,7 @@
 
 ---
 
-## 四、依赖安全（前三轮漏掉的维度）
+## 四、依赖安全（前三轮漏掉的维度）✅ 已修
 
 `govulncheck ./...` 结果：**38 项**，你的代码确实会调用到。
 
@@ -129,6 +129,11 @@
 | `golang.org/x/net v0.57.0` | 5 | **v0.60.0** |
 
 当前 `go.mod` 是 `go 1.25.0`，本机 toolchain 也是 1.25.0。**升级 Go + x/net 即可消除**。
+
+- **已实现**：`go 1.26.10`（toolchain 自动下载，修复全部标准库漏洞）、
+  `golang.org/x/net v0.60.0`、`github.com/gorilla/websocket v1.5.3`。
+  `govulncheck ./...` 结果从 **38 项 → No vulnerabilities found**。
+  CI 的 govulncheck 由「信息性」改为**阻塞任务**。
 
 ---
 
