@@ -37,7 +37,10 @@
 ### P1 — 会造成数据丢失或静默失败
 
 > 状态更新（2026-10-22 第 2 批已修复）：F6–F10 全部改为「失败即告警/返回错误」，
-> 并顺带修掉 dream 无法创建新技能目录的两个缺陷。F11、F12 仍待处理。
+> 并顺带修掉 dream 无法创建新技能目录的两个缺陷。
+>
+> 状态更新（2026-10-22 第 3 批已修复）：F11 token 失效自动刷新重试、
+> F12 去重表批量落盘 + Stop 刷盘。剩 F13–F17 待处理。
 
 | ID | 问题 | 位置 | 证据 | 影响 |
 |---|---|---|---|---|
@@ -46,8 +49,8 @@
 | F8 | 目录创建失败被忽略 | `internal/memory/dream.go:416` | `_ = os.MkdirAll(...)` | 后续写入全部失败且无提示 | ✅ 已修 |
 | F9 | 随机数错误被忽略 | `internal/bus/message.go:172` | `_, _ = crypto_rand.Read(b)` | 熵源异常时消息 ID 可能重复/全零 | ✅ 已修 |
 | F10 | 重投递消息忽略错误 | `internal/agent/loop.go:524` | `_ = al.msgBus.PublishInbound(leftoverMsg)` | 排队消息静默丢失 | ✅ 已修 |
-| F11 | 飞书 token 失效无重试 | `internal/channel/feishu.go:899` | `ensureToken` 仅在 token 为空时刷新 | 令牌被判失效（99991663）后，最长一个刷新窗口内所有回复失败 |
-| F12 | 去重表每条消息全量重写 | `internal/channel/feishu.go:223,261` | 每次 `addIfNew` 都 `go o.saveToFile()` | O(n) 写盘/每消息；高并发下 goroutine 排队堆积 |
+| F11 | 飞书 token 失效无重试 | `internal/channel/feishu.go:899` | `ensureToken` 仅在 token 为空时刷新 | 令牌被判失效（99991663）后，最长一个刷新窗口内所有回复失败 ✅ 已修（doAPIRequest / doAPIGetRaw 命中 99991661/3/8 时刷新并重试一次） | ✅ 已修 |
+| F12 | 去重表每条消息全量重写 | `internal/channel/feishu.go:223,261` | 每次 `addIfNew` 都 `go o.saveToFile()` | O(n) 写盘/每消息；高并发下 goroutine 排队堆积 ✅ 已修（dirty + 1s 批量落盘，Stop 时强制刷盘） | ✅ 已修 |
 
 ### P2 — 稳健性与可维护性
 

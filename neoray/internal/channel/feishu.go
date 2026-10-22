@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	lark "github.com/larksuite/oapi-sdk-go/v3"
@@ -114,14 +115,83 @@ type orderedMap struct {
 	order    *list.List
 	cap      int
 	filePath string // 持久化文件路径，为空则不持久化
+
+	// 批量落盘：以前每来一条新消息就整表重写一次文件（O(n) 写盘/消息，
+	// 群聊繁忙时 goroutine 还会排队堆积）。现在只标记 dirty，
+	// 由单个后台 goroutine 每秒合并一次；Stop 时再刷一次保证不丢。
+	dirty       atomic.Bool
+	flushOnce   sync.Once
+	flushStop   chan struct{}
+	flushDone   chan struct{}
+	flushPeriod time.Duration
 }
 
 func newOrderedMap(capacity int) *orderedMap {
 	return &orderedMap{
-		data:  make(map[string]*list.Element),
-		order: list.New(),
-		cap:   capacity,
+		data:        make(map[string]*list.Element),
+		order:       list.New(),
+		cap:         capacity,
+		flushStop:   make(chan struct{}),
+		flushDone:   make(chan struct{}),
+		flushPeriod: time.Second,
 	}
+}
+
+// startFlusher 启动唯一的后台落盘 goroutine（幂等）
+func (o *orderedMap) startFlusher() {
+	if o.filePath == "" {
+		return
+	}
+	o.flushOnce.Do(func() {
+		go func() {
+			defer close(o.flushDone)
+			period := o.flushPeriod
+			if period <= 0 {
+				period = time.Second
+			}
+			ticker := time.NewTicker(period)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-o.flushStop:
+					// 退出前把未落盘的改动刷掉
+					if o.dirty.Swap(false) {
+						o.saveToFile()
+					}
+					return
+				case <-ticker.C:
+					if o.dirty.Swap(false) {
+						o.saveToFile()
+					}
+				}
+			}
+		}()
+	})
+}
+
+// stop 停止后台落盘并做最后一次刷盘
+func (o *orderedMap) stop() {
+	o.startFlusher() // 确保 flushDone 会被关闭
+	select {
+	case <-o.flushStop:
+		// 已停止
+	default:
+		close(o.flushStop)
+	}
+	select {
+	case <-o.flushDone:
+	case <-time.After(3 * time.Second):
+		logger.Warn("Timed out waiting for processed message IDs flush")
+	}
+}
+
+// markDirty 标记有变更，交由后台 goroutine 合并落盘
+func (o *orderedMap) markDirty() {
+	if o.filePath == "" {
+		return
+	}
+	o.dirty.Store(true)
+	o.startFlusher()
 }
 
 // loadFromFile 从文件加载已处理的消息 ID
@@ -219,8 +289,7 @@ func (o *orderedMap) addIfNew(key string) bool {
 	o.data[key] = elem
 	o.mu.Unlock()
 
-	// 异步持久化到文件（saveToFile 内部已串行化 + 原子替换）
-	go o.saveToFile()
+	o.markDirty()
 	return true
 }
 
@@ -257,8 +326,7 @@ func (o *orderedMap) add(key string) {
 	o.data[key] = elem
 	o.mu.Unlock()
 
-	// 异步持久化到文件
-	go o.saveToFile()
+	o.markDirty()
 }
 
 type streamBuf struct {
@@ -356,6 +424,10 @@ func (f *FeishuChannel) Stop() error {
 
 	logger.Info("Stopping Feishu channel")
 	close(f.stopChan)
+	// 停止后台落盘并做最后一次刷盘，避免重启后丢失去重记录导致重复回复
+	if f.processedMessageIDs != nil {
+		f.processedMessageIDs.stop()
+	}
 
 	if f.wsCancel != nil {
 		f.wsCancel()
@@ -2609,12 +2681,62 @@ type feishuAPIResponse struct {
 	Data json.RawMessage `json:"data"`
 }
 
+// invalidTenantTokenCodes 表示 tenant_access_token 无效/过期，
+// 这类错误刷新 token 后重试一次即可恢复，不必让调用方失败。
+var invalidTenantTokenCodes = map[int]bool{
+	99991661: true, // tenant_access_token invalid
+	99991663: true, // tenant_access_token expired / not exist
+	99991668: true, // token invalid（部分接口返回）
+}
+
+// isInvalidTenantToken 判断错误码是否属于「token 失效，可刷新后重试」
+func isInvalidTenantToken(code int) bool {
+	return invalidTenantTokenCodes[code]
+}
+
 // doAPIRequest 执行飞书 API 请求（带 JSON body），解析通用响应结构
 // method: HTTP 方法（POST, PATCH, DELETE 等）
 // url: 完整 API URL
 // body: 请求体（会被 JSON 序列化），传 nil 表示无 body
 // result: 响应 Data 字段的反序列化目标，传 nil 表示忽略 data
 func (f *FeishuChannel) doAPIRequest(ctx context.Context, method, url string, body interface{}, result interface{}) error {
+	// 最多尝试两次：命中 token 失效码时强制刷新并重试一次。
+	// ensureToken 只在 token 为空时刷新，一旦服务端判定其失效，
+	// 后续调用会连续失败到下一个刷新窗口（表现为「机器人忽然不回消息」）。
+	for attempt := 0; attempt < 2; attempt++ {
+		err := f.doAPIRequestOnce(ctx, method, url, body, result)
+		if err == nil {
+			return nil
+		}
+		if apiErr, ok := err.(*feishuAPIError); ok && isInvalidTenantToken(apiErr.Code) && attempt == 0 {
+			logger.Warn("Feishu token invalid, refreshing and retrying",
+				logger.Int("code", apiErr.Code),
+				logger.String("url", url))
+			if refreshErr := f.refreshToken(); refreshErr != nil {
+				logger.Error("Failed to refresh Feishu token", logger.ErrorField(refreshErr))
+				return err
+			}
+			continue
+		}
+		return err
+	}
+	return fmt.Errorf("feishu api request failed after retry: %s", url)
+}
+
+// feishuAPIError 携带飞书返回的 code，供上层判断是否可重试
+type feishuAPIError struct {
+	Msg    string
+	Code   int
+	Status int
+	Body   string
+}
+
+func (e *feishuAPIError) Error() string {
+	return fmt.Sprintf("feishu api error: %s (code: %d, status: %d, body: %s)",
+		e.Msg, e.Code, e.Status, e.Body)
+}
+
+func (f *FeishuChannel) doAPIRequestOnce(ctx context.Context, method, url string, body interface{}, result interface{}) error {
 	token, err := f.ensureToken()
 	if err != nil {
 		return err
@@ -2653,8 +2775,12 @@ func (f *FeishuChannel) doAPIRequest(ctx context.Context, method, url string, bo
 	}
 
 	if resp.StatusCode != http.StatusOK || apiResp.Code != 0 {
-		return fmt.Errorf("feishu api error: %s (code: %d, status: %d, body: %s)",
-			apiResp.Msg, apiResp.Code, resp.StatusCode, truncateString(string(respBody), 500))
+		return &feishuAPIError{
+			Msg:    apiResp.Msg,
+			Code:   apiResp.Code,
+			Status: resp.StatusCode,
+			Body:   truncateString(string(respBody), 500),
+		}
 	}
 
 	if result != nil && len(apiResp.Data) > 0 {
@@ -2674,6 +2800,28 @@ func (f *FeishuChannel) doAPIGet(ctx context.Context, url string, result interfa
 // doAPIGetRaw 执行飞书 GET 请求，返回原始响应字节和 HTTP 状态码
 // 用于下载文件、图片等二进制内容
 func (f *FeishuChannel) doAPIGetRaw(ctx context.Context, url string) ([]byte, int, error) {
+	body, status, err := f.doAPIGetRawOnce(ctx, url)
+	if err != nil {
+		return nil, status, err
+	}
+	// 二进制接口的 token 失效通常体现为 HTTP 4xx + JSON body，
+	// 这里做一次轻量判断：若 body 能解析出 token 失效码，刷新后重试
+	if status >= 400 {
+		var probe struct {
+			Code int `json:"code"`
+		}
+		if json.Unmarshal(body, &probe) == nil && isInvalidTenantToken(probe.Code) {
+			logger.Warn("Feishu token invalid on binary download, refreshing and retrying",
+				logger.Int("code", probe.Code), logger.String("url", url))
+			if refreshErr := f.refreshToken(); refreshErr == nil {
+				return f.doAPIGetRawOnce(ctx, url)
+			}
+		}
+	}
+	return body, status, nil
+}
+
+func (f *FeishuChannel) doAPIGetRawOnce(ctx context.Context, url string) ([]byte, int, error) {
 	token, err := f.ensureToken()
 	if err != nil {
 		return nil, 0, err
