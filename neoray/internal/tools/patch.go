@@ -11,6 +11,7 @@ import (
 
 	"neoray/internal/config"
 	"neoray/internal/logger"
+	"neoray/internal/security"
 )
 
 var absoluteWindowsRe = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
@@ -20,8 +21,9 @@ var absoluteWindowsRe = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
 // ======================================
 
 type ApplyPatchTool struct {
-	workspace  string
-	fileStates *FileStates
+	workspace    string
+	allowedPaths []string
+	fileStates   *FileStates
 }
 
 type PatchEdit struct {
@@ -32,8 +34,8 @@ type PatchEdit struct {
 }
 
 type ApplyPatchArgs struct {
-	Edits   []PatchEdit `json:"edits"`
-	DryRun  bool        `json:"dry_run"`
+	Edits  []PatchEdit `json:"edits"`
+	DryRun bool        `json:"dry_run"`
 }
 
 type patchSummary struct {
@@ -43,19 +45,33 @@ type patchSummary struct {
 	deleted int
 }
 
-func NewApplyPatchTool() *ApplyPatchTool {
-	return &ApplyPatchTool{
+func NewApplyPatchTool(cfgs ...*config.Config) *ApplyPatchTool {
+	t := &ApplyPatchTool{
 		workspace:  config.GetWorkspace(),
 		fileStates: NewFileStates(),
 	}
+	for _, c := range cfgs {
+		if c != nil {
+			t.workspace = resolveWorkspacePath(c)
+			t.allowedPaths = c.Tools.Workspace.AllowedPaths
+		}
+	}
+	return t
 }
 
 // NewApplyPatchToolWithFileStates 创建带 FileStates 的 ApplyPatchTool
-func NewApplyPatchToolWithFileStates(fileStates *FileStates) *ApplyPatchTool {
-	return &ApplyPatchTool{
+func NewApplyPatchToolWithFileStates(fileStates *FileStates, cfgs ...*config.Config) *ApplyPatchTool {
+	t := &ApplyPatchTool{
 		workspace:  config.GetWorkspace(),
 		fileStates: fileStates,
 	}
+	for _, c := range cfgs {
+		if c != nil {
+			t.workspace = resolveWorkspacePath(c)
+			t.allowedPaths = c.Tools.Workspace.AllowedPaths
+		}
+	}
+	return t
 }
 
 // SetFileStates 设置 FileStates
@@ -79,17 +95,17 @@ func (t *ApplyPatchTool) Description() string {
 func (t *ApplyPatchTool) Parameters() json.RawMessage {
 	return ObjectParam(map[string]any{
 		"edits": map[string]any{
-			"type": "array",
+			"type":        "array",
 			"description": "List of edits to apply. Each edit specifies a file and the change to make.",
-			"minItems": 1,
-			"maxItems": 20,
+			"minItems":    1,
+			"maxItems":    20,
 			"items": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"path": StringParam("Relative path to the file to edit."),
 					"action": map[string]any{
-						"type": "string",
-						"enum": []string{"replace", "add"},
+						"type":        "string",
+						"enum":        []string{"replace", "add"},
 						"description": "Operation type: replace or add.",
 					},
 					"old_text": StringParam("Exact text to search for in the file. Required for replace."),
@@ -117,11 +133,10 @@ func (t *ApplyPatchTool) Execute(ctx context.Context, args json.RawMessage) (jso
 	var warnings []string
 	if t.fileStates != nil {
 		for _, edit := range input.Edits {
-			path, err := validateRelativePath(edit.Path)
+			source, err := t.resolveEditPath(edit.Path)
 			if err == nil {
-				source := filepath.Join(t.workspace, path)
 				if warning := t.fileStates.CheckRead(source); warning != "" {
-					warnings = append(warnings, fmt.Sprintf("%s: %s", path, warning))
+					warnings = append(warnings, fmt.Sprintf("%s: %s", edit.Path, warning))
 				}
 			}
 		}
@@ -136,14 +151,14 @@ func (t *ApplyPatchTool) Execute(ctx context.Context, args json.RawMessage) (jso
 	var summaries []patchSummary
 
 	for _, edit := range input.Edits {
-		// Validate path
-		path, err := validateRelativePath(edit.Path)
+		// 校验路径：相对路径按 workspace 解析，绝对路径原样使用，
+		// 统一走 workspace + allowed_paths 策略（与 read/write/grep 一致）
+		source, err := t.resolveEditPath(edit.Path)
 		if err != nil {
 			result := fmt.Sprintf("Error applying patch: %v", err)
 			return json.Marshal(result)
 		}
-
-		source := filepath.Join(t.workspace, path)
+		path := edit.Path
 
 		if edit.Action == "add" {
 			if edit.NewText == "" {
@@ -332,27 +347,46 @@ func (t *ApplyPatchTool) Execute(ctx context.Context, args json.RawMessage) (jso
 // Helper functions
 // ======================================
 
-func validateRelativePath(path string) (string, error) {
-	normalized := strings.TrimSpace(path)
+// resolveEditPath 把补丁里的路径解析成可用的绝对路径。
+//
+// 历史实现只允许相对路径（拒绝绝对路径、~、..），与 read/write/grep
+// 支持 allowed_paths 的行为不一致：同一个文件用 write_file 能改，
+// 用 apply_patch 却报 "patch path must be relative"。
+// 现在统一：相对路径按 workspace 解析，绝对路径与 ~ 展开后原样使用，
+// 再用 workspace + allowed_paths 校验（含软链解析）。
+func (t *ApplyPatchTool) resolveEditPath(rawPath string) (string, error) {
+	normalized := strings.TrimSpace(rawPath)
 	if normalized == "" {
 		return "", fmt.Errorf("patch path cannot be empty")
 	}
 	if strings.Contains(normalized, "\x00") {
-		return "", fmt.Errorf("patch path contains a null byte: %q", path)
+		return "", fmt.Errorf("patch path contains a null byte: %q", rawPath)
 	}
-	if strings.HasPrefix(normalized, "~") ||
-		strings.HasPrefix(normalized, "/") ||
-		strings.HasPrefix(normalized, "\\") ||
-		absoluteWindowsRe.MatchString(normalized) {
-		return "", fmt.Errorf("patch path must be relative: %s", path)
-	}
-	parts := regexp.MustCompile(`[\\/]+`).Split(normalized, -1)
-	for _, part := range parts {
-		if part == ".." {
-			return "", fmt.Errorf("patch path must not contain '..': %s", path)
+
+	// 展开 ~
+	if strings.HasPrefix(normalized, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			normalized = filepath.Join(home, strings.TrimPrefix(normalized, "~"))
 		}
 	}
-	return normalized, nil
+
+	var full string
+	if filepath.IsAbs(normalized) || absoluteWindowsRe.MatchString(normalized) {
+		full = filepath.Clean(normalized)
+	} else {
+		parts := regexp.MustCompile(`[\\/]+`).Split(normalized, -1)
+		for _, part := range parts {
+			if part == ".." {
+				return "", fmt.Errorf("patch path must not contain '..': %s", rawPath)
+			}
+		}
+		full = filepath.Join(t.workspace, normalized)
+	}
+
+	if !security.IsPathAllowedForTool(full, t.workspace, t.allowedPaths) {
+		return "", fmt.Errorf("path outside workspace and allowed_paths: %s%s", rawPath, security.WorkspaceBoundaryNote)
+	}
+	return full, nil
 }
 
 func textLineCount(text string) int {

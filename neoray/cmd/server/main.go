@@ -253,7 +253,7 @@ func main() {
 		logger.Info("Grep tool registered")
 	}
 	if cfg.Tools.ApplyPatch.Enabled {
-		toolRegistry.Register(tools.NewApplyPatchTool())
+		toolRegistry.Register(tools.NewApplyPatchTool(cfg))
 		logger.Info("ApplyPatch tool registered")
 	}
 	if cfg.Tools.WebSearch.Enabled {
