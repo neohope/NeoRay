@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	maxRunHistory     = 20
-	maxSleepMS        = 5 * 60 * 1000 // 5分钟
-	storeVersion      = 1
+	maxRunHistory = 20
+	maxSleepMS    = 5 * 60 * 1000 // 5分钟
+	storeVersion  = 1
 )
 
 // JobHandler 任务执行回调函数类型
@@ -27,19 +27,19 @@ type JobHandler func(ctx context.Context, job *CronJob) error
 
 // CronScheduler 定时任务调度器
 type CronScheduler struct {
-	storePath     string
-	actionPath    string
-	lockPath      string
-	store         *CronStore
-	mu            sync.RWMutex
-	onJob         JobHandler
-	running       bool
-	timerActive   bool
-	timer         *time.Timer
-	ctx           context.Context
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup
-	maxSleepMS    int64
+	storePath   string
+	actionPath  string
+	lockPath    string
+	store       *CronStore
+	mu          sync.RWMutex
+	onJob       JobHandler
+	running     bool
+	timerActive bool
+	timer       *time.Timer
+	ctx         context.Context
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+	maxSleepMS  int64
 }
 
 // NewCronScheduler 创建调度器
@@ -299,7 +299,18 @@ func (cs *CronScheduler) executeJob(job *CronJob) {
 
 	var err error
 	if onJob != nil {
-		err = onJob(cs.ctx, job)
+		// 任务处理 panic 不能带崩调度器与整个进程
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("job panicked: %v", r)
+					logger.Error("Cron job panicked",
+						logger.String("name", job.Name),
+						logger.String("panic", fmt.Sprintf("%v", r)))
+				}
+			}()
+			err = onJob(cs.ctx, job)
+		}()
 	}
 
 	endMS := nowMS()
@@ -406,25 +417,25 @@ func (cs *CronScheduler) AddJob(
 	id := generateShortID()
 
 	job := CronJob{
-		ID:             id,
-		Name:           name,
-		Enabled:        true,
-		Schedule:       schedule,
+		ID:       id,
+		Name:     name,
+		Enabled:  true,
+		Schedule: schedule,
 		Payload: CronPayload{
-			Kind:         PayloadKindAgentTurn,
-			Message:      message,
-			Deliver:      deliver,
-			Channel:      channel,
-			To:           to,
-			ChannelMeta:  channelMeta,
-			SessionKey:   sessionKey,
+			Kind:        PayloadKindAgentTurn,
+			Message:     message,
+			Deliver:     deliver,
+			Channel:     channel,
+			To:          to,
+			ChannelMeta: channelMeta,
+			SessionKey:  sessionKey,
 		},
 		State: CronJobState{
 			RunHistory: []CronRunRecord{},
 		},
-		CreatedAtMS:     now,
-		UpdatedAtMS:     now,
-		DeleteAfterRun:  deleteAfterRun,
+		CreatedAtMS:    now,
+		UpdatedAtMS:    now,
+		DeleteAfterRun: deleteAfterRun,
 	}
 
 	// 计算下次执行时间
@@ -792,9 +803,9 @@ func (cs *CronScheduler) Status() map[string]any {
 	}
 
 	result := map[string]any{
-		"enabled":     cs.running,
-		"jobs":        jobsCount,
-		"maxSleepMs":  cs.maxSleepMS,
+		"enabled":    cs.running,
+		"jobs":       jobsCount,
+		"maxSleepMs": cs.maxSleepMS,
 	}
 	if nextWake != nil {
 		result["nextWakeAtMs"] = *nextWake
@@ -1016,4 +1027,3 @@ func trimSpace(s string) string {
 	}
 	return s[start:end]
 }
-

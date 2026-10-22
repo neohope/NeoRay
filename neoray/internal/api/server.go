@@ -492,10 +492,12 @@ func (s *Server) Stop(ctx context.Context) error {
 		s.msgBus.UnsubscribeOutbound("api_server")
 	}
 
-	// 关闭所有客户端连接
+	// 关闭所有客户端连接。
+	// 用 markClosed 而不是 close(Send)：handler goroutine 可能仍在写，
+	// 关闭发送通道会让它 send on closed channel 直接 panic。
 	s.clientsMu.Lock()
 	for _, client := range s.clients {
-		close(client.Send)
+		client.markClosed()
 		client.Conn.Close()
 	}
 	s.clients = make(map[string]*Client)
@@ -718,8 +720,17 @@ func (c *Client) readPump() {
 		handleCtx, handleCancel := context.WithTimeout(context.Background(), msgTimeout)
 		done := make(chan struct{})
 		go func() {
+			defer close(done)
+			// 单条消息处理 panic 不应带走整个进程
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Error("WebSocket message handler panicked",
+						logger.String("client_id", c.ID),
+						logger.String("panic", fmt.Sprintf("%v", r)))
+					c.sendError("internal_error", "Failed to handle message")
+				}
+			}()
 			c.handleMessage(handleCtx, message)
-			close(done)
 		}()
 
 		select {

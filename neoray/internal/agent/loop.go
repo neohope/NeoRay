@@ -1483,6 +1483,18 @@ func (al *AgentLoop) ChatStream(ctx context.Context, sess *session.Session, user
 		defer close(resultChan)
 		defer lock.mu.Unlock()
 		defer al.releaseSessionLock(sessionKey)
+		// 处理链里的 panic 不能带走整个进程；同时给前端一个明确的结束信号
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("Chat goroutine panicked",
+					logger.String("session_key", sessionKey),
+					logger.String("panic", fmt.Sprintf("%v", r)))
+				select {
+				case resultChan <- StreamChunk{Type: "error", Content: "internal error while processing the message"}:
+				default:
+				}
+			}
+		}()
 		// 清理活跃会话跟踪，防止内存泄漏
 		if al.memoryManager != nil {
 			defer al.memoryManager.UntrackSession(sess.ID)

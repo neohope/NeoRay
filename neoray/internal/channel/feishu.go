@@ -1007,6 +1007,13 @@ func (f *FeishuChannel) startSDKWebSocket(ctx context.Context) {
 		OnP2MessageReceiveV1(func(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
 			// 异步处理消息，避免阻塞 WebSocket 事件循环
 			go func() {
+				// 事件内容来自外部，解析/处理中任何 panic 都不应带走整个进程
+				defer func() {
+					if r := recover(); r != nil {
+						logger.Error("Feishu event handler panicked",
+							logger.String("panic", fmt.Sprintf("%v", r)))
+					}
+				}()
 				if event != nil && event.EventReq != nil && len(event.EventReq.Body) > 0 {
 					f.handleMessageEvent(event.EventReq.Body)
 					return
