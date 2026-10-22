@@ -1,6 +1,7 @@
 package security
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -56,4 +57,40 @@ func TestSplitSegmentsRespectsQuotes(t *testing.T) {
 	if segs[0][1] != "a|b" {
 		t.Fatalf("引号内的 | 不应被当作分隔符: %v", segs[0])
 	}
+}
+
+// TestAllowedPathBoundary 允许目录必须按路径边界匹配：
+// 放行 /tmp/neoray 不能顺带放行 /tmp 其它内容，也不能放行 /tmp/neoray-evil
+func TestAllowedPathBoundary(t *testing.T) {
+	ws := t.TempDir()
+	allowed := filepath.Join(t.TempDir(), "neoray")
+	if err := mkdirAll(allowed); err != nil {
+		t.Fatalf("准备目录失败: %v", err)
+	}
+
+	ok := []string{
+		"ls " + allowed,
+		"cat " + filepath.Join(allowed, "out.txt"),
+		"echo hi > " + filepath.Join(allowed, "sub", "f.log"),
+	}
+	for _, cmd := range ok {
+		if err := CheckCommandPaths(cmd, ws, []string{allowed}); err != nil {
+			t.Fatalf("应允许 %q，实际被拒: %v", cmd, err)
+		}
+	}
+
+	bad := []string{
+		"ls " + filepath.Dir(allowed), // 父目录不放行
+		"ls " + allowed + "-evil",     // 前缀相同的兄弟目录不放行
+		"cat " + filepath.Join(filepath.Dir(allowed), "secret.txt"),
+	}
+	for _, cmd := range bad {
+		if err := CheckCommandPaths(cmd, ws, []string{allowed}); err == nil {
+			t.Fatalf("应拒绝 %q，实际通过", cmd)
+		}
+	}
+}
+
+func mkdirAll(p string) error {
+	return os.MkdirAll(p, 0o755)
 }
