@@ -65,24 +65,29 @@ const (
 // ======================================
 
 type FindFilesTool struct {
-	workspace string
+	workspace    string
+	allowedPaths []string
 }
 
 type FindFilesArgs struct {
-	Path         string `json:"path"`
-	Query        string `json:"query"`
-	Glob         string `json:"glob"`
-	Type         string `json:"type"`
-	IncludeDirs  bool   `json:"include_dirs"`
-	Sort         string `json:"sort"`
-	HeadLimit    int    `json:"head_limit"`
-	Offset       int    `json:"offset"`
+	Path        string `json:"path"`
+	Query       string `json:"query"`
+	Glob        string `json:"glob"`
+	Type        string `json:"type"`
+	IncludeDirs bool   `json:"include_dirs"`
+	Sort        string `json:"sort"`
+	HeadLimit   int    `json:"head_limit"`
+	Offset      int    `json:"offset"`
 }
 
-func NewFindFilesTool() *FindFilesTool {
-	return &FindFilesTool{
-		workspace: config.GetWorkspace(),
+func NewFindFilesTool(cfgs ...*config.Config) *FindFilesTool {
+	t := &FindFilesTool{workspace: config.GetWorkspace()}
+	for _, c := range cfgs {
+		if c != nil {
+			t.allowedPaths = c.Tools.Workspace.AllowedPaths
+		}
 	}
+	return t
 }
 
 func (t *FindFilesTool) Name() string {
@@ -95,27 +100,27 @@ func (t *FindFilesTool) Description() string {
 
 func (t *FindFilesTool) Parameters() json.RawMessage {
 	return ObjectParam(map[string]any{
-		"path": StringParam("Directory or file to search in (default '.')"),
-		"query": StringParam("Optional case-insensitive path fragment search. Whitespace-separated terms must all be present."),
-		"glob": StringParam("Optional file filter, e.g. '*.py' or 'tests/**/test_*.py'"),
-		"type": StringParam("Optional file type shorthand, e.g. 'py', 'ts', 'md', 'json'"),
+		"path":         StringParam("Directory or file to search in (default '.')"),
+		"query":        StringParam("Optional case-insensitive path fragment search. Whitespace-separated terms must all be present."),
+		"glob":         StringParam("Optional file filter, e.g. '*.py' or 'tests/**/test_*.py'"),
+		"type":         StringParam("Optional file type shorthand, e.g. 'py', 'ts', 'md', 'json'"),
 		"include_dirs": BooleanParam("Include matching directories as well as files (default false)"),
 		"sort": map[string]any{
-			"type": "string",
-			"enum": []string{"path", "modified"},
+			"type":        "string",
+			"enum":        []string{"path", "modified"},
 			"description": "Sort by path or most recently modified first (default path)",
 		},
 		"head_limit": map[string]any{
-			"type": "integer",
+			"type":        "integer",
 			"description": "Maximum number of paths to return (default 200, 0 for all, max 1000)",
-			"minimum": 0,
-			"maximum": 1000,
+			"minimum":     0,
+			"maximum":     1000,
 		},
 		"offset": map[string]any{
-			"type": "integer",
+			"type":        "integer",
 			"description": "Skip the first N results before applying head_limit",
-			"minimum": 0,
-			"maximum": 100000,
+			"minimum":     0,
+			"maximum":     100000,
 		},
 	}, nil)
 }
@@ -131,7 +136,10 @@ func (t *FindFilesTool) Execute(ctx context.Context, args json.RawMessage) (json
 		path = "."
 	}
 
-	target := t.resolvePath(path)
+	target, resolveErr := t.resolvePath(path)
+	if resolveErr != nil {
+		return json.Marshal(fmt.Sprintf("Error: %v", resolveErr))
+	}
 	if _, err := os.Stat(target); os.IsNotExist(err) {
 		result := fmt.Sprintf("Error: Path not found: %s", path)
 		return json.Marshal(result)
@@ -155,7 +163,7 @@ func (t *FindFilesTool) Execute(ctx context.Context, args json.RawMessage) (json
 	}
 
 	type matchEntry struct {
-		path string
+		path  string
 		mtime float64
 	}
 	var matches []matchEntry
@@ -189,12 +197,7 @@ func (t *FindFilesTool) Execute(ctx context.Context, args json.RawMessage) (json
 			}
 		}
 
-		// Calculate relative path
-		displayPath, err := filepath.Rel(t.workspace, candidate)
-		if err != nil {
-			displayPath = candidate
-		}
-		displayPath = filepath.ToSlash(displayPath)
+		displayPath := relativeDisplayPath(t.workspace, candidate)
 
 		if info.IsDir() {
 			displayPath += "/"
@@ -288,18 +291,29 @@ func (t *FindFilesTool) Execute(ctx context.Context, args json.RawMessage) (json
 	return json.Marshal(output)
 }
 
-func (t *FindFilesTool) resolvePath(path string) string {
-	var resolved string
-	if !filepath.IsAbs(path) {
-		resolved = filepath.Join(t.workspace, path)
-	} else {
-		resolved = path
+// resolvePath 解析搜索根目录；越界时返回错误。
+// 之前越界会**静默替换成 workspace**，用户看到"没找到"其实搜错了目录。
+
+// relativeDisplayPath 生成展示用路径：工作区内用相对路径，
+// 工作区外（allowed_paths）用绝对路径，避免出现 "../../../../tmp/..." 这种
+// 既难读又容易让人以为越界的输出。
+func relativeDisplayPath(workspace, target string) string {
+	rel, err := filepath.Rel(workspace, target)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return filepath.ToSlash(target)
 	}
-	// 防止路径遍历到工作区外
-	if !security.IsPathWithin(resolved, t.workspace) {
-		return t.workspace
+	return filepath.ToSlash(rel)
+}
+
+func (t *FindFilesTool) resolvePath(path string) (string, error) {
+	resolved := path
+	if !filepath.IsAbs(resolved) {
+		resolved = filepath.Join(t.workspace, resolved)
 	}
-	return resolved
+	if !security.IsPathAllowedForTool(resolved, t.workspace, t.allowedPaths) {
+		return "", fmt.Errorf("path outside workspace and allowed_paths: %s%s", path, security.WorkspaceBoundaryNote)
+	}
+	return resolved, nil
 }
 
 // ======================================
@@ -307,7 +321,8 @@ func (t *FindFilesTool) resolvePath(path string) string {
 // ======================================
 
 type GrepTool struct {
-	workspace string
+	workspace    string
+	allowedPaths []string
 }
 
 type GrepArgs struct {
@@ -326,10 +341,14 @@ type GrepArgs struct {
 	Offset          int    `json:"offset"`
 }
 
-func NewGrepTool() *GrepTool {
-	return &GrepTool{
-		workspace: config.GetWorkspace(),
+func NewGrepTool(cfgs ...*config.Config) *GrepTool {
+	t := &GrepTool{workspace: config.GetWorkspace()}
+	for _, c := range cfgs {
+		if c != nil {
+			t.allowedPaths = c.Tools.Workspace.AllowedPaths
+		}
 	}
+	return t
 }
 
 func (t *GrepTool) Name() string {
@@ -343,43 +362,43 @@ func (t *GrepTool) Description() string {
 func (t *GrepTool) Parameters() json.RawMessage {
 	return ObjectParam(map[string]any{
 		"pattern": map[string]any{
-			"type": "string",
+			"type":        "string",
 			"description": "Regex or plain text pattern to search for",
-			"minLength": 1,
+			"minLength":   1,
 		},
-		"path": StringParam("File or directory to search in (default '.')"),
-		"glob": StringParam("Optional file filter, e.g. '*.py' or 'tests/**/test_*.py'"),
-		"type": StringParam("Optional file type shorthand, e.g. 'py', 'ts', 'md', 'json'"),
+		"path":             StringParam("File or directory to search in (default '.')"),
+		"glob":             StringParam("Optional file filter, e.g. '*.py' or 'tests/**/test_*.py'"),
+		"type":             StringParam("Optional file type shorthand, e.g. 'py', 'ts', 'md', 'json'"),
 		"case_insensitive": BooleanParam("Case-insensitive search (default false)"),
-		"fixed_strings": BooleanParam("Treat pattern as plain text instead of regex (default false)"),
+		"fixed_strings":    BooleanParam("Treat pattern as plain text instead of regex (default false)"),
 		"output_mode": map[string]any{
-			"type": "string",
-			"enum": []string{"content", "files_with_matches", "count"},
+			"type":        "string",
+			"enum":        []string{"content", "files_with_matches", "count"},
 			"description": "content: matching lines with optional context; files_with_matches: only matching file paths; count: matching line counts per file. Default: files_with_matches",
 		},
 		"context_before": map[string]any{
-			"type": "integer",
+			"type":        "integer",
 			"description": "Number of lines of context before each match",
-			"minimum": 0,
-			"maximum": 20,
+			"minimum":     0,
+			"maximum":     20,
 		},
 		"context_after": map[string]any{
-			"type": "integer",
+			"type":        "integer",
 			"description": "Number of lines of context after each match",
-			"minimum": 0,
-			"maximum": 20,
+			"minimum":     0,
+			"maximum":     20,
 		},
 		"head_limit": map[string]any{
-			"type": "integer",
+			"type":        "integer",
 			"description": "Maximum number of results to return",
-			"minimum": 0,
-			"maximum": 1000,
+			"minimum":     0,
+			"maximum":     1000,
 		},
 		"offset": map[string]any{
-			"type": "integer",
+			"type":        "integer",
 			"description": "Skip the first N results before applying head_limit",
-			"minimum": 0,
-			"maximum": 100000,
+			"minimum":     0,
+			"maximum":     100000,
 		},
 	}, []string{"pattern"})
 }
@@ -399,7 +418,10 @@ func (t *GrepTool) Execute(ctx context.Context, args json.RawMessage) (json.RawM
 		path = "."
 	}
 
-	target := t.resolvePath(path)
+	target, resolveErr := t.resolvePath(path)
+	if resolveErr != nil {
+		return json.Marshal(fmt.Sprintf("Error: %v", resolveErr))
+	}
 	if _, err := os.Stat(target); os.IsNotExist(err) {
 		return json.Marshal(fmt.Sprintf("Error: Path not found: %s", path))
 	}
@@ -436,11 +458,19 @@ func (t *GrepTool) Execute(ctx context.Context, args json.RawMessage) (json.RawM
 	}
 
 	contextBefore := input.ContextBefore
-	if contextBefore < 0 { contextBefore = 0 }
-	if contextBefore > 20 { contextBefore = 20 }
+	if contextBefore < 0 {
+		contextBefore = 0
+	}
+	if contextBefore > 20 {
+		contextBefore = 20
+	}
 	contextAfter := input.ContextAfter
-	if contextAfter < 0 { contextAfter = 0 }
-	if contextAfter > 20 { contextAfter = 20 }
+	if contextAfter < 0 {
+		contextAfter = 0
+	}
+	if contextAfter > 20 {
+		contextAfter = 20
+	}
 
 	var blocks []string
 	resultChars := 0
@@ -517,11 +547,7 @@ func (t *GrepTool) Execute(ctx context.Context, args json.RawMessage) (json.RawM
 
 		// Search
 		lines := strings.Split(string(raw), "\n")
-		displayPath, err := filepath.Rel(t.workspace, filePath)
-		if err != nil {
-			displayPath = filePath
-		}
-		displayPath = filepath.ToSlash(displayPath)
+		displayPath := relativeDisplayPath(t.workspace, filePath)
 
 		fileHadMatch := false
 		for idx, line := range lines {
@@ -676,18 +702,16 @@ func (t *GrepTool) Execute(ctx context.Context, args json.RawMessage) (json.RawM
 	return json.Marshal(output)
 }
 
-func (t *GrepTool) resolvePath(path string) string {
-	var resolved string
-	if !filepath.IsAbs(path) {
-		resolved = filepath.Join(t.workspace, path)
-	} else {
-		resolved = path
+// resolvePath 解析搜索根目录；越界时返回错误（而不是静默回退到 workspace）
+func (t *GrepTool) resolvePath(path string) (string, error) {
+	resolved := path
+	if !filepath.IsAbs(resolved) {
+		resolved = filepath.Join(t.workspace, resolved)
 	}
-	// 防止路径遍历到工作区外
-	if !security.IsPathWithin(resolved, t.workspace) {
-		return t.workspace
+	if !security.IsPathAllowedForTool(resolved, t.workspace, t.allowedPaths) {
+		return "", fmt.Errorf("path outside workspace and allowed_paths: %s%s", path, security.WorkspaceBoundaryNote)
 	}
-	return resolved
+	return resolved, nil
 }
 
 // ======================================

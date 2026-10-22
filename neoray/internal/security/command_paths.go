@@ -256,3 +256,32 @@ func expandHome(p string) string {
 	}
 	return filepath.Join(home, strings.TrimPrefix(p, "~"))
 }
+
+// IsPathAllowedForTool 判断路径是否落在 workspace 或 allowedPaths 内。
+// 供 read/write/grep/find 等工具复用，保证「shell 能做的，文件工具也能做」，
+// 避免两套判定互相矛盾（此前文件工具只看 workspace，忽略 allowed_paths）。
+func IsPathAllowedForTool(path string, workspace string, allowedPaths []string) bool {
+	roots := make([]string, 0, len(allowedPaths)+1)
+	if workspace != "" {
+		roots = append(roots, workspace)
+	}
+	for _, p := range allowedPaths {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		roots = append(roots, expandHome(p))
+	}
+	if len(roots) == 0 {
+		return false
+	}
+
+	if isWithinAny(path, roots) {
+		return true
+	}
+	// 目标还不存在时（新建文件），退回词法判断
+	if _, err := os.Lstat(path); err != nil && isLexicallyWithinAny(path, roots) {
+		return true
+	}
+	return false
+}

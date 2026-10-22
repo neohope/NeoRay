@@ -11,43 +11,44 @@ import (
 
 	"neoray/internal/bus"
 	"neoray/internal/config"
+	"neoray/internal/security"
 )
 
 // MessageTool 用于发送消息给用户
 type MessageTool struct {
-	cfg                *config.Config
-	messageBus         *bus.MessageBus
-	workspace          string
+	cfg                 *config.Config
+	messageBus          *bus.MessageBus
+	workspace           string
 	restrictToWorkspace bool
 
 	// 每回合跟踪
 	mu                 sync.Mutex
-	sentInTurn        bool
+	sentInTurn         bool
 	turnDeliveredMedia []string
 
 	// 默认上下文
-	defaultChannel    string
-	defaultChatID     string
-	defaultMessageID  string
-	defaultMetadata   map[string]interface{}
+	defaultChannel   string
+	defaultChatID    string
+	defaultMessageID string
+	defaultMetadata  map[string]interface{}
 }
 
 // NewMessageTool 创建新的 MessageTool
 func NewMessageTool(cfg *config.Config) *MessageTool {
 	return &MessageTool{
-		cfg:               cfg,
-		workspace:         cfg.ResolvePath(cfg.Memory.Workspace),
-		defaultMetadata:   make(map[string]interface{}),
+		cfg:             cfg,
+		workspace:       cfg.ResolvePath(cfg.Memory.Workspace),
+		defaultMetadata: make(map[string]interface{}),
 	}
 }
 
 // NewMessageToolWithBus 创建带 Bus 的 MessageTool
 func NewMessageToolWithBus(cfg *config.Config, messageBus *bus.MessageBus) *MessageTool {
 	return &MessageTool{
-		cfg:               cfg,
-		messageBus:        messageBus,
-		workspace:         cfg.ResolvePath(cfg.Memory.Workspace),
-		defaultMetadata:   make(map[string]interface{}),
+		cfg:             cfg,
+		messageBus:      messageBus,
+		workspace:       cfg.ResolvePath(cfg.Memory.Workspace),
+		defaultMetadata: make(map[string]interface{}),
 	}
 }
 
@@ -116,7 +117,7 @@ func (t *MessageTool) Parameters() json.RawMessage {
 			"Do not set this to the current runtime chat for a normal reply."),
 		"media": ArrayParam(
 			StringParam(""),
-			"Optional list of existing file paths to attach. " +
+			"Optional list of existing file paths to attach. "+
 				"Use artifact paths returned by generate_image here when delivering generated images."),
 		"buttons": ArrayParam(
 			ArrayParam(StringParam("Button label"), ""),
@@ -127,11 +128,11 @@ func (t *MessageTool) Parameters() json.RawMessage {
 // Execute 执行工具
 func (t *MessageTool) Execute(ctx context.Context, args json.RawMessage) (json.RawMessage, error) {
 	var params struct {
-		Content string          `json:"content"`
-		Channel string          `json:"channel,omitempty"`
-		ChatID  string          `json:"chat_id,omitempty"`
-		Media   []string        `json:"media,omitempty"`
-		Buttons [][]string      `json:"buttons,omitempty"`
+		Content string     `json:"content"`
+		Channel string     `json:"channel,omitempty"`
+		ChatID  string     `json:"chat_id,omitempty"`
+		Media   []string   `json:"media,omitempty"`
+		Buttons [][]string `json:"buttons,omitempty"`
 	}
 
 	if err := json.Unmarshal(args, &params); err != nil {
@@ -330,26 +331,16 @@ func (t *MessageTool) resolveWorkspacePath(p string) (string, error) {
 		fullPath = filepath.Join(workspace, p)
 	}
 
-	// 清理路径
 	cleanPath := filepath.Clean(fullPath)
 
-	// 验证路径在工作区内
-	workspaceAbs, err := filepath.Abs(workspace)
-	if err != nil {
-		return "", err
+	// 与 shell / 文件工具共用同一套判定：workspace + allowed_paths。
+	// 之前只认 workspace，导致 /tmp/neoray 里的附件发不出去。
+	var allowed []string
+	if t.cfg != nil {
+		allowed = t.cfg.Tools.Workspace.AllowedPaths
 	}
-
-	// 在 Windows 上需要处理大小写
-	if !strings.EqualFold(filepath.VolumeName(cleanPath), filepath.VolumeName(workspaceAbs)) {
-		return "", fmt.Errorf("path %q is outside the workspace", p)
-	}
-
-	rel, err := filepath.Rel(workspaceAbs, cleanPath)
-	if err != nil {
-		return "", err
-	}
-	if strings.HasPrefix(rel, "..") {
-		return "", fmt.Errorf("path %q is outside the workspace", p)
+	if !security.IsPathAllowedForTool(cleanPath, workspace, allowed) {
+		return "", fmt.Errorf("path %q is outside the workspace and allowed_paths%s", p, security.WorkspaceBoundaryNote)
 	}
 
 	return cleanPath, nil

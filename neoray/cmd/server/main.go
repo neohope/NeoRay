@@ -245,11 +245,11 @@ func main() {
 	}
 	// 注册新工具 - 统一使用 Enabled 检查
 	if cfg.Tools.FindFiles.Enabled {
-		toolRegistry.Register(tools.NewFindFilesTool())
+		toolRegistry.Register(tools.NewFindFilesTool(cfg))
 		logger.Info("FindFiles tool registered")
 	}
 	if cfg.Tools.Grep.Enabled {
-		toolRegistry.Register(tools.NewGrepTool())
+		toolRegistry.Register(tools.NewGrepTool(cfg))
 		logger.Info("Grep tool registered")
 	}
 	if cfg.Tools.ApplyPatch.Enabled {

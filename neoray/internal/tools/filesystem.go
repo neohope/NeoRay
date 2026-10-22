@@ -17,18 +17,20 @@ import (
 
 // FileSystemTool 文件系统工具
 type FileSystemTool struct {
-	cfg         *config.Config
-	workspace   string
-	fileStates  *FileStates
+	cfg          *config.Config
+	workspace    string
+	allowedPaths []string
+	fileStates   *FileStates
 }
 
 // NewFileSystemTool 创建文件系统工具
 func NewFileSystemTool(cfg *config.Config) *FileSystemTool {
 	workspace := resolveWorkspacePath(cfg)
 	return &FileSystemTool{
-		cfg:         cfg,
-		workspace:   workspace,
-		fileStates:  NewFileStates(),
+		cfg:          cfg,
+		workspace:    workspace,
+		allowedPaths: cfg.Tools.Workspace.AllowedPaths,
+		fileStates:   NewFileStates(),
 	}
 }
 
@@ -36,9 +38,10 @@ func NewFileSystemTool(cfg *config.Config) *FileSystemTool {
 func NewFileSystemToolWithFileStates(cfg *config.Config, fileStates *FileStates) *FileSystemTool {
 	workspace := resolveWorkspacePath(cfg)
 	return &FileSystemTool{
-		cfg:         cfg,
-		workspace:   workspace,
-		fileStates:  fileStates,
+		cfg:          cfg,
+		workspace:    workspace,
+		allowedPaths: cfg.Tools.Workspace.AllowedPaths,
+		fileStates:   fileStates,
 	}
 }
 
@@ -87,8 +90,8 @@ func (t *FileSystemTool) Parameters() json.RawMessage {
 			"description": "Action to perform: read, write, list, delete",
 			"enum":        []string{"read", "write", "list", "delete"},
 		},
-		"path": StringParam("File or directory path (relative to workspace)"),
-		"content": StringParam("File content for write action"),
+		"path":      StringParam("File or directory path (relative to workspace)"),
+		"content":   StringParam("File content for write action"),
 		"overwrite": BooleanParam("Whether to overwrite existing file (default: false)"),
 	}, []string{"action", "path"})
 }
@@ -106,9 +109,14 @@ func (t *FileSystemTool) Execute(ctx context.Context, args json.RawMessage) (jso
 		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
 
-	// 安全检查：确保路径在 workspace 内
-	// 使用 EvalSymlinks 解析输入路径，防止符号链接指向 workspace 外部
-	inputPath := filepath.Join(t.workspace, params.Path)
+	// 安全检查：确保路径在 workspace 或 allowed_paths 内。
+	// 绝对路径必须原样使用——此前无条件 filepath.Join(workspace, path)，
+	// 会把 "/tmp/neoray/a.txt" 拼成 "workspace/tmp/neoray/a.txt"，
+	// 既访问不到目标，也报出令人困惑的 "cannot resolve path"。
+	inputPath := params.Path
+	if !filepath.IsAbs(inputPath) {
+		inputPath = filepath.Join(t.workspace, inputPath)
+	}
 	resolvedInput, err := filepath.EvalSymlinks(inputPath)
 	if err != nil {
 		// 路径可能不存在（如写入新文件），使用父目录解析
@@ -122,8 +130,8 @@ func (t *FileSystemTool) Execute(ctx context.Context, args json.RawMessage) (jso
 
 	// 使用解析后的路径进行安全验证
 	fullPath := resolvedInput
-	if !security.IsPathWithin(fullPath, t.workspace) {
-		return nil, fmt.Errorf("path outside workspace: %s", params.Path)
+	if !security.IsPathAllowedForTool(fullPath, t.workspace, t.allowedPaths) {
+		return nil, fmt.Errorf("path outside workspace and allowed_paths: %s", params.Path)
 	}
 
 	logger.Debug("Filesystem action",
@@ -172,8 +180,8 @@ func (t *FileSystemTool) readFile(path string) (json.RawMessage, error) {
 	if resolved, resolveErr := filepath.EvalSymlinks(path); resolveErr == nil {
 		recheckPath = resolved
 	}
-	if !security.IsPathWithin(recheckPath, t.workspace) {
-		return nil, fmt.Errorf("path outside workspace (post-open verification failed): %s", path)
+	if !security.IsPathAllowedForTool(recheckPath, t.workspace, t.allowedPaths) {
+		return nil, fmt.Errorf("path outside workspace and allowed_paths (post-open verification failed): %s", path)
 	}
 
 	// 检查文件大小限制，防止 OOM
@@ -274,8 +282,14 @@ func (t *FileSystemTool) listDir(path string) (json.RawMessage, error) {
 			continue
 		}
 		files = append(files, map[string]any{
-			"name":    e.Name(),
-			"type":    func() string { if e.IsDir() { return "dir" } else { return "file" } }(),
+			"name": e.Name(),
+			"type": func() string {
+				if e.IsDir() {
+					return "dir"
+				} else {
+					return "file"
+				}
+			}(),
 			"size":    info.Size(),
 			"modTime": info.ModTime(),
 		})
