@@ -42,7 +42,7 @@
 
 ### P2｜每轮重复计算 + 内容错误
 
-#### M2. 技能清单与系统提示没有缓存，每轮迭代都重扫磁盘
+#### M2. 技能清单与系统提示没有缓存，每轮迭代都重扫磁盘 ✅ 已修（2026-10-22）
 
 - 位置：`internal/memory/context_builder.go:116`（`buildSkillsSummary`）、
   `internal/skills/skills.go:142`（`ListSkills` 每次读目录 + 解析 SKILL.md）
@@ -60,6 +60,13 @@
   2. 技能目录越大、技能越多，成本线性上升
 - 建议：给 `ListSkills` / `BuildSkillsSummary` 加「目录 mtime + 配置」为 key 的缓存，
   技能目录未变更时直接复用。
+- **已实现**：`SkillsLoader` 增加两层缓存
+  1. 技能清单 + 元数据缓存，key 为「两个技能目录路径 + 各 SKILL.md 的 mtime」签名
+     （只看目录 mtime 不够：改已有 SKILL.md 不改父目录 mtime）
+  2. 签名本身再缓存 1 秒（`skillSignatureTTL`），避免每次都 readdir + stat
+  `GetSkillMetadata` 复用同一次解析结果，不再二次读盘。
+- 实测：`Snapshot()` 从 **758 µs → 5.0 µs**（约 150 倍），一轮 10 次迭代的
+  重复开销从 7.6ms 降到 0.05ms。新增技能/修改 SKILL.md 仍会在 1 秒内被发现。
 
 #### M3. 随包技能 `update-setup` 的 frontmatter 解析失败（内容 bug） ✅ 已修（2026-10-22）
 

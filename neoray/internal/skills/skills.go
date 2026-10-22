@@ -7,13 +7,20 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"neoray/internal/config"
 	"neoray/internal/logger"
 )
+
+// skillSignatureTTL 技能目录签名的缓存时间；变更最多延迟这么久被发现
+var skillSignatureTTL = time.Second
 
 // DefaultBuiltinSkillsDir 默认内置 skill 目录（相对于项目根目录）
 const DefaultBuiltinSkillsDir = "skills"
@@ -55,6 +62,23 @@ type SkillsLoader struct {
 	workspaceDir   string
 	builtinDir     string
 	disabledSkills map[string]bool
+
+	// 缓存的技能清单与元数据。
+	// 每次构建系统提示都会调 ListSkills / GetSkillMetadata，
+	// 之前每轮迭代都要重扫目录、重读并解析全部 SKILL.md（实测 758µs/次）。
+	// 用「目录 + 各 SKILL.md mtime」做签名，内容不变时直接复用。
+	cacheMu   sync.RWMutex
+	cacheSig  string
+	cacheList []SkillInfo
+	cacheMeta map[string]*SkillMetadata
+	// loads 统计真实加载次数（缓存未命中次数），用于测试与排障
+	loads atomic.Int64
+
+	// 签名本身也需要缓存：每次 Snapshot 都 readdir + stat 全部 SKILL.md
+	// 仍要几百微秒。技能变更不频繁，1 秒的签名缓存足够。
+	sigMu   sync.Mutex
+	sigVal  string
+	sigTime time.Time
 }
 
 // SkillsLoaderOption skill 加载器选项
@@ -140,10 +164,105 @@ func NewSkillsLoader(cfg *config.Config, opts ...SkillsLoaderOption) *SkillsLoad
 
 // ListSkills 列出所有可用的 skills
 func (l *SkillsLoader) ListSkills(filterUnavailable bool) ([]SkillInfo, error) {
+	all, err := l.loadAllCached()
+	if err != nil {
+		return nil, err
+	}
+
+	if !filterUnavailable {
+		out := make([]SkillInfo, len(all))
+		copy(out, all)
+		return out, nil
+	}
+
+	available := make([]SkillInfo, 0, len(all))
+	for _, s := range all {
+		if s.Available {
+			available = append(available, s)
+		}
+	}
+	return available, nil
+}
+
+// loadAllCached 返回缓存的技能清单；签名变化时重新加载。
+func (l *SkillsLoader) loadAllCached() ([]SkillInfo, error) {
+	sig := l.signature()
+
+	l.cacheMu.RLock()
+	if l.cacheSig == sig && l.cacheList != nil {
+		out := make([]SkillInfo, len(l.cacheList))
+		copy(out, l.cacheList)
+		l.cacheMu.RUnlock()
+		return out, nil
+	}
+	l.cacheMu.RUnlock()
+
+	list, meta := l.loadAll()
+
+	l.cacheMu.Lock()
+	l.cacheSig = sig
+	l.cacheList = list
+	l.cacheMeta = meta
+	l.cacheMu.Unlock()
+
+	out := make([]SkillInfo, len(list))
+	copy(out, list)
+	return out, nil
+}
+
+// signature 由两个技能目录及各 SKILL.md 的 mtime 组成。
+// 只看目录 mtime 不够：修改已有技能的 SKILL.md 不会改变父目录 mtime。
+func (l *SkillsLoader) signature() string {
+	l.sigMu.Lock()
+	if !l.sigTime.IsZero() && time.Since(l.sigTime) < skillSignatureTTL {
+		v := l.sigVal
+		l.sigMu.Unlock()
+		return v
+	}
+	l.sigMu.Unlock()
+
+	var sb strings.Builder
+	for _, dir := range []string{l.workspaceDir, l.builtinDir} {
+		if dir == "" {
+			continue
+		}
+		sb.WriteString(dir)
+		if info, err := os.Stat(dir); err == nil {
+			sb.WriteString("|")
+			sb.WriteString(strconv.FormatInt(info.ModTime().UnixNano(), 10))
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			sb.WriteString("|")
+			sb.WriteString(e.Name())
+			if st, err := os.Stat(filepath.Join(dir, e.Name(), "SKILL.md")); err == nil {
+				sb.WriteString(":")
+				sb.WriteString(strconv.FormatInt(st.ModTime().UnixNano(), 10))
+			}
+		}
+	}
+	v := sb.String()
+
+	l.sigMu.Lock()
+	l.sigVal = v
+	l.sigTime = time.Now()
+	l.sigMu.Unlock()
+
+	return v
+}
+
+// loadAll 真正扫描并解析技能（不经过缓存）
+func (l *SkillsLoader) loadAll() ([]SkillInfo, map[string]*SkillMetadata) {
+	l.loads.Add(1)
 	var skills []SkillInfo
 	seenNames := make(map[string]bool)
 
-	// 首先加载 workspace skills
 	workspaceSkills, err := l.skillEntriesFromDir(l.workspaceDir, "workspace")
 	if err != nil {
 		logger.Warn("Failed to load workspace skills", logger.ErrorField(err))
@@ -156,7 +275,6 @@ func (l *SkillsLoader) ListSkills(filterUnavailable bool) ([]SkillInfo, error) {
 		}
 	}
 
-	// 然后加载 builtin skills（跳过已存在的）
 	if l.builtinDir != "" {
 		builtinSkills, err := l.skillEntriesFromDir(l.builtinDir, "builtin")
 		if err != nil {
@@ -170,29 +288,27 @@ func (l *SkillsLoader) ListSkills(filterUnavailable bool) ([]SkillInfo, error) {
 		}
 	}
 
-	// 检查可用性并添加描述
+	meta := make(map[string]*SkillMetadata, len(skills))
 	for i := range skills {
-		meta := l.GetSkillMetadata(skills[i].Name)
-		if meta != nil {
-			skills[i].Description = meta.Description
-			skills[i].Available = l.checkRequirements(meta)
+		m := l.loadMetadata(skills[i].Name)
+		if m != nil {
+			meta[skills[i].Name] = m
+			skills[i].Description = m.Description
+			skills[i].Available = l.checkRequirements(m)
 		} else {
 			skills[i].Available = false
 		}
 	}
+	return skills, meta
+}
 
-	// 过滤不可用的
-	if filterUnavailable {
-		var available []SkillInfo
-		for _, s := range skills {
-			if s.Available {
-				available = append(available, s)
-			}
-		}
-		return available, nil
+// loadMetadata 读取并解析单个技能的元数据（不走缓存）
+func (l *SkillsLoader) loadMetadata(name string) *SkillMetadata {
+	skill, err := l.LoadSkill(name)
+	if err != nil {
+		return nil
 	}
-
-	return skills, nil
+	return &skill.Metadata
 }
 
 // LoadSkill 按名称加载 skill
@@ -327,11 +443,13 @@ func (l *SkillsLoader) GetAlwaysSkills() []string {
 
 // GetSkillMetadata 获取 skill 元数据
 func (l *SkillsLoader) GetSkillMetadata(name string) *SkillMetadata {
-	skill, err := l.LoadSkill(name)
-	if err != nil {
+	// 先确保缓存已加载/刷新，再读缓存中的元数据（避免二次读盘解析）
+	if _, err := l.loadAllCached(); err != nil {
 		return nil
 	}
-	return &skill.Metadata
+	l.cacheMu.RLock()
+	defer l.cacheMu.RUnlock()
+	return l.cacheMeta[name]
 }
 
 // skillEntriesFromDir 从目录获取 skill 条目
