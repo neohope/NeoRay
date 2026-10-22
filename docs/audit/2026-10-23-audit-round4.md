@@ -15,7 +15,7 @@
 
 ## 一、P0：会让功能整体失效或丢会话
 
-### R1. 运行期新增/修改 cron 任务 → 调度器永久停摆
+### R1. 运行期新增/修改 cron 任务 → 调度器永久停摆 ✅ 已修
 
 - 位置：`internal/cron/scheduler.go:553`（`AddJob` 里 `cs.timer.Stop()`，同样问题在 `RemoveJob:683`、`EnableJob:719`、`UpdateJob:800`）
 - 代码：
@@ -30,8 +30,12 @@
 - 实测（我写了临时程序跑真调度器）：`Start()` 后 `AddJob` 一个 every-1s 的任务，等 2.5 秒 **执行 0 次**；再 `AddJob` 一次，之后 3 秒仍 **执行 0 次**。
 - 后果：agent 用 cron 工具创建任何提醒后，**dream、autocompact、所有定时任务一起静默停摆**，无日志、无报错，直到进程重启。
 - 修复：加 `wakeCh chan struct{}`（cap 1），`runLoop` 的 select 里监听它；或在 Stop 后 `Reset(computeDelay())`。
+- **已实现**：新增 `wakeCh` + `wake()`（非阻塞投递），`runLoop` 的 select 监听唤醒并停掉旧 timer 重算；
+  所有运行期改动（Add/Remove/Enable/Update/RegisterSystemJob）都改为 `cs.wake()`。
+  实测：Start 后运行期 AddJob，任务继续按周期执行（新增后 1.5 秒内执行 5 次）。
+  回归测试：`TestRuntimeAddJobKeepsSchedulerAlive`、`TestWakeIsNonBlocking`。
 
-### R2. 会话被 consolidator 保存后，一半字段永久丢失
+### R2. 会话被 consolidator 保存后，一半字段永久丢失 ✅ 已修
 
 - 位置：`internal/memory/manager.go:544-635`（`sessionToMap` / `mapToSession`）
 - 代码：
@@ -49,8 +53,12 @@
   3. 标题、创建时间、工具结果、消息 ID 永久丢失
 - 触发条件：任何一次会话压缩（见 R3——目前是**每回合**都会触发）。
 - 修复：补齐字段，或者让 adapter 直接传 `*session.Session`，彻底去掉 map 往返。
+- **已实现**：`sessionToMap`/`mapToSession` 对称补齐 channel_id / user_id / title /
+  created_at / 消息 id、channel/user/session_id、tool_results、metadata；
+  顺带修正 tool_calls 的 slice 类型（`[]map` vs `[]interface{}` 不匹配导致工具调用也丢）。
+  回归测试：`TestSessionMapRoundTrip`、`TestSessionMapKeepsIsError`。
 
-### R3. 每回合都在做「无意义的压缩」
+### R3. 每回合都在做「无意义的压缩」 ✅ 已修
 
 - 位置：`internal/memory/consolidator.go:360`（预算）、`:513`（估算）、`internal/memory/manager.go:190`（构造参数）
 - 代码与算术：
@@ -63,6 +71,11 @@
   于是 `MaybeConsolidateByTokens` 里 `estimated(0) <= budget(-1024)` 恒为 false → 每回合进入归档循环。
 - 后果：每回合额外 LLM 调用 + 同一批消息被反复摘要 + 触发 R2 的丢字段写盘。
 - 修复：接入真实上下文窗口与 max_tokens；`budget <= 0` 直接返回；接上 `buildMessages`。
+- **已实现**：上下文窗口改取 `agent.context_window_tokens`（默认 128000，原来硬编码 4096）；
+  `inputTokenBudget()` 下限夹到 0；估算新增两条回退——会话 map 形态（consolidator 实际收到的就是这个）
+  与 `*session.Session` 形态，按「4 字符 ≈ 1 token」粗估；预算为 0 时直接返回。
+  回归测试：`TestInputTokenBudgetNeverNegative`、`TestEstimateSessionPromptTokensWithoutBuilder`、
+  `TestMaybeConsolidateSkipsWhenBudgetZero`、`TestEstimateFromSessionMap`。
 
 ---
 

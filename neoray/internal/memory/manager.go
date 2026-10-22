@@ -185,12 +185,22 @@ func (m *MemoryManager) Initialize(p provider.Provider, model string) {
 	// 创建 Consolidator
 	if m.sessionMgr != nil {
 		consolidatorOpts := make([]ConsolidatorOption, 0)
+		// 上下文窗口取配置（默认 128000）。此前硬编码 4096，
+		// 与完成上限 4096 + 安全余量 1024 相减后预算为负，
+		// 导致"是否需要压缩"永远成立、每回合都白跑一次压缩。
+		contextWindow := 0
+		if m.cfg != nil {
+			contextWindow = m.cfg.Agent.ContextWindowTokens
+		}
+		if contextWindow <= 0 {
+			contextWindow = 128000
+		}
 		m.consolidator = NewConsolidator(
 			m.store,
 			adapter,
 			model,
 			&sessionManagerAdapter{mgr: m.sessionMgr},
-			4096, // 默认上下文窗口
+			contextWindow,
 			consolidatorOpts...,
 		)
 		logger.Info("Consolidator initialized")
@@ -549,12 +559,16 @@ func sessionToMap(sess *session.Session) map[string]interface{} {
 	messages := make([]interface{}, 0, len(sess.Messages))
 	for _, msg := range sess.Messages {
 		msgMap := map[string]interface{}{
+			"id":         msg.ID,
+			"channel_id": msg.ChannelID,
+			"user_id":    msg.UserID,
+			"session_id": msg.SessionID,
 			"role":       msg.Role,
 			"content":    msg.Content,
 			"created_at": msg.Timestamp,
 		}
 		if len(msg.ToolCalls) > 0 {
-			toolCalls := make([]map[string]interface{}, 0, len(msg.ToolCalls))
+			toolCalls := make([]interface{}, 0, len(msg.ToolCalls))
 			for _, tc := range msg.ToolCalls {
 				toolCalls = append(toolCalls, map[string]interface{}{
 					"id":        tc.ID,
@@ -564,18 +578,40 @@ func sessionToMap(sess *session.Session) map[string]interface{} {
 			}
 			msgMap["tool_calls"] = toolCalls
 		}
+		if len(msg.ToolResults) > 0 {
+			toolResults := make([]interface{}, 0, len(msg.ToolResults))
+			for _, tr := range msg.ToolResults {
+				toolResults = append(toolResults, map[string]interface{}{
+					"tool_call_id": tr.ToolCallID,
+					"content":      tr.Content,
+					"is_error":     tr.IsError,
+				})
+			}
+			msgMap["tool_results"] = toolResults
+		}
+		if len(msg.Metadata) > 0 {
+			msgMap["metadata"] = msg.Metadata
+		}
 		messages = append(messages, msgMap)
 	}
 
 	return map[string]interface{}{
 		"id":         sess.ID,
+		"channel_id": sess.ChannelID,
+		"user_id":    sess.UserID,
+		"title":      sess.Title,
+		"created_at": sess.CreatedAt,
+		"updated_at": sess.UpdatedAt,
 		"messages":   messages,
 		"metadata":   sess.Metadata,
-		"updated_at": sess.UpdatedAt,
 	}
 }
 
-// mapToSession 从 map 恢复会话
+// mapToSession 从 map 恢复会话。
+//
+// 注意：这个函数必须与 sessionToMap 对称。历史上它只恢复了 id/messages/updated_at，
+// 导致压缩（consolidator）保存会话时把 channel/user/title/created_at/消息 ID/
+// ToolResults 全部抹掉：会话从列表消失、越权校验被绕过、工具结果永久丢失。
 func mapToSession(data interface{}) (*session.Session, error) {
 	m, ok := data.(map[string]interface{})
 	if !ok {
@@ -583,19 +619,23 @@ func mapToSession(data interface{}) (*session.Session, error) {
 	}
 
 	id, _ := m["id"].(string)
-	sess := &session.Session{
-		ID: id,
+	sess := &session.Session{ID: id}
+
+	sess.ChannelID = getString(m, "channel_id")
+	sess.UserID = getString(m, "user_id")
+	sess.Title = getString(m, "title")
+
+	if createdAt, ok := m["created_at"].(time.Time); ok {
+		sess.CreatedAt = createdAt
+	}
+	if updatedAt, ok := m["updated_at"].(time.Time); ok {
+		sess.UpdatedAt = updatedAt
 	}
 
 	if metadata, ok := m["metadata"].(map[string]interface{}); ok {
 		sess.Metadata = metadata
 	}
 
-	if updatedAt, ok := m["updated_at"].(time.Time); ok {
-		sess.UpdatedAt = updatedAt
-	}
-
-	// 恢复消息列表
 	if rawMessages, ok := m["messages"].([]interface{}); ok {
 		messages := make([]session.Message, 0, len(rawMessages))
 		for _, rawMsg := range rawMessages {
@@ -604,8 +644,12 @@ func mapToSession(data interface{}) (*session.Session, error) {
 				continue
 			}
 			msg := session.Message{
-				Role:    getString(msgMap, "role"),
-				Content: getString(msgMap, "content"),
+				ID:        getString(msgMap, "id"),
+				ChannelID: getString(msgMap, "channel_id"),
+				UserID:    getString(msgMap, "user_id"),
+				SessionID: getString(msgMap, "session_id"),
+				Role:      getString(msgMap, "role"),
+				Content:   getString(msgMap, "content"),
 			}
 			if ts, ok := msgMap["created_at"].(time.Time); ok {
 				msg.Timestamp = ts
@@ -624,6 +668,25 @@ func mapToSession(data interface{}) (*session.Session, error) {
 					})
 				}
 				msg.ToolCalls = toolCalls
+			}
+			if rawToolResults, ok := msgMap["tool_results"].([]interface{}); ok {
+				toolResults := make([]session.ToolResult, 0, len(rawToolResults))
+				for _, rawTR := range rawToolResults {
+					trMap, ok := rawTR.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					isErr, _ := trMap["is_error"].(bool)
+					toolResults = append(toolResults, session.ToolResult{
+						ToolCallID: getString(trMap, "tool_call_id"),
+						Content:    getString(trMap, "content"),
+						IsError:    isErr,
+					})
+				}
+				msg.ToolResults = toolResults
+			}
+			if md, ok := msgMap["metadata"].(map[string]interface{}); ok {
+				msg.Metadata = md
 			}
 			messages = append(messages, msg)
 		}

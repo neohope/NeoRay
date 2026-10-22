@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"neoray/internal/logger"
+	sessionpkg "neoray/internal/session"
 	"neoray/internal/templates"
 )
 
@@ -357,7 +358,13 @@ func (c *Consolidator) CompactIdleSession(ctx context.Context, sessionKey string
 // 内部工具方法
 
 func (c *Consolidator) inputTokenBudget() int {
-	return c.contextWindowTokens - c.maxCompletionTokens - SafetyBufferTokens
+	budget := c.contextWindowTokens - c.maxCompletionTokens - SafetyBufferTokens
+	if budget < 0 {
+		// 上下文窗口配置不合理（例如窗口 4096 而完成上限也是 4096）：
+		// 返回负数会让"是否需要压缩"的判定永远为真，每回合都白烧 LLM 调用。
+		return 0
+	}
+	return budget
 }
 
 func (c *Consolidator) truncateToTokenBudget(text string) string {
@@ -511,7 +518,6 @@ func (c *Consolidator) persistLastSummary(session interface{}, summary string) {
 }
 
 func (c *Consolidator) estimateSessionPromptTokens(session interface{}) (int, string) {
-	// 简单估算
 	if c.buildMessages != nil {
 		msgs := c.buildMessages(session)
 		var total int
@@ -520,7 +526,29 @@ func (c *Consolidator) estimateSessionPromptTokens(session interface{}) (int, st
 		}
 		return total, "estimated"
 	}
-	return 0, "no_builder"
+
+	// 没有注入 buildMessages 时，直接按会话消息内容粗估（约 4 字符/token）。
+	// 之前这里恒返回 0：配合负数预算会让"需要压缩"永远成立，每回合都压缩；
+	// 反过来（预算修正后）又会永远不压缩，长会话最终撞上下文上限。
+	// MemoryManager 传进来的其实是 sessionToMap 的结果（map），两种形态都要支持。
+	if tokens := estimateTokensFromSessionMap(session); tokens > 0 {
+		return tokens, "estimated_map"
+	}
+	if sess, ok := session.(*sessionpkg.Session); ok && sess != nil {
+		total := 0
+		for _, msg := range sess.Messages {
+			total += len(msg.Content) / 4
+			for _, tc := range msg.ToolCalls {
+				total += len(tc.Arguments) / 4
+			}
+			for _, tr := range msg.ToolResults {
+				total += len(tr.Content) / 4
+			}
+		}
+		return total, "estimated_content"
+	}
+
+	return 0, "no_estimator"
 }
 
 func (c *Consolidator) saveSession(session interface{}) error {
@@ -649,4 +677,47 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// estimateTokensFromSessionMap 从会话 map 粗估 token（4 字符 ≈ 1 token）。
+// consolidator 实际收到的就是 sessionToMap 的结果（map 形态）。
+func estimateTokensFromSessionMap(session interface{}) int {
+	m, ok := session.(map[string]interface{})
+	if !ok {
+		return 0
+	}
+	rawMessages, ok := m["messages"].([]interface{})
+	if !ok {
+		return 0
+	}
+
+	total := 0
+	for _, rawMsg := range rawMessages {
+		msgMap, ok := rawMsg.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if content, ok := msgMap["content"].(string); ok {
+			total += len(content) / 4
+		}
+		if rawToolCalls, ok := msgMap["tool_calls"].([]interface{}); ok {
+			for _, rawTC := range rawToolCalls {
+				if tcMap, ok := rawTC.(map[string]interface{}); ok {
+					if args, ok := tcMap["arguments"].(string); ok {
+						total += len(args) / 4
+					}
+				}
+			}
+		}
+		if rawToolResults, ok := msgMap["tool_results"].([]interface{}); ok {
+			for _, rawTR := range rawToolResults {
+				if trMap, ok := rawTR.(map[string]interface{}); ok {
+					if content, ok := trMap["content"].(string); ok {
+						total += len(content) / 4
+					}
+				}
+			}
+		}
+	}
+	return total
 }

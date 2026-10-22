@@ -45,6 +45,10 @@ type CronScheduler struct {
 	maxSleepMS  int64
 	// runningJobs 记录正在执行的任务，防止同一任务重入
 	runningJobs map[string]bool
+	// wakeCh 用于在运行期修改任务后立即唤醒 runLoop 重算下次等待时间。
+	// 之前只 timer.Stop() 不唤醒：runLoop 阻塞在 timer.C 上，timer 被停掉后
+	// 再也不会触发，整个调度器（dream / autocompact / 用户任务）永久停摆。
+	wakeCh chan struct{}
 }
 
 // NewCronScheduler 创建调度器
@@ -56,6 +60,7 @@ func NewCronScheduler(storePath string, onJob JobHandler) *CronScheduler {
 		lockPath:    filepath.Join(filepath.Dir(storePath), "cron.lock"),
 		onJob:       onJob,
 		runningJobs: make(map[string]bool),
+		wakeCh:      make(chan struct{}, 1),
 		ctx:         ctx,
 		cancel:      cancel,
 		maxSleepMS:  maxSleepMS,
@@ -74,6 +79,7 @@ func NewCronSchedulerWithConfig(storePath string, onJob JobHandler, maxSleepDura
 		lockPath:    filepath.Join(filepath.Dir(storePath), "cron.lock"),
 		onJob:       onJob,
 		runningJobs: make(map[string]bool),
+		wakeCh:      make(chan struct{}, 1),
 		ctx:         ctx,
 		cancel:      cancel,
 		maxSleepMS:  maxSleepDuration,
@@ -140,6 +146,15 @@ func validateSchedule(schedule CronSchedule) error {
 		}
 	}
 	return nil
+}
+
+// wake 非阻塞地唤醒 runLoop 重新计算等待时间
+func (cs *CronScheduler) wake() {
+	select {
+	case cs.wakeCh <- struct{}{}:
+	default:
+		// 已经有待处理的唤醒信号
+	}
 }
 
 // Start 启动调度器
@@ -228,12 +243,15 @@ func (cs *CronScheduler) runLoop() {
 		cs.timer = time.NewTimer(delay)
 		cs.mu.Unlock()
 
-		// 等待定时器或取消
+		// 等待定时器、唤醒信号或取消
 		select {
 		case <-cs.ctx.Done():
 			return
 		case <-cs.timer.C:
 			cs.onTimer()
+		case <-cs.wakeCh:
+			// 任务列表变了：停掉当前 timer，下一轮循环会重新计算延迟
+			cs.timer.Stop()
 		}
 	}
 }
@@ -548,10 +566,8 @@ func (cs *CronScheduler) AddJob(
 		if err := cs.saveStore(); err != nil {
 			return nil, err
 		}
-		// 重置定时器
-		if cs.timer != nil {
-			cs.timer.Stop()
-		}
+		// 唤醒调度循环重算等待时间（只 Stop 不唤醒会让 runLoop 永久阻塞）
+		cs.wake()
 	} else {
 		cs.store.Jobs = append(cs.store.Jobs, job)
 		if err := cs.saveStore(); err != nil {
@@ -605,9 +621,7 @@ func (cs *CronScheduler) RegisterSystemJob(job CronJob) *CronJob {
 		if err := cs.saveStore(); err != nil {
 			logger.Warn("Failed to save cron store after register system job", logger.ErrorField(err))
 		}
-		if cs.timer != nil {
-			cs.timer.Stop()
-		}
+		cs.wake()
 	} else {
 		cs.appendAction("add", job)
 	}
@@ -679,9 +693,7 @@ func (cs *CronScheduler) RemoveJob(jobID string) string {
 		if err := cs.saveStore(); err != nil {
 			logger.Warn("Failed to save cron store after remove", logger.ErrorField(err))
 		}
-		if cs.timer != nil {
-			cs.timer.Stop()
-		}
+		cs.wake()
 	}
 
 	logger.Info("Cron job removed", logger.String("id", jobID))
@@ -715,9 +727,7 @@ func (cs *CronScheduler) EnableJob(jobID string, enabled bool) *CronJob {
 				if err := cs.saveStore(); err != nil {
 					logger.Warn("Failed to save cron store", logger.ErrorField(err))
 				}
-				if cs.timer != nil {
-					cs.timer.Stop()
-				}
+				cs.wake()
 			}
 			return job
 		}
@@ -796,9 +806,7 @@ func (cs *CronScheduler) UpdateJob(
 		if err := cs.saveStore(); err != nil {
 			logger.Warn("Failed to save cron store", logger.ErrorField(err))
 		}
-		if cs.timer != nil {
-			cs.timer.Stop()
-		}
+		cs.wake()
 	}
 
 	logger.Info("Cron job updated", logger.String("name", job.Name), logger.String("id", job.ID))
