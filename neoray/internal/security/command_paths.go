@@ -2,6 +2,7 @@ package security
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -158,8 +159,17 @@ func CheckCommandPaths(command string, workspace string, allowedPaths []string) 
 				continue
 			}
 
-			// 选项与「命令名本身」不做路径校验（ls / git 之类）
+			// 选项本身不做路径校验，但**选项携带的内容必须校验**：
+			// `python3 -c'open("/etc/passwd")'` 是一个以 "-" 开头的 token，
+			// 整段放过等于给所有命令行注入留了后门。
 			if !isRedirectTarget && strings.HasPrefix(token, "-") {
+				payload := stripOptionPayload(token)
+				if payload == "" {
+					continue
+				}
+				if err := checkTokenPath(payload, roots, false); err != nil {
+					return err
+				}
 				continue
 			}
 
@@ -173,6 +183,65 @@ func CheckCommandPaths(command string, workspace string, allowedPaths []string) 
 	return nil
 }
 
+// stripOptionPayload 从选项 token 里取出"携带内容"部分。
+// -c'code' → code；-e"code" → code；--flag=value → value；-abc → 空。
+func stripOptionPayload(token string) string {
+	body := strings.TrimLeft(token, "-")
+	if body == "" {
+		return ""
+	}
+
+	// --flag=value
+	if idx := strings.Index(body, "="); idx >= 0 {
+		return strings.TrimSpace(body[idx+1:])
+	}
+
+	// -c<value>：短选项后紧跟内容（python -c/-e、perl -e/-i 等）
+	if len(body) > 1 {
+		return strings.TrimSpace(body[1:])
+	}
+
+	// 单个选项字母，无携带内容
+	return ""
+}
+
+// isBareHostTarget 判断 token 是否是"主机:端口/路径"或"IP/路径"形态
+func isBareHostTarget(token string) bool {
+	if strings.HasPrefix(token, "/") || strings.HasPrefix(token, ".") || strings.HasPrefix(token, "~") {
+		return false
+	}
+	slash := strings.Index(token, "/")
+	if slash <= 0 {
+		return false
+	}
+	host := token[:slash]
+
+	// IP 字面量（v4）或 localhost
+	if ip := net.ParseIP(strings.Split(host, ":")[0]); ip != nil {
+		return true
+	}
+	if strings.HasPrefix(host, "localhost") {
+		return true
+	}
+
+	// 形如 example.com / api.example.com:8080（首段含点且不是常见文件扩展）
+	firstSeg := host
+	if idx := strings.Index(firstSeg, ":"); idx > 0 {
+		firstSeg = firstSeg[:idx]
+	}
+	return strings.Contains(firstSeg, ".")
+}
+
+// isHTTPURL 判断 token 是否为 http(s) URL
+func isHTTPURL(token string) bool {
+	idx := strings.Index(token, "://")
+	if idx <= 0 {
+		return false
+	}
+	scheme := strings.ToLower(token[:idx])
+	return scheme == "http" || scheme == "https"
+}
+
 // checkTokenPath 校验单个 token；非路径形态的普通参数直接放过
 func checkTokenPath(token string, roots []string, requirePath bool) error {
 	// 形如 key=value 的环境变量赋值，只校验 value 部分
@@ -180,9 +249,33 @@ func checkTokenPath(token string, roots []string, requirePath bool) error {
 		token = token[idx+1:]
 	}
 
-	// URL 由 ContainsInternalURL 单独处理
-	if strings.Contains(token, "://") {
+	// 只对 http(s) URL 免检（它们由 SSRF 检查单独覆盖）。
+	// 其他 scheme（file://、gopher://…）本质是路径访问，必须走下面的校验；
+	// 之前对任何含 "://" 的 token 一律放过，`curl file:///etc/passwd` 直接绕过沙箱。
+	if isHTTPURL(token) {
 		return nil
+	}
+
+	// 非 http(s) 的 scheme（file://、gopher://…）：取出其中的路径部分继续校验。
+	// `file:///etc/passwd` 的路径就是 /etc/passwd，必须按绝对路径判定。
+	if idx := strings.Index(token, "://"); idx > 0 {
+		rest := token[idx+3:]
+		if slash := strings.Index(rest, "/"); slash >= 0 {
+			token = rest[slash:]
+		} else {
+			// 没有路径部分（如 gopher://host），按裸主机处理，直接拒绝
+			return &WorkspaceBoundaryError{Message: fmt.Sprintf(
+				"命令中包含非 http(s) 的 URL 形态参数 %q，无法静态校验%s", token, WorkspaceBoundaryNote)}
+		}
+	}
+
+	// 裸主机名/IP（`curl 169.254.169.254/latest/meta-data`）没有 scheme，
+	// 会被当成相对路径拼到 workspace 下而放行。这里显式拒绝：
+	// 需要在 shell 里访问网络时请使用 web 工具（它有 SSRF 校验）。
+	if isBareHostTarget(token) {
+		return &WorkspaceBoundaryError{Message: fmt.Sprintf(
+			"命令中包含裸主机/IP 目标 %q，请改用 web_search/web_fetch（带 SSRF 校验）%s",
+			token, WorkspaceBoundaryNote)}
 	}
 
 	isPathLike := requirePath || strings.ContainsAny(token, "/") || token == "." || token == ".."

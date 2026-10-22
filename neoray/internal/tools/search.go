@@ -176,11 +176,12 @@ func (t *FindFilesTool) Execute(ctx context.Context, args json.RawMessage) (json
 			return nil
 		}
 
-		// 跳过符号链接目录，防止遍历工作区外的文件
-		if info.IsDir() && info.Mode()&os.ModeSymlink != 0 {
-			if candidate != target {
-				return filepath.SkipDir
-			}
+		// 跳过符号链接（目录或文件都不跟）。
+		// filepath.Walk 用 Lstat：软链的 IsDir() 恒为 false，
+		// 所以旧写法 `info.IsDir() && ModeSymlink != 0` 永远不成立，
+		// 指向界外的软链会被当成普通文件读出去。
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
 		}
 
 		if info.IsDir() {
@@ -496,6 +497,12 @@ func (t *GrepTool) Execute(ctx context.Context, args json.RawMessage) (json.RawM
 
 	err = filepath.Walk(target, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
+			return nil
+		}
+
+		// 不跟随软链：软链可能指向 workspace 之外，
+		// 而路径策略只在搜索根目录上校验过一次。
+		if info.Mode()&os.ModeSymlink != 0 {
 			return nil
 		}
 
