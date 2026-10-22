@@ -130,19 +130,19 @@ func (t *WebSearchTool) Execute(ctx context.Context, args json.RawMessage) (json
 	var result string
 	switch provider {
 	case "bytedance", "volcengine":
-		result = t.searchBytedance(query, n)
+		result = t.searchBytedance(ctx, query, n)
 	case "duckduckgo":
 		result = t.searchDuckDuckGo(query, n)
 	case "brave":
-		result = t.searchBrave(query, n)
+		result = t.searchBrave(ctx, query, n)
 	case "tavily":
-		result = t.searchTavily(query, n)
+		result = t.searchTavily(ctx, query, n)
 	case "searxng":
-		result = t.searchSearxng(query, n)
+		result = t.searchSearxng(ctx, query, n)
 	case "jina":
-		result = t.searchJina(query, n)
+		result = t.searchJina(ctx, query, n)
 	case "kagi":
-		result = t.searchKagi(query, n)
+		result = t.searchKagi(ctx, query, n)
 	default:
 		result = fmt.Sprintf("Error: unknown search provider '%s'", provider)
 	}
@@ -243,7 +243,7 @@ func (t *WebSearchTool) searchDuckDuckGo(query string, n int) string {
 
 // searchBytedance 使用火山引擎联网搜索 API（字节跳动）
 // 官方文档：https://www.volcengine.com/docs/85508/1650263
-func (t *WebSearchTool) searchBytedance(query string, n int) string {
+func (t *WebSearchTool) searchBytedance(ctx context.Context, query string, n int) string {
 	apiKey := t.apiKey
 	if apiKey == "" {
 		apiKey = os.Getenv("WEB_SEARCH_API_KEY")
@@ -264,7 +264,7 @@ func (t *WebSearchTool) searchBytedance(query string, n int) string {
 	jsonBody, _ := json.Marshal(reqBody)
 
 	// 使用 API Key 认证（Bearer token）
-	req, err := http.NewRequest("POST", "https://open.feedcoopapi.com/search_api/web_search", bytes.NewReader(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://open.feedcoopapi.com/search_api/web_search", bytes.NewReader(jsonBody))
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
@@ -315,7 +315,7 @@ func (t *WebSearchTool) searchBytedance(query string, n int) string {
 	return formatResults(query, items, n)
 }
 
-func (t *WebSearchTool) searchBrave(query string, n int) string {
+func (t *WebSearchTool) searchBrave(ctx context.Context, query string, n int) string {
 	apiKey := t.apiKey
 	if apiKey == "" {
 		apiKey = os.Getenv("BRAVE_API_KEY")
@@ -326,7 +326,7 @@ func (t *WebSearchTool) searchBrave(query string, n int) string {
 
 	client := &http.Client{Timeout: t.searchTimeout(defaultSearchTimeout)}
 	reqURL := fmt.Sprintf("https://api.search.brave.com/res/v1/web/search?q=%s&count=%d", url.QueryEscape(query), n)
-	req, err := http.NewRequest("GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
@@ -364,7 +364,7 @@ func (t *WebSearchTool) searchBrave(query string, n int) string {
 	return formatResults(query, items, n)
 }
 
-func (t *WebSearchTool) searchTavily(query string, n int) string {
+func (t *WebSearchTool) searchTavily(ctx context.Context, query string, n int) string {
 	apiKey := t.apiKey
 	if apiKey == "" {
 		apiKey = os.Getenv("TAVILY_API_KEY")
@@ -379,7 +379,7 @@ func (t *WebSearchTool) searchTavily(query string, n int) string {
 		"max_results": n,
 	}
 	jsonBody, _ := json.Marshal(reqBody)
-	req, err := http.NewRequest("POST", "https://api.tavily.com/search", bytes.NewReader(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.tavily.com/search", bytes.NewReader(jsonBody))
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
@@ -415,7 +415,7 @@ func (t *WebSearchTool) searchTavily(query string, n int) string {
 	return formatResults(query, items, n)
 }
 
-func (t *WebSearchTool) searchSearxng(query string, n int) string {
+func (t *WebSearchTool) searchSearxng(ctx context.Context, query string, n int) string {
 	baseURL := t.baseURL
 	if baseURL == "" {
 		baseURL = os.Getenv("SEARXNG_BASE_URL")
@@ -427,7 +427,7 @@ func (t *WebSearchTool) searchSearxng(query string, n int) string {
 	endpoint := fmt.Sprintf("%s/search", strings.TrimRight(baseURL, "/"))
 	client := &http.Client{Timeout: t.searchTimeout(defaultSearchTimeout)}
 	reqURL := fmt.Sprintf("%s?q=%s&format=json", endpoint, url.QueryEscape(query))
-	req, err := http.NewRequest("GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
@@ -461,7 +461,7 @@ func (t *WebSearchTool) searchSearxng(query string, n int) string {
 	return formatResults(query, items, n)
 }
 
-func (t *WebSearchTool) searchJina(query string, n int) string {
+func (t *WebSearchTool) searchJina(ctx context.Context, query string, n int) string {
 	apiKey := t.apiKey
 	if apiKey == "" {
 		apiKey = os.Getenv("JINA_API_KEY")
@@ -472,7 +472,7 @@ func (t *WebSearchTool) searchJina(query string, n int) string {
 
 	client := &http.Client{Timeout: t.searchTimeout(longSearchTimeout)}
 	reqURL := fmt.Sprintf("https://s.jina.ai/%s", url.QueryEscape(query))
-	req, err := http.NewRequest("GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
@@ -514,7 +514,7 @@ func (t *WebSearchTool) searchJina(query string, n int) string {
 	return formatResults(query, items, n)
 }
 
-func (t *WebSearchTool) searchKagi(query string, n int) string {
+func (t *WebSearchTool) searchKagi(ctx context.Context, query string, n int) string {
 	apiKey := t.apiKey
 	if apiKey == "" {
 		apiKey = os.Getenv("KAGI_API_KEY")
@@ -529,7 +529,7 @@ func (t *WebSearchTool) searchKagi(query string, n int) string {
 		"limit": n,
 	}
 	jsonBody, _ := json.Marshal(reqBody)
-	req, err := http.NewRequest("POST", "https://kagi.com/api/v1/search", bytes.NewReader(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://kagi.com/api/v1/search", bytes.NewReader(jsonBody))
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
@@ -761,7 +761,7 @@ func (t *WebFetchTool) fetchJina(ctx context.Context, urlStr string, maxChars in
 	}
 
 	client := &http.Client{Timeout: t.resolveTimeout()}
-	req, err := http.NewRequest("GET", fmt.Sprintf("https://r.jina.ai/%s", urlStr), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://r.jina.ai/%s", urlStr), nil)
 	if err != nil {
 		return &WebFetchResult{
 			URL:   urlStr,
@@ -867,7 +867,7 @@ func (t *WebFetchTool) fetchReadability(ctx context.Context, urlStr string, extr
 		return nil
 	}
 
-	req, err := http.NewRequest("GET", urlStr, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
 	if err != nil {
 		return &WebFetchResult{
 			URL:   urlStr,

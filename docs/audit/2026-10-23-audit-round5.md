@@ -314,8 +314,19 @@
 
 - 三份 `truncateString` 全部改为 UTF-8 安全（`session` 包加了遍历 max 的回归测试）
 - `allowed_extensions = [".*"]` 与 `**` glob 两项**未修**（见下）
-- patch 的 `blocked_extensions`/`max_file_size` 复用、`exec_session` 的 Wait/pipe 顺序、
-  `web` 工具的 ctx 绑定等仍留待下一轮
+- patch 的 `blocked_extensions`/`max_file_size` 复用、`exec_session` 的 Wait/pipe 顺序
+  仍留待下一轮（`web` 工具的 ctx 绑定已在本轮补修）
+
+### 补充修复（第五批之后，3 项一档问题）
+
+| 问题 | 改动 |
+|---|---|
+| **web 工具 8 处请求不绑 ctx**（`http.NewRequest` 0 处 WithContext） | 全部改为 `NewRequestWithContext`，6 个搜索函数加 ctx 参数；工具取消即可中断在途请求 |
+| **删掉的会话会被 in-flight 回合写回来** | `FileStore` 增加删除墓碑：只拒绝"创建时间早于删除时间"的旧副本，同 ID 重建仍可落盘 |
+| **`List`/`ListByChannelAndUser` 返回内部活对象** | 统一 `DeepCopy()`，调用方无法绕过 store 锁改存储 |
+
+回归测试：`TestDeletedSessionNotResurrected`、`TestRecreatedSessionWithSameIDPersists`、
+`TestListReturnsCopies`。
 
 ### 仍未做（明确记录）
 

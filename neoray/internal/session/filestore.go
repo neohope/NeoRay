@@ -22,6 +22,11 @@ type FileStore struct {
 	// 之前只有内存存储实现了裁剪，默认的文件存储无限增长：
 	// 用久了会话文件越来越大，每次对话都要整份加载。
 	maxMessagesPerSession int
+
+	// deleted 记录被删除的会话 ID（墓碑）。
+	// 删除时可能有正在进行的回合，它结束后会照常 SaveSession——
+	// 没有墓碑的话会话会被写回来（"删了又回来"）。
+	deleted map[string]time.Time
 }
 
 // FileStoreOption 文件存储选项
@@ -56,6 +61,7 @@ func NewFileStore(baseDir string, opts ...FileStoreOption) (*FileStore, error) {
 	store := &FileStore{
 		baseDir:  baseDir,
 		sessions: make(map[string]*Session),
+		deleted:  make(map[string]time.Time),
 	}
 	for _, opt := range opts {
 		opt(store)
@@ -88,7 +94,9 @@ func (s *FileStore) List() ([]*Session, error) {
 
 	list := make([]*Session, 0, len(s.sessions))
 	for _, sess := range s.sessions {
-		list = append(list, sess)
+		// 返回副本：Get/Save 都做了隔离，只有列表路径把内部对象直接交出去，
+		// 调用方可绕过 store 锁修改活对象。
+		list = append(list, sess.DeepCopy())
 	}
 
 	// 按更新时间倒序排序
@@ -129,6 +137,15 @@ func (s *FileStore) Save(sess *Session) error {
 	// 裁剪过多的历史消息，避免会话文件无限增长
 	cp.Messages = trimMessages(cp.Messages, s.maxMessagesPerSession)
 
+	// 被删除的会话不再接受「旧副本」的更新：
+	// 只有创建时间晚于删除时间的新会话才允许落盘（同 ID 重建）。
+	if deletedAt, gone := s.deleted[cp.ID]; gone {
+		if cp.CreatedAt.Before(deletedAt) || cp.CreatedAt.Equal(deletedAt) {
+			return nil
+		}
+		delete(s.deleted, cp.ID)
+	}
+
 	// 更新内存中的会话（深拷贝，外部修改不影响存储）
 	s.sessions[cp.ID] = cp
 
@@ -141,8 +158,12 @@ func (s *FileStore) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// 从内存中删除
+	// 从内存中删除，并留下墓碑阻止 in-flight 回合把它写回来
 	delete(s.sessions, id)
+	if s.deleted == nil {
+		s.deleted = make(map[string]time.Time)
+	}
+	s.deleted[id] = time.Now()
 
 	// 从文件中删除
 	filePath := s.getSessionFilePath(id)
