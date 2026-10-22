@@ -700,7 +700,7 @@ func (c *Client) readPump() {
 	})
 
 	// Per-connection rate limiter: max 30 messages per minute
-	msgTokens := 30
+	msgTokens := 30.0
 	lastRefill := time.Now()
 
 	for {
@@ -716,7 +716,9 @@ func (c *Client) readPump() {
 		now := time.Now()
 		elapsed := now.Sub(lastRefill)
 		lastRefill = now
-		msgTokens += int(elapsed.Seconds() * 30 / 60) // 30 per minute
+		// 用浮点累计：整数截断会把零头丢掉却推进 lastRefill，
+		// 间隔略小于"一个令牌的周期"时永远补不上（30/min 下 1.5s 一次会永久限流）。
+		msgTokens += elapsed.Seconds() * 0.5 // 30 per minute
 		if msgTokens > 30 {
 			msgTokens = 30
 		}

@@ -1109,9 +1109,10 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 			if trace != nil {
 				trace.AddError(err, fmt.Sprintf("LLM call iteration %d", iterations+1))
 			}
-			// 移除孤儿用户消息，避免落盘后污染重启后的会话
+			// 移除本轮的用户消息（不是"最后一条"：第 2 轮起最后一条是 tool 结果，
+			// 删掉它会留下非法历史，导致会话此后每轮都 400）
 			if turnCtx.UserPersistedEarly {
-				turnCtx.Session.RemoveLastMessage()
+				turnCtx.Session.RemoveLastUserMessage()
 				turnCtx.UserPersistedEarly = false
 			}
 			errMsg := "I'm having trouble connecting to the AI service right now. Please try again later."

@@ -24,6 +24,7 @@ type ApplyPatchTool struct {
 	workspace    string
 	allowedPaths []string
 	fileStates   *FileStates
+	readOnly     bool
 }
 
 type PatchEdit struct {
@@ -54,6 +55,7 @@ func NewApplyPatchTool(cfgs ...*config.Config) *ApplyPatchTool {
 		if c != nil {
 			t.workspace = resolveWorkspacePath(c)
 			t.allowedPaths = c.Tools.Workspace.AllowedPaths
+			t.readOnly = c.Tools.Workspace.ReadOnly
 		}
 	}
 	return t
@@ -69,6 +71,7 @@ func NewApplyPatchToolWithFileStates(fileStates *FileStates, cfgs ...*config.Con
 		if c != nil {
 			t.workspace = resolveWorkspacePath(c)
 			t.allowedPaths = c.Tools.Workspace.AllowedPaths
+			t.readOnly = c.Tools.Workspace.ReadOnly
 		}
 	}
 	return t
@@ -127,6 +130,12 @@ func (t *ApplyPatchTool) Execute(ctx context.Context, args json.RawMessage) (jso
 	if len(input.Edits) == 0 {
 		result := "Error applying patch: must provide edits"
 		return json.Marshal(result)
+	}
+
+	// tools.workspace.read_only 之前完全没接线：配置成只读后写入依然成功，
+	// 而模型还被告知"当前只读"。写盘前统一拦一次。
+	if t.readOnly && !input.DryRun {
+		return json.Marshal("Error applying patch: workspace is read-only (tools.workspace.read_only = true)")
 	}
 
 	// 在应用补丁前检查文件是否已读取

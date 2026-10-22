@@ -499,17 +499,19 @@ func main() {
 	fmt.Printf("  AppSecret present: %v\n", cfg.Channels.Feishu.AppSecret != "")
 
 	feishuConfig := &channel.FeishuConfig{
-		AppID:          cfg.Channels.Feishu.AppID,
-		AppSecret:      cfg.Channels.Feishu.AppSecret,
-		Enabled:        cfg.Channels.Feishu.Enabled,
-		Domain:         cfg.Channels.Feishu.Domain,
-		GroupPolicy:    cfg.Channels.Feishu.GroupPolicy,
-		ReplyToMessage: cfg.Channels.Feishu.ReplyToMessage,
-		TopicIsolation: cfg.Channels.Feishu.TopicIsolation,
-		ReactEmoji:     cfg.Channels.Feishu.ReactEmoji,
-		DoneEmoji:      cfg.Channels.Feishu.DoneEmoji,
-		ToolHintPrefix: cfg.Channels.Feishu.ToolHintPrefix,
-		Streaming:      cfg.Channels.Feishu.Streaming,
+		AppID:           cfg.Channels.Feishu.AppID,
+		AppSecret:       cfg.Channels.Feishu.AppSecret,
+		Enabled:         cfg.Channels.Feishu.Enabled,
+		Domain:          cfg.Channels.Feishu.Domain,
+		GroupPolicy:     cfg.Channels.Feishu.GroupPolicy,
+		ReplyToMessage:  cfg.Channels.Feishu.ReplyToMessage,
+		TopicIsolation:  cfg.Channels.Feishu.TopicIsolation,
+		ReactEmoji:      cfg.Channels.Feishu.ReactEmoji,
+		DoneEmoji:       cfg.Channels.Feishu.DoneEmoji,
+		ToolHintPrefix:  cfg.Channels.Feishu.ToolHintPrefix,
+		Streaming:       cfg.Channels.Feishu.Streaming,
+		DedupCapacity:   cfg.Channels.Feishu.DedupCapacity,
+		MaxMessageChars: cfg.Channels.Feishu.MaxMessageChars,
 	}
 	channelMgr.RegisterChannel(channel.NewFeishuChannel(feishuConfig, cfg, aiAgent, sessionMgr))
 
@@ -654,6 +656,11 @@ func initProviders(cfg *config.Config) *provider.ProviderManager {
 				logger.Int("fallback_count", len(fallbackConfigs)),
 			)
 			defaultProvider = factory.CreateFallbackProvider(defaultProvider, fallbackConfigs)
+
+			// 关键：agent 走 GetProvider(cfg.LLM.DefaultProvider) 按名字取，
+			// 只 SetDefaultProvider 的话拿到的是未包装的原始 provider，
+			// fallback 实际不会生效。这里同名覆盖注册表里的实例。
+			providerMgr.RegisterProvider(cfg.LLM.DefaultProvider, defaultProvider)
 		}
 	}
 

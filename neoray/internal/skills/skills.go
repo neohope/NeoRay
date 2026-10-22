@@ -151,9 +151,17 @@ func hasSkillDirs(dir string) bool {
 }
 
 func NewSkillsLoader(cfg *config.Config, opts ...SkillsLoaderOption) *SkillsLoader {
+	// memory.workspace 默认为空表示「用 ~/.neoray」：直接 Join 会得到相对
+	// CWD 的 "skills"，于是用户自建技能永远扫不到（launchd 启动时 CWD=/，
+	// 变成扫描 /skills）。这里按 MemoryManager 同样的规则兜底。
+	workspace := cfg.Memory.Workspace
+	if workspace == "" {
+		workspace = config.GetWorkspace()
+	}
+
 	l := &SkillsLoader{
 		cfg:          cfg,
-		workspaceDir: filepath.Join(cfg.Memory.Workspace, "skills"),
+		workspaceDir: filepath.Join(workspace, "skills"),
 		builtinDir:   resolveBuiltinDir(DefaultBuiltinSkillsDir),
 	}
 	for _, opt := range opts {

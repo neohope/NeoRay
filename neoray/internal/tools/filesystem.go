@@ -214,6 +214,13 @@ func (t *FileSystemTool) readFile(path string) (json.RawMessage, error) {
 }
 
 func (t *FileSystemTool) writeFile(path string, content string, overwrite bool) (json.RawMessage, error) {
+	if t.cfg != nil && t.cfg.Tools.Workspace.ReadOnly {
+		return json.Marshal(map[string]interface{}{
+			"success": false,
+			"error":   "workspace is read-only (tools.workspace.read_only = true)",
+		})
+	}
+
 	// 检查文件扩展名
 	ext := strings.ToLower(filepath.Ext(path))
 	if len(t.cfg.Tools.Filesystem.BlockedExtensions) > 0 {
@@ -304,6 +311,13 @@ func (t *FileSystemTool) listDir(path string) (json.RawMessage, error) {
 }
 
 func (t *FileSystemTool) deleteFile(path string) (json.RawMessage, error) {
+	if t.cfg != nil && t.cfg.Tools.Workspace.ReadOnly {
+		return json.Marshal(map[string]interface{}{
+			"success": false,
+			"error":   "workspace is read-only (tools.workspace.read_only = true)",
+		})
+	}
+
 	// Soft-delete: move to .trash directory instead of permanent removal
 	trashDir := filepath.Join(t.workspace, ".trash")
 	if err := os.MkdirAll(trashDir, 0755); err != nil {

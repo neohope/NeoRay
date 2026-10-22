@@ -210,6 +210,23 @@ func (s *Session) SetMetadataValue(key string, value any) {
 	s.Metadata = meta
 }
 
+// RemoveLastUserMessage 移除最后一条 user 消息（线程安全）。
+// 失败路径要用它而不是 RemoveLastMessage：第 2 轮及以后最后一条是 tool 结果，
+// 删掉它会留下「assistant(tool_calls) 后面没有 tool 结果」的非法历史，
+// 之后每轮请求都被上游 400。
+func (s *Session) RemoveLastUserMessage() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i := len(s.Messages) - 1; i >= 0; i-- {
+		if s.Messages[i].Role == "user" {
+			s.Messages = append(s.Messages[:i], s.Messages[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
 // RemoveLastMessage 移除最后一条消息（线程安全）
 func (s *Session) RemoveLastMessage() {
 	s.mu.Lock()
