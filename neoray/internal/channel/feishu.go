@@ -100,6 +100,7 @@ type FeishuChannel struct {
 	sessionMgr          *session.Manager
 	tenantToken         string
 	tokenExpiry         time.Time
+	tokenTTL            time.Duration
 	httpClient          *http.Client
 	larkClient          *lark.Client // 飞书 SDK 客户端
 	wsClient            *larkws.Client
@@ -458,8 +459,7 @@ func parseBotInfoResponse(body []byte) (openID string, code int, msg string, err
 // 之前固定 10 分钟：若上游下发的有效期本来就只有 10~20 分钟，
 // 相当于每拿到 token 就立刻判定"需要刷新"，形成刷新风暴。
 // 现在按剩余有效期的 1/10 提前刷新，并夹在 [1min, 10min]。
-func tokenRefreshMargin(expiry time.Time) time.Duration {
-	ttl := time.Until(expiry)
+func tokenRefreshMarginForTTL(ttl time.Duration) time.Duration {
 	if ttl <= 0 {
 		return 0
 	}
@@ -968,20 +968,48 @@ func (f *FeishuChannel) finalizeStream(ctx context.Context, chatID string, metad
 	return nil
 }
 
+// tokenNeedsRefresh 依据「总有效期」判断是否该提前刷新。
+// 旧实现用剩余有效期算 margin，而 margin 恒小于剩余有效期，
+// 判定 `now+margin > expiry` 只有在剩不到 1 分钟时才成立——
+// 配合 30 分钟的 ticker，token 过期后可能半小时都不刷新。
+func (f *FeishuChannel) tokenNeedsRefresh() bool {
+	f.mu.RLock()
+	token := f.tenantToken
+	expiry := f.tokenExpiry
+	ttl := f.tokenTTL
+	f.mu.RUnlock()
+
+	if token == "" || expiry.IsZero() {
+		return true
+	}
+	margin := tokenRefreshMarginForTTL(ttl)
+	if margin <= 0 {
+		margin = time.Minute
+	}
+	return time.Now().Add(margin).After(expiry)
+}
+
 // ensureToken 获取有效的 tenant token，必要时刷新
 func (f *FeishuChannel) ensureToken() (string, error) {
+	if f.tokenNeedsRefresh() {
+		if err := f.refreshToken(); err != nil {
+			// 刷新失败时，如果手上还有未过期的 token，继续用它
+			f.mu.RLock()
+			token := f.tenantToken
+			expiry := f.tokenExpiry
+			f.mu.RUnlock()
+			if token != "" && time.Now().Before(expiry) {
+				logger.Warn("Feishu token refresh failed, using existing token",
+					logger.ErrorField(err))
+				return token, nil
+			}
+			return "", fmt.Errorf("no feishu token available: %w", err)
+		}
+	}
+
 	f.mu.RLock()
 	token := f.tenantToken
 	f.mu.RUnlock()
-
-	if token == "" {
-		if err := f.refreshToken(); err != nil {
-			return "", fmt.Errorf("no feishu token available: %w", err)
-		}
-		f.mu.RLock()
-		token = f.tenantToken
-		f.mu.RUnlock()
-	}
 	return token, nil
 }
 
@@ -2589,7 +2617,8 @@ func (f *FeishuChannel) refreshToken() error {
 
 	f.mu.Lock()
 	f.tenantToken = result.TenantAccessToken
-	f.tokenExpiry = time.Now().Add(time.Duration(result.Expire) * time.Second)
+	f.tokenTTL = time.Duration(result.Expire) * time.Second
+	f.tokenExpiry = time.Now().Add(f.tokenTTL)
 	f.mu.Unlock()
 
 	logger.Debug("Feishu token refreshed", logger.String("expiry", f.tokenExpiry.String()))
@@ -2625,17 +2654,15 @@ func (f *FeishuChannel) streamBufCleanupLoop() {
 }
 
 func (f *FeishuChannel) tokenRefreshLoop() {
-	ticker := time.NewTicker(30 * time.Minute)
+	// 由 30 分钟改为 1 分钟：配合「总有效期 1/10 提前刷新」，
+	// 过期最迟在 1 分钟内被发现
+	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			f.mu.RLock()
-			needsRefresh := f.tenantToken == "" || time.Now().Add(tokenRefreshMargin(f.tokenExpiry)).After(f.tokenExpiry)
-			f.mu.RUnlock()
-
-			if needsRefresh {
+			if f.tokenNeedsRefresh() {
 				if err := f.refreshToken(); err != nil {
 					logger.Warn("Failed to refresh feishu token", logger.ErrorField(err))
 				}

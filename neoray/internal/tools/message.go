@@ -43,19 +43,31 @@ type MessageTool struct {
 // NewMessageTool 创建新的 MessageTool
 func NewMessageTool(cfg *config.Config) *MessageTool {
 	return &MessageTool{
-		cfg:             cfg,
-		workspace:       cfg.ResolvePath(cfg.Memory.Workspace),
-		defaultMetadata: make(map[string]interface{}),
+		cfg:                 cfg,
+		workspace:           messageToolWorkspace(cfg),
+		restrictToWorkspace: cfg != nil && cfg.Security.RestrictToWorkspace,
+		defaultMetadata:     make(map[string]interface{}),
 	}
+}
+
+// messageToolWorkspace 与文件工具保持一致：都用 config.GetWorkspace()。
+// 之前用 ResolvePath(cfg.Memory.Workspace)，而该配置默认为空 → 解析成 ~/.neoray，
+// 导致相对附件路径落到工作区之外，且一旦启用校验会把整个 ~/.neoray（含配置文件）纳入允许范围。
+func messageToolWorkspace(cfg *config.Config) string {
+	if cfg == nil {
+		return config.GetWorkspace()
+	}
+	return config.GetWorkspace()
 }
 
 // NewMessageToolWithBus 创建带 Bus 的 MessageTool
 func NewMessageToolWithBus(cfg *config.Config, messageBus *bus.MessageBus) *MessageTool {
 	return &MessageTool{
-		cfg:             cfg,
-		messageBus:      messageBus,
-		workspace:       cfg.ResolvePath(cfg.Memory.Workspace),
-		defaultMetadata: make(map[string]interface{}),
+		cfg:                 cfg,
+		messageBus:          messageBus,
+		workspace:           messageToolWorkspace(cfg),
+		restrictToWorkspace: cfg != nil && cfg.Security.RestrictToWorkspace,
+		defaultMetadata:     make(map[string]interface{}),
 	}
 }
 
@@ -316,16 +328,8 @@ func (t *MessageTool) resolveMedia(media []string) ([]string, error) {
 			continue
 		}
 
-		if !t.restrictToWorkspace {
-			path := p
-			if !filepath.IsAbs(path) {
-				path = filepath.Join(t.workspace, path)
-			}
-			resolved = append(resolved, path)
-			continue
-		}
-
-		// 在工作区限制启用时解析路径
+		// 无论是否启用 restrict_to_workspace，都走同一套路径策略；
+		// 启用时才拒绝越界（保持与其它工具一致的语义）
 		path, err := t.resolveWorkspacePath(p)
 		if err != nil {
 			return nil, err
@@ -358,8 +362,12 @@ func (t *MessageTool) resolveWorkspacePath(p string) (string, error) {
 
 	cleanPath := filepath.Clean(fullPath)
 
-	// 与 shell / 文件工具共用同一套判定：workspace + allowed_paths。
-	// 之前只认 workspace，导致 /tmp/neoray 里的附件发不出去。
+	// restrict_to_workspace 关闭时只做绝对化（保持历史行为）；开启时按
+	// workspace + allowed_paths 校验。两者都走 security 的同一套判定。
+	if !t.restrictToWorkspace {
+		return cleanPath, nil
+	}
+
 	var allowed []string
 	if t.cfg != nil {
 		allowed = t.cfg.Tools.Workspace.AllowedPaths

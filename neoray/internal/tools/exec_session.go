@@ -369,8 +369,13 @@ func (m *ExecSessionManager) Start(
 		return "", nil, fmt.Errorf("maximum exec sessions reached (%d)", m.MaxSessions)
 	}
 
-	// Spawn the process
-	cmd, tempScriptPath, err := spawnCommand(ctx, command, cwd, cfg, true)
+	// 注意：不能把工具调用的 ctx 绑到子进程上。
+	// 工具 ctx 在 Execute 返回时会 cancel（loop.go 里 defer cancel()），
+	// 而 exec.CommandContext 会因此直接 SIGKILL 子进程 —— 于是任何
+	// 带 yield_time_ms 的命令在首次 poll 后就被杀，长任务会话机制完全失效。
+	// 超时由 session.deadline 自己管（见 poll 里的检查）。
+	procCtx := context.WithoutCancel(ctx)
+	cmd, tempScriptPath, err := spawnCommand(procCtx, command, cwd, cfg, true)
 	if err != nil {
 		return "", nil, err
 	}
