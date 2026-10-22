@@ -151,6 +151,20 @@ type Client struct {
 	ChannelID string
 	UserID    string
 	SessionID string
+
+	// closed 在连接注销时关闭。用它代替 close(Send)：
+	// 处理消息的 goroutine 可能在超时后仍在跑，close(Send) 会让它的
+	// sendMessage 触发 "send on closed channel" panic（整个进程一起挂）。
+	closed    chan struct{}
+	closeOnce sync.Once
+}
+
+// markClosed 幂等地标记连接已关闭
+func (c *Client) markClosed() {
+	if c.closed == nil {
+		return
+	}
+	c.closeOnce.Do(func() { close(c.closed) })
 }
 
 // SetChannelID safely sets the client's channel ID.
@@ -636,6 +650,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Server:       s,
 		writeTimeout: s.effectiveWSWriteTimeout(),
 		pingInterval: s.effectiveWSPingInterval(),
+		closed:       make(chan struct{}),
 	}
 
 	s.clientsMu.Lock()
@@ -717,6 +732,15 @@ func (c *Client) readPump() {
 				logger.Duration("timeout", msgTimeout),
 			)
 			c.sendError("timeout", "Message handling timed out")
+
+			// 等 handler 真正退出再读下一条：否则同一个连接上会并发处理多条消息，
+			// 既可能把会话写乱，也会让超时的 goroutine 越堆越多。
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				logger.Warn("Handler still running after timeout, continuing",
+					logger.String("client_id", c.ID))
+			}
 		}
 		handleCancel()
 	}
@@ -740,6 +764,8 @@ func (c *Client) writePump() {
 
 	for {
 		select {
+		case <-c.closed:
+			return
 		case message, ok := <-c.Send:
 			_ = c.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if !ok {
@@ -808,6 +834,13 @@ func (c *Client) sendMessage(msgType string, payload interface{}) {
 		return
 	}
 	select {
+	case <-c.closed:
+		// 连接已注销，丢弃消息而不是往已关闭的连接写
+		return
+	default:
+	}
+
+	select {
 	case c.Send <- data:
 	default:
 		logger.Warn("Client send queue full, dropping message",
@@ -830,7 +863,8 @@ func (s *Server) removeClient(clientID string) {
 	defer s.clientsMu.Unlock()
 
 	if client, ok := s.clients[clientID]; ok {
-		close(client.Send)
+		// 只发关闭信号，不 close(Send)：仍可能有 handler goroutine 在写
+		client.markClosed()
 		delete(s.clients, clientID)
 		logger.Info("WebSocket client disconnected", logger.String("client_id", clientID))
 	}
