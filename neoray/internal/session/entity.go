@@ -183,6 +183,33 @@ func (s *Session) LastAssistantContentSince(index int) string {
 	return ""
 }
 
+// MetadataSnapshot 返回 metadata 的浅拷贝（在读取锁内完成）。
+// 调用方拿到的 map 可以安全遍历，不会与并发写入冲突。
+func (s *Session) MetadataSnapshot() map[string]any {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.Metadata == nil {
+		return nil
+	}
+	out := make(map[string]any, len(s.Metadata))
+	for k, v := range s.Metadata {
+		out[k] = v
+	}
+	return out
+}
+
+// SetMetadataValue 设置一个 metadata 键（写时复制，锁内完成）
+func (s *Session) SetMetadataValue(key string, value any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	meta := make(map[string]any, len(s.Metadata)+1)
+	for k, v := range s.Metadata {
+		meta[k] = v
+	}
+	meta[key] = value
+	s.Metadata = meta
+}
+
 // RemoveLastMessage 移除最后一条消息（线程安全）
 func (s *Session) RemoveLastMessage() {
 	s.mu.Lock()

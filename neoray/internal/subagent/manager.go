@@ -154,8 +154,12 @@ func (m *Manager) Spawn(
 	// 创建状态追踪
 	status := NewSubagentStatus(taskID, label, task)
 
-	// 创建子上下文
-	subCtx, cancel := context.WithCancel(ctx)
+	// 子代理生命周期独立于调用方工具调用的 ctx：
+	// Execute 返回后 loop.executeToolCallsLocked 的 defer cancel() 会立刻取消
+	// 工具 ctx，若子 ctx 继承它，子代理第一次 Chat 就会 context canceled
+	//（spawn 功能实际不可用）。这里用 WithoutCancel 保留 value、去掉取消，
+	// 只由 CancelTask/CancelBySession/Stop 显式取消。
+	subCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 
 	// 创建任务
 	taskObj := &SubagentTask{

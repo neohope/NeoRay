@@ -600,11 +600,10 @@ func sessionToMap(sess *session.Session) map[string]interface{} {
 
 	// 压缩游标存在 session.Metadata 里（Session 结构没有对应字段），
 	// 每次往 map 转换时都要读回来，否则下次压缩会从 0 重新开始、重复归档。
+	metaSnapshot := sess.MetadataSnapshot()
 	lastConsolidated := 0
-	if sess.Metadata != nil {
-		if v, ok := sess.Metadata[lastConsolidatedKey].(int); ok {
-			lastConsolidated = v
-		}
+	if v, ok := metaSnapshot[lastConsolidatedKey].(int); ok {
+		lastConsolidated = v
 	}
 
 	return map[string]interface{}{
@@ -616,7 +615,7 @@ func sessionToMap(sess *session.Session) map[string]interface{} {
 		"created_at":        sess.CreatedAt,
 		"updated_at":        sess.UpdatedAt,
 		"messages":          messages,
-		"metadata":          sess.Metadata,
+		"metadata":          metaSnapshot,
 	}
 }
 
@@ -650,10 +649,7 @@ func mapToSession(data interface{}) (*session.Session, error) {
 	}
 	// 游标持久化：不写回 metadata 就等于每次压缩都从 0 开始
 	if lc, ok := m["last_consolidated"].(int); ok && lc > 0 {
-		if sess.Metadata == nil {
-			sess.Metadata = make(map[string]interface{})
-		}
-		sess.Metadata[lastConsolidatedKey] = lc
+		sess.SetMetadataValue(lastConsolidatedKey, lc)
 	}
 
 	if rawMessages, ok := m["messages"].([]interface{}); ok {

@@ -238,24 +238,30 @@ func (c *Consolidator) MaybeConsolidateByTokens(ctx context.Context, session int
 	target := int(float64(budget) * c.consolidationRatio)
 
 	for round := 0; round < MaxConsolidationRounds; round++ {
-		if estimated <= target {
+		// 只看"尚未归档"的部分：已归档的消息不会再发给 LLM，
+		// 用全量估算会让循环条件永远成立（每回合再归档一次）。
+		cursor := c.getLastConsolidated(session)
+		remaining := c.estimateRemainingTokens(session, cursor)
+		if remaining <= target {
 			break
 		}
 
-		boundary, _ := c.PickConsolidationBoundary(session, max(1, estimated-target))
+		// PickConsolidationBoundary 返回的是相对「未归档窗口」的下标，
+		// 这里换算成绝对下标再切片/写游标（之前混用两套坐标，
+		// 归档范围与 token 目标脱节，还会把游标写成相对值）。
+		boundary, _ := c.PickConsolidationBoundary(session, max(1, remaining-target))
 		if boundary == 0 {
 			break
 		}
+		absolute := cursor + boundary
 
-		messagesToArchive := c.getMessagesInRange(session, c.getLastConsolidated(session), boundary)
+		messagesToArchive := c.getMessagesInRange(session, cursor, absolute)
+		if len(messagesToArchive) == 0 {
+			break
+		}
+
 		summary, err := c.Archive(ctx, messagesToArchive)
 		if err != nil {
-			// 即使失败也要推进 cursor，避免重复处理
-			c.setLastConsolidated(session, boundary)
-			if saveErr := c.saveSession(session); saveErr != nil {
-				logger.Warn("Failed to save session after archive failure",
-					logger.ErrorField(saveErr))
-			}
 			break
 		}
 
@@ -263,13 +269,11 @@ func (c *Consolidator) MaybeConsolidateByTokens(ctx context.Context, session int
 			lastSummary = summary
 		}
 
-		c.setLastConsolidated(session, boundary)
+		c.setLastConsolidated(session, absolute)
 		if saveErr := c.saveSession(session); saveErr != nil {
 			logger.Warn("Failed to save session during consolidation",
 				logger.ErrorField(saveErr))
 		}
-
-		estimated, _ = c.estimateSessionPromptTokens(session)
 	}
 
 	if lastSummary != "" {
@@ -529,6 +533,34 @@ func (c *Consolidator) persistLastSummary(session interface{}, summary string) {
 		}
 		m["metadata"] = metadata
 	}
+}
+
+// estimateRemainingTokens 估算「尚未归档」消息的 token 数
+func (c *Consolidator) estimateRemainingTokens(session interface{}, cursor int) int {
+	if c.buildMessages != nil {
+		msgs := c.buildMessages(session)
+		if cursor >= len(msgs) {
+			return 0
+		}
+		total := 0
+		for _, m := range msgs[cursor:] {
+			total += c.estimateMessageTokens(m)
+		}
+		return total
+	}
+
+	if m, ok := session.(map[string]interface{}); ok {
+		raw, ok := m["messages"].([]interface{})
+		if !ok || cursor >= len(raw) {
+			return 0
+		}
+		total := 0
+		for _, msg := range raw[cursor:] {
+			total += c.estimateMessageTokens(msg)
+		}
+		return total
+	}
+	return 0
 }
 
 func (c *Consolidator) estimateSessionPromptTokens(session interface{}) (int, string) {

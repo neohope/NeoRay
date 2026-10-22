@@ -58,13 +58,17 @@ func (m *GoalManager) getGoalStateLocked(session *Session) (*GoalState, error) {
 	}
 
 	session.RLock()
-	meta := session.Metadata
+	var val any
+	var ok bool
+	if session.Metadata != nil {
+		val, ok = session.Metadata[GoalStateKey]
+	}
 	session.RUnlock()
-	if meta == nil {
+	if !ok {
 		return nil, nil
 	}
 
-	if val, ok := meta[GoalStateKey]; ok {
+	{
 		if stateMap, ok := val.(map[string]any); ok {
 			state := &GoalState{}
 			if status, ok := stateMap["status"].(string); ok {
@@ -112,10 +116,6 @@ func (m *GoalManager) setGoalStateLocked(session *Session, state *GoalState) err
 		return fmt.Errorf("session is nil")
 	}
 
-	if session.Metadata == nil {
-		session.Metadata = make(map[string]any)
-	}
-
 	stateMap := map[string]any{
 		"status":     string(state.Status),
 		"objective":  state.Objective,
@@ -124,7 +124,18 @@ func (m *GoalManager) setGoalStateLocked(session *Session, state *GoalState) err
 		"ended_at":   state.EndedAt,
 		"recap":      state.Recap,
 	}
-	session.Metadata[GoalStateKey] = stateMap
+	// metadata 是共享 map：读写都必须持 session 锁，且不要在持锁期间保存
+	//（SaveSession → DeepCopy 会再取 RLock，写锁内调用会自死锁）。
+	// 之前这里完全没拿 session 锁，与 DeepCopy/GET 会话并发时是
+	// "concurrent map read and map write"（fatal error，不可 recover）。
+	session.Lock()
+	meta := make(map[string]any, len(session.Metadata)+1)
+	for k, v := range session.Metadata {
+		meta[k] = v
+	}
+	meta[GoalStateKey] = stateMap
+	session.Metadata = meta
+	session.Unlock()
 
 	if m.sessionMgr != nil {
 		if err := m.sessionMgr.SaveSession(session); err != nil {

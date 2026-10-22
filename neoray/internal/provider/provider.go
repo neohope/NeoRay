@@ -25,6 +25,9 @@ type ThinkingBlock struct {
 
 // ToolCall 工具调用
 type ToolCall struct {
+	// Index 是流式增量里的调用序号：OpenAI 只有首个 delta 带 id/name，
+	// 后续 args 分片靠 index 归并（旧实现没有它，导致一次调用被拆成多条）。
+	Index     int    `json:"index,omitempty"`
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`

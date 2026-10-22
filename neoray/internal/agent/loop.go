@@ -518,6 +518,11 @@ func (al *AgentLoop) ProcessDirect(
 	return result, err
 }
 
+// commandLockTimeout 命令抢占会话锁的等待上限（很短：拿不到就放弃，避免堵住总线）
+func (al *AgentLoop) commandLockTimeout() time.Duration {
+	return 2 * time.Second
+}
+
 // handleInboundMessage 处理来自总线的消息
 func (al *AgentLoop) handleInboundMessage(ctx context.Context, msg *bus.InboundMessage) error {
 	sessionKey := al.effectiveSessionKey(msg)
@@ -535,7 +540,16 @@ func (al *AgentLoop) handleInboundMessage(ctx context.Context, msg *bus.InboundM
 	if hasPending && al.cmdManager != nil {
 		raw := msg.Content
 		if al.cmdManager.IsDispatchableCommand(raw) {
-			lock.mu.Lock()
+			// 不能用无超时的 lock.mu.Lock()：bus 只有一个 processInbound 协程，
+			// 这里一旦等住（回合可能跑 10 分钟），所有渠道的入站消息全部停摆，
+			// 而且 /stop 恰恰因为拿不到锁无法打断卡住的回合。
+			if !lock.acquire(ctx, al.commandLockTimeout()) {
+				logger.Warn("Command dispatch skipped: session busy",
+					logger.String("session_key", sessionKey),
+					logger.String("command", raw))
+				al.releaseSessionLock(sessionKey)
+				return nil
+			}
 			err := al.dispatchCommandInline(ctx, msg, sessionKey, raw)
 			lock.mu.Unlock()
 			al.releaseSessionLock(sessionKey)
@@ -721,7 +735,7 @@ func (al *AgentLoop) stateRestore(ctx context.Context, turnCtx *TurnContext) (St
 
 	// 恢复运行时检查点：从 session metadata 恢复 goal state 等关键状态
 	if turnCtx.Session != nil {
-		if goalRaw, ok := turnCtx.Session.Metadata[session.GoalStateKey]; ok {
+		if goalRaw, ok := turnCtx.Session.MetadataSnapshot()[session.GoalStateKey]; ok {
 			logger.Debug("Restored goal state from session metadata",
 				logger.String("session_id", turnCtx.Session.ID))
 			_ = goalRaw // GoalState 由 GoalManager 管理，此处仅做存在性检查
@@ -1727,10 +1741,15 @@ func (al *AgentLoop) handleNativeStreamTool(
 				}
 			}
 			for _, tc := range chunk.ToolCalls {
-				// 使用 tc.ID 作为 index 的备选（当 Index 未设置时用 ID 区分）
-				key := len(toolCallMap) // 默认按追加顺序
+				// 归并键：优先用 provider 给的 Index（OpenAI 分片靠它归并），
+				// 其次 ID，最后才退回"新条目"。旧实现对所有无 ID 分片都用
+				// len(map) 当键 → 每次分片都新建一条，一次调用被拆成多条，
+				// 执行时必然 "tool not found"。
+				key := -1
+				if tc.Index > 0 || tc.ID != "" || tc.Name != "" {
+					key = tc.Index
+				}
 				if tc.ID != "" {
-					// 检查是否已有同 ID 的条目
 					for k, existing := range toolCallMap {
 						if existing.ID == tc.ID {
 							key = k
@@ -1738,18 +1757,36 @@ func (al *AgentLoop) handleNativeStreamTool(
 						}
 					}
 				}
+				if key < 0 {
+					for k, existing := range toolCallMap {
+						if existing.Name == tc.Name && tc.Name != "" && existing.Arguments == "" {
+							key = k
+							break
+						}
+					}
+				}
+				if key < 0 {
+					key = len(toolCallMap)
+				}
+
 				existing, ok := toolCallMap[key]
 				if !ok {
 					tcCopy := tc
 					toolCallMap[key] = &tcCopy
-				} else {
-					if tc.ID != "" {
-						existing.ID = tc.ID
-					}
-					if tc.Name != "" {
-						existing.Name = tc.Name
-					}
-					if tc.Arguments != "" {
+					continue
+				}
+				if tc.ID != "" {
+					existing.ID = tc.ID
+				}
+				if tc.Name != "" {
+					existing.Name = tc.Name
+				}
+				if tc.Arguments != "" {
+					// Anthropic 每个 delta 发的是"已累积的完整参数"，
+					// OpenAI 发的是增量片段：前缀相同说明是累积式，直接替换。
+					if strings.HasPrefix(tc.Arguments, existing.Arguments) {
+						existing.Arguments = tc.Arguments
+					} else {
 						existing.Arguments += tc.Arguments
 					}
 				}

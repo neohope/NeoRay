@@ -595,6 +595,7 @@ func (p *GenericProvider) processStreamChunk(data string, ch chan<- StreamChatRe
 		}
 		for _, tc := range choice.Delta.ToolCalls {
 			resp.ToolCalls = append(resp.ToolCalls, ToolCall{
+				Index:     tc.Index,
 				ID:        tc.ID,
 				Name:      tc.Function.Name,
 				Arguments: tc.Function.Arguments,
