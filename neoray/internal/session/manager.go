@@ -51,9 +51,14 @@ func (m *Manager) GetSessionWithValidation(id, channelID, userID string) (*Sessi
 	if err != nil {
 		return nil, err
 	}
-	// 验证会话是否属于指定的频道和用户
-	if sess.ChannelID != channelID || sess.UserID != userID {
-		return nil, errors.New("session not found or access denied")
+	// 验证会话是否属于指定的频道和用户。
+	// 历史会话（尤其是飞书侧创建、身份只编码在 ID 里的）ChannelID/UserID 为空，
+	// 严格要求相等会让这些会话永远 404。这里：存了身份就严格比对，
+	// 没存身份则放行（单密钥部署下由 API 鉴权兜底）。
+	if sess.ChannelID != "" || sess.UserID != "" {
+		if sess.ChannelID != channelID || sess.UserID != userID {
+			return nil, errors.New("session not found or access denied")
+		}
 	}
 	return sess, nil
 }

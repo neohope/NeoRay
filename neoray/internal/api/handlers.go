@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,8 +17,23 @@ import (
 	"neoray/internal/session"
 )
 
-// validSessionIDRe 会话 ID 格式校验（只允许字母、数字、下划线、连字符）
-var validSessionIDRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+// validSessionIDRe 会话 ID 格式校验。
+//
+// 真实会话 ID 形如 "feishu:ou_xxx" / "cli:direct"，原先只允许
+// 字母数字下划线连字符，导致飞书会话的真实 ID 直接被判非法（永远 400）。
+// 这里放宽到允许 : . @，但显式禁止路径分隔符与 ".."，避免路径穿越。
+var validSessionIDRe = regexp.MustCompile(`^[a-zA-Z0-9_:.@-]+$`)
+
+// isSafeSessionID 在正则之外再挡一次穿越与空段
+func isSafeSessionID(id string) bool {
+	if id == "" || strings.Contains(id, "..") {
+		return false
+	}
+	if strings.ContainsAny(id, `/\\`) {
+		return false
+	}
+	return validSessionIDRe.MatchString(id)
+}
 
 // writeJSONError writes a properly escaped JSON error response.
 func writeJSONError(w http.ResponseWriter, statusCode int, errMsg string) {
@@ -446,6 +462,9 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSession 单个会话操作
+// maxSessionPageSize 会话详情单页返回的消息上限
+const maxSessionPageSize = 500
+
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -474,7 +493,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := pathParts[3]
 
 	// 验证 session ID 格式，防止路径遍历等攻击
-	if sessionID == "" || !validSessionIDRe.MatchString(sessionID) {
+	if !isSafeSessionID(sessionID) {
 		writeJSONError(w, http.StatusBadRequest, "Invalid session ID format. Only alphanumeric, underscore and hyphen are allowed.")
 		return
 	}
@@ -488,7 +507,52 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeJSON(w, sess)
+		// 分页：?limit=N&before=<message_id>
+		// 不带 limit 时保持原行为（返回全部消息），兼容既有调用方。
+		limitStr := r.URL.Query().Get("limit")
+		beforeID := r.URL.Query().Get("before")
+		if limitStr == "" && beforeID == "" {
+			writeJSON(w, sess)
+			return
+		}
+
+		limit := 0
+		if limitStr != "" {
+			v, convErr := strconv.Atoi(limitStr)
+			if convErr != nil || v < 0 {
+				writeJSONError(w, http.StatusBadRequest, "limit must be a non-negative integer")
+				return
+			}
+			limit = v
+			if limit > maxSessionPageSize {
+				limit = maxSessionPageSize
+			}
+		}
+
+		// before 为「绝对索引」游标：返回该索引之前的消息
+		beforeIndex := 0
+		if beforeStr := r.URL.Query().Get("before"); beforeStr != "" {
+			v, convErr := strconv.Atoi(beforeStr)
+			if convErr != nil || v < 0 {
+				writeJSONError(w, http.StatusBadRequest, "before must be a non-negative integer")
+				return
+			}
+			beforeIndex = v
+		}
+
+		page, hasMore, nextBefore := session.PaginateMessages(sess.Messages, limit, beforeIndex)
+		writeJSON(w, map[string]interface{}{
+			"id":             sess.ID,
+			"channel_id":     sess.ChannelID,
+			"user_id":        sess.UserID,
+			"title":          sess.Title,
+			"created_at":     sess.CreatedAt,
+			"updated_at":     sess.UpdatedAt,
+			"messages":       page,
+			"total_messages": len(sess.Messages),
+			"has_more":       hasMore,
+			"next_before":    nextBefore,
+		})
 
 	case http.MethodPost:
 		// 发送聊天消息 — 限制请求体大小防止 DoS
