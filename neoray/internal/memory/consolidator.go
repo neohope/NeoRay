@@ -212,21 +212,26 @@ func (c *Consolidator) MaybeConsolidateByTokens(ctx context.Context, session int
 	lock.Lock()
 	defer lock.Unlock()
 
-	// 先检查重播溢出
-	lastSummary, err := c.consolidateReplayOverflow(ctx, session, replayMaxMessages)
-	if err != nil {
-		return err
-	}
-
 	// 估算 prompt tokens
 	estimated, _ := c.estimateSessionPromptTokens(session)
 
 	budget := c.inputTokenBudget()
 	if estimated <= budget {
-		// 保存最后摘要
-		if lastSummary != "" {
-			c.persistLastSummary(session, lastSummary)
-		}
+		return nil
+	}
+
+	// 预算已超：先处理"重播窗口"溢出，再做按 token 的归档
+	lastSummary, err := c.consolidateReplayOverflow(ctx, session, replayMaxMessages)
+	if err != nil {
+		return err
+	}
+	if lastSummary != "" {
+		c.persistLastSummary(session, lastSummary)
+	}
+
+	// 归档后重新估算（重播归档可能已经把窗口压下来了）
+	estimated, _ = c.estimateSessionPromptTokens(session)
+	if estimated <= budget {
 		return nil
 	}
 
@@ -583,7 +588,20 @@ func (c *Consolidator) consolidateReplayOverflow(ctx context.Context, session in
 	}
 
 	messagesToArchive := c.getMessagesInRange(session, startIdx, endIdx)
-	return c.Archive(ctx, messagesToArchive)
+	summary, err := c.Archive(ctx, messagesToArchive)
+	if err != nil {
+		return "", err
+	}
+
+	// 必须推进游标：否则下一次调用还会把同一段 [startIdx,endIdx) 再归档一遍
+	//（表现为每个回合都多一次 LLM 调用，history 里同一段摘要无限堆积）。
+	c.setLastConsolidated(session, endIdx)
+	if saveErr := c.saveSession(session); saveErr != nil {
+		logger.Warn("Failed to save session after replay overflow archive",
+			logger.ErrorField(saveErr))
+	}
+
+	return summary, nil
 }
 
 func (c *Consolidator) replayOverflowBoundary(session interface{}, replayMaxMessages int) int {

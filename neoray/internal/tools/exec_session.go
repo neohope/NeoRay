@@ -514,6 +514,10 @@ func (m *ExecSessionManager) List(ownerSessionKey string) []ExecSessionInfo {
 	return infos
 }
 
+// exitedSessionGrace 进程退出后保留会话的时长：
+// 让调用方仍能通过 write_stdin 取走退出码与剩余输出。
+const exitedSessionGrace = 60 * time.Second
+
 // cleanupLocked cleans up stale sessions (must hold mu)
 func (m *ExecSessionManager) cleanupLocked() {
 	now := time.Now()
@@ -521,7 +525,12 @@ func (m *ExecSessionManager) cleanupLocked() {
 	for id, session := range m.sessions {
 		session.mu.Lock()
 		// 回收条件：空闲超时，或进程已结束但仍占着名额（未 poll 走）
-		if now.Sub(session.lastAccess) > m.idleTimeout || session.returnCode != nil {
+		// 回收条件：空闲超时；或进程已退出**且**已过退出宽限期（默认 60s）。
+		// 之前写成「returnCode != nil 就回收」，而回收发生在 Write 读取输出之前，
+		// 于是命令在两次 poll 之间结束时，第二次 write_stdin 直接拿到
+		// "session not found"，退出码与剩余输出一起丢失。
+		if now.Sub(session.lastAccess) > m.idleTimeout ||
+			(session.returnCode != nil && now.Sub(session.lastAccess) > exitedSessionGrace) {
 			stale = append(stale, id)
 		}
 		session.mu.Unlock()

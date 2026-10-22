@@ -323,6 +323,23 @@ func (cs *CronScheduler) onTimer() {
 	// （dream / agent turn，可能数分钟）会阻塞所有其它定时任务。
 	for _, jobID := range dueJobIDs {
 		cs.mu.Lock()
+
+		// 无论本次是派发还是因为"上一次还在跑"被跳过，都要把
+		// NextRunAtMS 推到下一次：否则 computeDelay 永远算出"已过期"（delay=0），
+		// runLoop 在长任务执行期间 100% CPU 空转。
+		for i := range cs.store.Jobs {
+			if cs.store.Jobs[i].ID != jobID {
+				continue
+			}
+			job := &cs.store.Jobs[i]
+			if next := computeNextRun(job.Schedule, now); next != nil {
+				job.State.NextRunAtMS = *next
+			} else {
+				job.State.NextRunAtMS = 0
+			}
+			break
+		}
+
 		if cs.runningJobs[jobID] {
 			// 同一任务上一次还没跑完，跳过本次（不叠加执行）
 			cs.mu.Unlock()
