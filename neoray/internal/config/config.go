@@ -230,6 +230,7 @@ type FeishuChannelConfig struct {
 	GroupPolicy    string `mapstructure:"group_policy"`     // "mention" 或 "open"
 	ReplyToMessage bool   `mapstructure:"reply_to_message"` // 是否引用原消息回复
 	TopicIsolation bool   `mapstructure:"topic_isolation"`  // 是否话题隔离
+	DedupCapacity  int    `mapstructure:"dedup_capacity"`   // 已处理消息缓存容量，默认 5000
 	ReactEmoji     string `mapstructure:"react_emoji"`      // 处理中的表情，默认 "THINKING"
 	DoneEmoji      string `mapstructure:"done_emoji"`       // 完成时的表情
 	ToolHintPrefix string `mapstructure:"tool_hint_prefix"` // 工具提示前缀，默认 "🔧"

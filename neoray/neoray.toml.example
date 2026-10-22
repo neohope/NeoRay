@@ -131,6 +131,9 @@ domain = "feishu.cn"
 group_policy = "mention"
 reply_to_message = true
 topic_isolation = true
+# 已处理消息 ID 的缓存容量（默认 5000）。群聊繁忙时容量过小会导致
+# 飞书重投的消息被当成新消息处理，出现重复回复。
+dedup_capacity = 5000
 react_emoji = "THINKING"
 done_emoji = "OK"
 tool_hint_prefix = "🔧"

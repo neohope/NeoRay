@@ -399,10 +399,21 @@ func (cs *CronScheduler) executeJobByID(jobID string) {
 	if err != nil {
 		job.State.LastStatus = RunStatusError
 		job.State.LastError = err.Error()
-		logger.Warn("Cron job failed", logger.String("name", job.Name), logger.String("id", job.ID), logger.ErrorField(err))
+		job.State.ConsecutiveFails++
+		logger.Warn("Cron job failed",
+			logger.String("name", job.Name),
+			logger.String("id", job.ID),
+			logger.Int("consecutive_fails", job.State.ConsecutiveFails),
+			logger.ErrorField(err))
 	} else {
 		job.State.LastStatus = RunStatusOK
 		job.State.LastError = ""
+		if job.State.ConsecutiveFails > 0 {
+			logger.Info("Cron job recovered after failures",
+				logger.String("name", job.Name),
+				logger.Int("previous_fails", job.State.ConsecutiveFails))
+		}
+		job.State.ConsecutiveFails = 0
 		logger.Info("Cron job completed", logger.String("name", job.Name), logger.String("id", job.ID))
 	}
 
@@ -428,9 +439,11 @@ func (cs *CronScheduler) executeJobByID(jobID string) {
 			job.State.NextRunAtMS = 0
 		}
 	} else {
-		next := computeNextRun(job.Schedule, nowMS())
+		nowForNext := nowMS()
+		next := computeNextRun(job.Schedule, nowForNext)
 		if next != nil {
-			job.State.NextRunAtMS = *next
+			// 连续失败时退避 1/2/4/8 个周期，成功一次即复位
+			job.State.NextRunAtMS = applyFailureBackoff(job.Schedule, *next, job.State.ConsecutiveFails, nowForNext)
 		} else {
 			job.State.NextRunAtMS = 0
 		}

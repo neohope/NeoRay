@@ -248,6 +248,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("channels.feishu.group_policy", "mention")
 	v.SetDefault("channels.feishu.reply_to_message", true)
 	v.SetDefault("channels.feishu.topic_isolation", true)
+	v.SetDefault("channels.feishu.dedup_capacity", 5000)
 	v.SetDefault("channels.feishu.react_emoji", "THINKING")
 	v.SetDefault("channels.feishu.done_emoji", "")
 	v.SetDefault("channels.feishu.tool_hint_prefix", "🔧")

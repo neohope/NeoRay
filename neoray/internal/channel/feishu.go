@@ -40,6 +40,9 @@ const (
 	feishuDomain      = "https://open.feishu.cn"
 	larkDomain        = "https://open.larksuite.com"
 	maxFeishuBodySize = 10 * 1024 * 1024 // 10 MB max response body
+	// defaultDedupCapacity 已处理消息 ID 的默认缓存容量。
+	// 1000 在繁忙群聊里可能只覆盖几分钟，飞书重投时会重复回复。
+	defaultDedupCapacity = 5000
 )
 
 var (
@@ -84,6 +87,8 @@ type FeishuConfig struct {
 	DoneEmoji         string
 	ToolHintPrefix    string
 	Streaming         bool
+	// DedupCapacity 已处理消息 ID 的缓存容量（默认 5000）
+	DedupCapacity int
 }
 
 type FeishuChannel struct {
@@ -304,7 +309,11 @@ func NewFeishuChannel(cfg *FeishuConfig, appConfig *config.Config, aiAgent agent
 	// 创建 lark SDK 客户端
 	larkClient := lark.NewClient(cfg.AppID, cfg.AppSecret)
 
-	processedIDs := newOrderedMap(1000)
+	dedupCapacity := cfg.DedupCapacity
+	if dedupCapacity <= 0 {
+		dedupCapacity = defaultDedupCapacity
+	}
+	processedIDs := newOrderedMap(dedupCapacity)
 
 	// 从文件加载已处理的消息 ID，防止重启后重复处理
 	if appConfig != nil && appConfig.HomeDir != "" {

@@ -81,3 +81,26 @@ func readIDs(t *testing.T, path string) []string {
 	_ = json.Unmarshal(data, &ids)
 	return ids
 }
+
+// TestDedupCapacityFromConfig 去重容量应可配置，默认 5000（原 1000 在繁忙群里不够）
+func TestDedupCapacityFromConfig(t *testing.T) {
+	if defaultDedupCapacity != 5000 {
+		t.Fatalf("默认容量应为 5000，实际 %d", defaultDedupCapacity)
+	}
+
+	o := newOrderedMap(3)
+	o.loadFromFile(filepath.Join(t.TempDir(), "y.json"))
+	t.Cleanup(o.stop)
+
+	for _, id := range []string{"a", "b", "c", "d"} {
+		o.addIfNew(id)
+	}
+	// 容量 3，最旧的 a 应被淘汰
+	// addIfNew 返回 true 表示"此前不存在"
+	if !o.addIfNew("a") {
+		t.Fatal("超容量后最旧记录应被淘汰（a 应判为新消息）")
+	}
+	if o.addIfNew("d") {
+		t.Fatal("最新记录应保留（d 应被判重）")
+	}
+}

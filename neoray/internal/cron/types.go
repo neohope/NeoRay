@@ -65,6 +65,8 @@ type CronJobState struct {
 	LastStatus  RunStatus       `json:"lastStatus"`  // 上次执行状态
 	LastError   string          `json:"lastError"`   // 上次错误信息
 	RunHistory  []CronRunRecord `json:"runHistory"`  // 执行历史
+	// ConsecutiveFails 连续失败次数，用于退避；成功后清零
+	ConsecutiveFails int `json:"consecutiveFails,omitempty"`
 }
 
 // CronJob 定时任务定义
