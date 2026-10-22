@@ -354,8 +354,12 @@ func generateID() string {
 
 // truncateString 截断字符串
 func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	if maxLen <= 3 || len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen-3] + "..."
+	keep := maxLen - 3
+	for keep > 0 && (s[keep]&0xC0) == 0x80 {
+		keep--
+	}
+	return s[:keep] + "..."
 }

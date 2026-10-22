@@ -14,11 +14,15 @@ import (
 // 用户的老配置文件里很可能还留着它们，读取时会被 mapstructure 静默丢弃，
 // 所以这里主动检测并告警，避免"我明明配了"的困惑。
 var removedConfigPrefixes = map[string]string{
-	"database":                           "当前版本不使用数据库（会话与记忆均为文件存储）",
-	"channels.websocket":                 "当前版本没有 WebSocket 频道实现（Web UI 的浏览器 WS 属于 web 配置）",
-	"security.upload":                    "当前版本没有上传接口",
-	"session.context":                    "上下文压缩策略由 agent 内部固定实现，不接受配置",
-	"server.cors":                        "只有 allowed_origins 生效，其余 CORS 子项已移除",
+	"database":           "当前版本不使用数据库（会话与记忆均为文件存储）",
+	"channels.websocket": "当前版本没有 WebSocket 频道实现（Web UI 的浏览器 WS 属于 web 配置）",
+	"security.upload":    "当前版本没有上传接口",
+	"session.context":    "上下文压缩策略由 agent 内部固定实现，不接受配置",
+	// 注意：不要用 "server.cors" 这种整棵子树的 key —— allowed_origins 与
+	// allow_credentials 仍然生效（corsMiddleware 在用），前缀匹配会把它们
+	// 误报为"已移除"，用户照做删掉后 WS 直接连不上。
+	"server.cors.allow_all_origins":      "已移除；请改用 allowed_origins",
+	"server.cors.expose_headers":         "已移除；请改用 allowed_headers",
 	"agent.tool_hint_max_length":         "未实现",
 	"agent.context_block_limit":          "未实现",
 	"agent.max_messages":                 "未实现；请改用 session.storage.max_messages_per_session",

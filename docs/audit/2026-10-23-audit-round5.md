@@ -10,6 +10,7 @@
      goroutine 是否带 panic 兜底、`_ =` 丢弃错误清单
   3. **每条发现都自己复核**；能跑的直接跑（写探查程序、-race 复现、真实命令验证）
 - 结果：**12 项确认问题**（P0 1 / P1 11）+ 12 项 P2/P3 + 24 项未复核候选（附录）
+- **状态：全部已修复**（4 个提交批次，`b3f0af7` … 见文末「修复结果」）
 
 > **本轮最重要的结论**：**上一轮的修复有 4 处边界没守住**（下文 S3/S4/S5 与 P2-1 明确标注）。
 > 全量复扫的价值就在这里——只跑"针对性用例"看不出这些。
@@ -18,7 +19,7 @@
 
 ## 一、P0：沙箱边界可被平凡命令绕过（实测）
 
-### S1. shell 路径策略对三类命令完全不生效
+### S1. shell 路径策略对三类命令完全不生效 ✅ 已修
 
 - 位置：`internal/security/command_paths.go:162`（`-` 开头 token 直接跳过）、
   `:184`（含 `://` 的 token 直接跳过）
@@ -54,7 +55,7 @@
 
 ## 二、P1：11 项
 
-### S2. cron 长任务执行期间调度器 100% CPU 空转
+### S2. cron 长任务执行期间调度器 100% CPU 空转 ✅ 已修
 
 - 位置：`internal/cron/scheduler.go:283`（`if delay < 0 { delay = 0 }`）
 - 机制：`onTimer` 异步派发任务后**不推进** `NextRunAtMS`（只在任务跑完才更新），
@@ -67,7 +68,7 @@
 - 修复：派发时即推进 `NextRunAtMS`，或 `computeDelay` 忽略 `runningJobs` 里的任务。
 - **这是第二轮「cron 并发化」引入的**，第四轮 wake 改造后仍在。
 
-### S3. exec_session 回收条件把「占坑」修成了「丢输出」（上轮回归）
+### S3. exec_session 回收条件把「占坑」修成了「丢输出」（上轮回归）✅ 已修
 
 - 位置：`internal/tools/exec_session.go:524`（`session.returnCode != nil` 即回收）、
   `:442`（`Write` 先 `cleanupLocked()` 再取输出）
@@ -77,7 +78,7 @@
   `session not found`，退出码与剩余输出一起丢。
 - 修复：回收条件加「输出已取空」或退出后宽限期（如 60s）；`Write` 先取输出再清理。
 
-### S4. 每回合重复归档同一段历史（上轮没修完）
+### S4. 每回合重复归档同一段历史（上轮没修完）✅ 已修
 
 - 位置：`internal/memory/consolidator.go:216`（重播检查在预算判断**之前**）、
   `consolidateReplayOverflow` 归档后既不 `setLastConsolidated` 也不 `setMessages`
@@ -88,7 +89,7 @@
 - 第四轮我修了预算和估算，但这条路径在预算判断之前就执行，等于没修到。
 - 修复：归档后推进游标；把重播检查移到预算判断之后。
 
-### S5. `session.Metadata` 并发读写（可致进程崩溃，已用 -race 复现）
+### S5. `session.Metadata` 并发读写（可致进程崩溃，已用 -race 复现）✅ 已修
 
 - 位置：`internal/session/goal_state.go:127`（写 map 只拿 `GoalManager.mu`，
   不拿 session 锁）、`getGoalStateLocked:60-62`（RLock 只覆盖取 map 头）
@@ -98,7 +99,7 @@
   ——**不可 recover，整进程退出**。
 - 修复：metadata 的读改写整体放进 `session.Lock()`，改前先深拷贝 map。
 
-### S6. grep/find_files 跟随软链读工作区外文件（实测泄漏）
+### S6. grep/find_files 跟随软链读工作区外文件（实测泄漏）✅ 已修
 
 - 位置：`internal/tools/search.go:534`（`os.ReadFile` 跟进软链）、
   `:177`（`info.IsDir() && info.Mode()&os.ModeSymlink != 0` 恒为假，防软链代码是死代码）
@@ -108,7 +109,7 @@
 - 修复：Walk 回调开头跳过 `ModeSymlink`；或 `EvalSymlinks` 后对每个文件复用
   `security.IsPathAllowedForTool`。
 
-### S7. 子代理 spawn 后立刻被取消（spawn 功能实际不可用）
+### S7. 子代理 spawn 后立刻被取消（spawn 功能实际不可用）✅ 已修
 
 - 位置：`internal/subagent/manager.go:158`（`context.WithCancel(ctx)` 继承调用方）、
   `internal/agent/loop.go:2121-2122`（工具 ctx + `defer cancel()`）
@@ -117,7 +118,7 @@
 - 修复：子代理用独立生命周期 ctx（`context.WithCancel(context.Background())`），
   只由 `CancelTask/CancelBySession/Stop` 显式取消。
 
-### S8. `llm.fallback_models` 在实际聊天路径完全不生效
+### S8. `llm.fallback_models` 在实际聊天路径完全不生效 ✅ 已修
 
 - 位置：`cmd/server/main.go:640`（注册的是未包装 provider）、
   `internal/provider/provider.go:162`（`GetProvider(name)` 直接返回 map 里的原始实例）、
@@ -127,7 +128,7 @@
   memoryManager 拿的是包装后的（`main.go:322`），两个子系统行为不一致。
 - 修复：包装后以同名重新注册进 map，或 `GetProvider` 对默认名返回包装实例。
 
-### S9. `tools.workspace.read_only` 配置完全没接线
+### S9. `tools.workspace.read_only` 配置完全没接线 ✅ 已修
 
 - 位置：`internal/config/config.go:181` 定义、`internal/agent/loop.go:2225` 只写进运行时状态
 - grep 确认：`ReadOnly` 全仓没有任何写路径检查点。`write_file`、`delete`、
@@ -136,7 +137,7 @@
   安全控制静默失效并误导模型。
 - 修复：在 `writeFile`/`deleteFile`/`ApplyPatchTool` 写盘前统一校验。
 
-### S10. 一条 `/stop` 能把整个消息总线堵住
+### S10. 一条 `/stop` 能把整个消息总线堵住 ✅ 已修
 
 - 位置：`internal/agent/loop.go:538`（`lock.mu.Lock()` 无超时）、
   `internal/bus/bus.go:240-262`（单协程顺序调用 handler）
@@ -147,7 +148,7 @@
 - 修复：命令分发移到独立 goroutine + `lock.acquire(ctx, timeout)`；
   `/stop` 走不依赖会话锁的通路。
 
-### S11. 流式工具调用多分片合并是坏的（Web 端多分片必然失败）
+### S11. 流式工具调用多分片合并是坏的（Web 端多分片必然失败）✅ 已修
 
 - 位置：`internal/agent/loop.go:1731`（`key := len(toolCallMap)` 给无 ID 分片新建条目）、
   `internal/provider/provider.go:27`（`ToolCall` 无 `Index` 字段）
@@ -157,7 +158,7 @@
   JSON 被拼坏。
 - 修复：`ToolCall` 增加 `Index`，按 Index 归并；只有真正的增量分片才追加。
 
-### S12. LLM 失败时删错消息，可能把会话永久毒化
+### S12. LLM 失败时删错消息，可能把会话永久毒化 ✅ 已修
 
 - 位置：`internal/agent/loop.go:1099`（`RemoveLastMessage()`）、
   `internal/session/entity.go:187`（只删最后一条）
@@ -283,3 +284,45 @@
 3. 未做真实压测与长时间运行观察（S2 的 CPU 占用是短时采样）
 4. 未覆盖 Flutter 客户端与 Web UI 前端
 5. 依赖 0 漏洞是在本轮当天扫描的结果，需持续跟踪
+
+---
+
+## 九、修复结果（已落地）
+
+| 批次 | 提交 | 内容 |
+|---|---|---|
+| 1 | `b3f0af7` | **S1** 选项内容/file:// /裸主机纳入校验；**S6** 搜索工具跳过软链 |
+| 2 | `0b93c29` | **S2** cron 派发即推进 NextRunAtMS；**S3** 退出后 60s 宽限再回收；**S4** 归档推进游标 + 重播检查后移 |
+| 3 | `ec8ed59` | **S5** metadata 快照/写时复制；**S7** 子代理 ctx 独立；**S11** ToolCall.Index 归并；**S10** 命令分发带超时；consolidator 坐标统一 |
+| 4 | `b97568c` | **S8** fallback 同名注册；**S9** read_only 接线；**S12** RemoveLastUserMessage；**P2-1/P2-2/P2-9** |
+| 5 | 本次 | **P2-3~P2-12、P3-1、P3-2**：三份 truncate 做 UTF-8 边界修正、memory 空内容拒绝、cron tz 校验、thread_id 按值判断、去重登记后移、SSE 截止时间对齐、配置解析错误不再吞、deprecated CORS 键收窄、失败路径清 ⏳、长生命周期协程加 panic 兜底 |
+
+### 关键验证（都是实测，不是"应该好了"）
+
+| 项 | 修复前 | 修复后 |
+|---|---|---|
+| `python3 -c'open("/etc/passwd")'` | 放行 | **拦截** |
+| `curl file:///etc/passwd` | 放行 | **拦截** |
+| `curl 169.254.169.254/...` | 放行 | **拦截** |
+| 软链指向界外 + grep | 读到内容 | **读不到** |
+| cron 长任务期间 CPU（1500ms 采样） | 1407ms | **7ms** |
+| 25 条会话连续 3 回合的 LLM 调用 | 3 次 | **≤2 次且游标单调推进** |
+| `SetGoalState` + `DeepCopy` 并发 | `-race` DATA RACE | **无竞争** |
+| 只读工作区写入/打补丁 | 成功 | **拒绝且文件未改动** |
+
+### 顺手清掉的「未复核候选」里能确认的几项
+
+- 三份 `truncateString` 全部改为 UTF-8 安全（`session` 包加了遍历 max 的回归测试）
+- `allowed_extensions = [".*"]` 与 `**` glob 两项**未修**（见下）
+- patch 的 `blocked_extensions`/`max_file_size` 复用、`exec_session` 的 Wait/pipe 顺序、
+  `web` 工具的 ctx 绑定等仍留待下一轮
+
+### 仍未做（明确记录）
+
+| 项 | 原因 |
+|---|---|
+| `**` 通配与 `allowed_extensions` 通配语义 | 需要先统一"配置里写什么算通配"的产品决定，改错会让现有配置更混乱 |
+| `exec_session` 的 Wait 与 StdoutPipe 并发、Start 持锁阻塞 | 与 S3 同源但改动面更大（涉及读协程生命周期），单独一轮更稳妥 |
+| `filestore` 锁内 IO / List 返回活对象 / 删除后被重建 | 会话存储改造成本高，单用户规模下影响有限 |
+| `apply_patch` 复用全部文件策略、patch 与 write 并发互斥 | 需要引入按路径的写锁，影响面较大 |
+| 依赖全面升级 | 只升了有漏洞/有 bug 的 |

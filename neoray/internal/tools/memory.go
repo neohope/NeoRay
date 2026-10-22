@@ -113,6 +113,11 @@ func (t *MemoryTool) handleWrite(ctx context.Context, input MemoryArgs) (json.Ra
 	if strings.TrimSpace(input.FileType) == "" {
 		return nil, fmt.Errorf("file_type is required when action='write'")
 	}
+	// 空内容会把 MEMORY.md / SOUL.md / USER.md 清空（GitEnabled 时还会提交删除），
+	// 而 schema 里 content 只是"描述上说需要"。模型漏传参数就是静默数据销毁。
+	if strings.TrimSpace(input.Content) == "" {
+		return nil, fmt.Errorf("content is required when action='write' (refusing to write empty content)")
+	}
 
 	err := t.manager.WriteMemoryFile(input.FileType, input.Content)
 	if err != nil {

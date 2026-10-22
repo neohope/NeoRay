@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -53,6 +54,13 @@ func Load(configPath string) (*Config, error) {
 
 	// 尝试加载配置
 	if err := v.ReadInConfig(); err != nil {
+		// 只有"确实不存在"才允许继续用默认值；语法错误/权限问题必须报出来，
+		// 否则一个笔误会让 server.port、web.enabled 等全部回落默认值，
+		// 而 security.auth.secret_key 为空又会表现成"所有请求 401"。
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
+			return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
+		}
 		fmt.Printf("Config file not found, using defaults\n")
 	} else {
 		fmt.Printf("✅ Loaded config from: %s\n", v.ConfigFileUsed())

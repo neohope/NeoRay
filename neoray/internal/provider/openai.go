@@ -474,6 +474,17 @@ func (p *GenericProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 	go func() {
 		defer close(resultChan)
 		defer resp.Body.Close()
+		// 流式解析跑在独立协程里：panic 会直接终止进程（用户的整个服务），
+		// 这里兜住并把错误转成一条 error chunk。
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("Stream parser panicked", logger.String("panic", fmt.Sprintf("%v", r)))
+				select {
+				case resultChan <- StreamChatResponse{Error: fmt.Errorf("stream parser panic: %v", r)}:
+				case <-ctx.Done():
+				}
+			}
+		}()
 
 		p.streamSSE(ctx, resp.Body, resultChan)
 	}()

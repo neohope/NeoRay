@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -105,6 +106,14 @@ func (m *Manager) subscribeToBus() {
 
 		// 启动协程处理出站消息
 		go func() {
+			// 分发循环是长生命周期协程：任何 panic 都会带走整个进程
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Error("Channel dispatch goroutine panicked",
+						logger.String("channel", chName),
+						logger.String("panic", fmt.Sprintf("%v", r)))
+				}
+			}()
 			for msg := range outChan {
 				if msg.ChannelID == "" || msg.ChannelID == chName {
 					// P1-fix: 添加超时 context，防止消息发送阻塞无限期。

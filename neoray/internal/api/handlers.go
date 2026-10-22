@@ -601,9 +601,15 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Connection", "keep-alive")
 
 			// P1-fix: 延长 SSE 连接的写超时，防止 WriteTimeout 截断长流式响应。
-			// 写超时由 handler 的 context（5 分钟）控制。
+			// 写超时与本次请求的 ctx 一致（见下方 writeDeadline）。
 			rc := http.NewResponseController(w)
-			_ = rc.SetWriteDeadline(time.Now().Add(6 * time.Minute))
+			// 写截止时间必须与本次请求的 ctx 超时一致：之前写死 6 分钟，
+			// 而 chatTimeout 默认 10 分钟且可配更大，长流会在 6 分钟被掐断，
+			// 客户端收不到 chat_end 但 agent 还在跑。
+			writeDeadline := s.effectiveChatTimeout() + 30*time.Second
+			if err := rc.SetWriteDeadline(time.Now().Add(writeDeadline)); err != nil {
+				logger.Debug("SetWriteDeadline unsupported", logger.ErrorField(err))
+			}
 
 			streamChan, err := s.agent.ChatStream(ctx, sess, req.Message)
 			if err != nil {

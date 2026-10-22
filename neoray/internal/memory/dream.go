@@ -367,11 +367,20 @@ Existing skills: {{.SkillsList}}
 `
 }
 
+// truncateString 截断到 maxLen 字节，但不切断 UTF-8 字符
 func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	if maxLen <= 0 || len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "\n... (truncated)"
+	suffix := "\n... (truncated)"
+	keep := maxLen - len(suffix)
+	if keep < 0 {
+		keep = 0
+	}
+	for keep > 0 && (s[keep]&0xC0) == 0x80 {
+		keep--
+	}
+	return s[:keep] + suffix
 }
 
 // DreamTool 工具定义（用于 Phase 2）

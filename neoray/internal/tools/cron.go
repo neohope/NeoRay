@@ -356,6 +356,10 @@ func (t *CronTool) parseAtTime(atStr string, tzStr string) (int64, error) {
 	// 优先尝试带时区解析
 	if tzStr != "" {
 		loc, err := time.LoadLocation(tzStr)
+		if err != nil && strings.TrimSpace(tzStr) != "" {
+			// 拼错的时区曾被静默当成 UTC（触发时间差 8 小时），且工具还返回创建成功。
+			return 0, fmt.Errorf("invalid timezone %q: %w (use an IANA name like Asia/Shanghai)", tzStr, err)
+		}
 		if err == nil {
 			tm, err := time.ParseInLocation("2006-01-02T15:04:05", atStr, loc)
 			if err == nil {

@@ -703,7 +703,9 @@ func (f *FeishuChannel) sendMessageWithFormat(ctx context.Context, msg bus.Outbo
 		if msgID, ok := msg.Metadata["message_id"].(string); ok {
 			replyMessageID = msgID
 		}
-		if _, ok := msg.Metadata["thread_id"].(string); ok {
+		// 必须按值判断：普通消息也会写入空串 "thread_id"，只判 key 存在会让
+		// reply_to_message=false 失效、长回复每段都变成引用回复。
+		if tid, ok := msg.Metadata["thread_id"].(string); ok && tid != "" {
 			hasThreadID = true
 		}
 	}
@@ -867,7 +869,7 @@ func (f *FeishuChannel) sendStreamDelta(ctx context.Context, chatID string, delt
 		receiveIDType := f.receiveIDType(actualChatID)
 		replyMsgID := ""
 		if metadata != nil {
-			if msgID, ok := metadata["message_id"].(string); ok {
+			if msgID, ok := metadata["message_id"].(string); ok && msgID != "" {
 				replyMsgID = msgID
 			}
 		}
@@ -907,7 +909,7 @@ func (f *FeishuChannel) finalizeStream(ctx context.Context, chatID string, metad
 	f.mu.Unlock()
 
 	if metadata != nil {
-		if msgID, ok := metadata["message_id"].(string); ok {
+		if msgID, ok := metadata["message_id"].(string); ok && msgID != "" {
 			if resuming, _ := metadata["_resuming"].(bool); !resuming {
 				f.mu.Lock()
 				reactionID := f.reactionIDs[msgID]
@@ -1031,6 +1033,23 @@ func readLimitedBody(r io.Reader, limit int64) ([]byte, error) {
 		return nil, fmt.Errorf("response body exceeds %d bytes, refusing to truncate", limit)
 	}
 	return data, nil
+}
+
+// clearThinkingReaction 移除处理中的 ⏳ 表情（失败路径也要清，否则永久挂着）
+func (f *FeishuChannel) clearThinkingReaction(messageID string) {
+	f.mu.RLock()
+	reactionID, ok := f.reactionIDs[messageID]
+	f.mu.RUnlock()
+	if !ok || reactionID == "" {
+		return
+	}
+	if err := f.removeReaction(messageID, reactionID); err != nil {
+		logger.Debug("Failed to remove thinking reaction", logger.ErrorField(err))
+		return
+	}
+	f.mu.Lock()
+	delete(f.reactionIDs, messageID)
+	f.mu.Unlock()
 }
 
 // sendFailureNotice 发送"处理失败"提示。
@@ -1361,18 +1380,20 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 		return
 	}
 
-	// 原子去重：同一条消息只处理一次（检查与登记在同一把锁内完成）
-	if !f.processedMessageIDs.addIfNew(messageID) {
-		logger.Debug("Skipping duplicate message", logger.String("message_id", messageID))
-		return
-	}
-
 	userID := msgEvent.Event.Sender.SenderID.OpenID
 	chatID := msgEvent.Event.Message.ChatID
 	messageType := msgEvent.Event.Message.MessageType
 
 	if chatType == "group" && !f.isGroupMessageForBot(msgEvent.Event.Message.Content, msgEvent.Event.Message.Mentions) {
 		logger.Debug("Skipping group message (not mentioned)", logger.String("message_id", messageID))
+		return
+	}
+
+	// 原子去重：同一条消息只处理一次（检查与登记在同一把锁内完成）。
+	// 放在 mention 过滤之后：机器人不会响应的群消息不该占去重容量，
+	// 否则真正处理过的 ID 被挤出去，飞书重投时会重复回复。
+	if !f.processedMessageIDs.addIfNew(messageID) {
+		logger.Debug("Skipping duplicate message", logger.String("message_id", messageID))
 		return
 	}
 
@@ -1510,6 +1531,7 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 	result, err := f.agent.Chat(ctx, sess, content)
 	if err != nil {
 		logger.Error("Agent chat failed", logger.ErrorField(err))
+		f.clearThinkingReaction(messageID)
 		f.sendFailureNotice(messageID, userID, chatType)
 		return
 	}
@@ -1517,6 +1539,7 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 	// 检查 Agent 返回的错误（processMessage 失败时 err 为 nil 但 result.Error 不为 nil）
 	if result != nil && result.Error != nil {
 		logger.Error("Agent processing failed", logger.ErrorField(result.Error))
+		f.clearThinkingReaction(messageID)
 		f.sendFailureNotice(messageID, userID, chatType)
 		return
 	}
@@ -1531,7 +1554,8 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 			delete(f.reactionIDs, messageID)
 			f.mu.Unlock()
 		}
-		if f.cfg.DoneEmoji != "" {
+		// 流式模式下 finalizeStream 已经加过 DoneEmoji，这里跳过避免重复
+		if f.cfg.DoneEmoji != "" && !f.cfg.Streaming {
 			_, _ = f.addReaction(messageID, f.cfg.DoneEmoji)
 		}
 	}()
@@ -2507,7 +2531,7 @@ func (f *FeishuChannel) receiveIDType(receiveID string) string {
 
 func (f *FeishuChannel) streamKey(chatID string, metadata map[string]interface{}) string {
 	if metadata != nil {
-		if msgID, ok := metadata["message_id"].(string); ok {
+		if msgID, ok := metadata["message_id"].(string); ok && msgID != "" {
 			return msgID
 		}
 	}
@@ -2534,7 +2558,8 @@ func (f *FeishuChannel) threadReplyTarget(metadata map[string]interface{}) strin
 	if messageID == "" {
 		return ""
 	}
-	if _, ok := metadata["thread_id"]; ok || f.cfg.ReplyToMessage {
+	// 同样是按值判断：普通消息的 thread_id 是空串
+	if tid, _ := metadata["thread_id"].(string); tid != "" || f.cfg.ReplyToMessage {
 		return messageID
 	}
 	return ""
@@ -2858,7 +2883,14 @@ func truncateString(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s
 	}
-	return s[:max] + "..."
+	keep := max - 3
+	if keep < 0 {
+		keep = 0
+	}
+	for keep > 0 && (s[keep]&0xC0) == 0x80 {
+		keep--
+	}
+	return s[:keep] + "..."
 }
 
 func escapeJSON(s string) string {
