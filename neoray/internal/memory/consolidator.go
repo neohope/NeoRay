@@ -268,7 +268,14 @@ func (c *Consolidator) MaybeConsolidateByTokens(ctx context.Context, session int
 	}
 
 	if lastSummary != "" {
+		// 必须写回后再保存一次：persistLastSummary 只改内存里的 map，
+		// 而最后那次 saveSession 发生在它之前，摘要根本落不了盘
+		// （表现为"压缩过了，但摘要永远是空的"）。
 		c.persistLastSummary(session, lastSummary)
+		if saveErr := c.saveSession(session); saveErr != nil {
+			logger.Warn("Failed to save session after persisting summary",
+				logger.ErrorField(saveErr))
+		}
 	}
 
 	return nil

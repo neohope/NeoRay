@@ -489,6 +489,9 @@ func (p *ProviderAdapter) Chat(ctx context.Context, model string, system string,
 	return resp.Content, nil
 }
 
+// lastConsolidatedKey 压缩游标在会话 metadata 中的键名
+const lastConsolidatedKey = "_last_consolidated"
+
 // sessionManagerAdapter 适配 session.Manager 到 ConsolidatorSessionManager
 type sessionManagerAdapter struct {
 	mgr MemorySessionManager
@@ -595,15 +598,25 @@ func sessionToMap(sess *session.Session) map[string]interface{} {
 		messages = append(messages, msgMap)
 	}
 
+	// 压缩游标存在 session.Metadata 里（Session 结构没有对应字段），
+	// 每次往 map 转换时都要读回来，否则下次压缩会从 0 重新开始、重复归档。
+	lastConsolidated := 0
+	if sess.Metadata != nil {
+		if v, ok := sess.Metadata[lastConsolidatedKey].(int); ok {
+			lastConsolidated = v
+		}
+	}
+
 	return map[string]interface{}{
-		"id":         sess.ID,
-		"channel_id": sess.ChannelID,
-		"user_id":    sess.UserID,
-		"title":      sess.Title,
-		"created_at": sess.CreatedAt,
-		"updated_at": sess.UpdatedAt,
-		"messages":   messages,
-		"metadata":   sess.Metadata,
+		"id":                sess.ID,
+		"last_consolidated": lastConsolidated,
+		"channel_id":        sess.ChannelID,
+		"user_id":           sess.UserID,
+		"title":             sess.Title,
+		"created_at":        sess.CreatedAt,
+		"updated_at":        sess.UpdatedAt,
+		"messages":          messages,
+		"metadata":          sess.Metadata,
 	}
 }
 
@@ -634,6 +647,13 @@ func mapToSession(data interface{}) (*session.Session, error) {
 
 	if metadata, ok := m["metadata"].(map[string]interface{}); ok {
 		sess.Metadata = metadata
+	}
+	// 游标持久化：不写回 metadata 就等于每次压缩都从 0 开始
+	if lc, ok := m["last_consolidated"].(int); ok && lc > 0 {
+		if sess.Metadata == nil {
+			sess.Metadata = make(map[string]interface{})
+		}
+		sess.Metadata[lastConsolidatedKey] = lc
 	}
 
 	if rawMessages, ok := m["messages"].([]interface{}); ok {
