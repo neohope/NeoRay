@@ -398,15 +398,14 @@ func (p *FallbackProvider) tryChatWithFallback(
 	logger.Warn("All fallback providers failed", logger.Int("count", len(p.fallbackConfigs)))
 
 	if lastResp != nil {
-		return lastResp, nil
+		// 注意：这里必须返回 error。以前返回 (resp, nil) 时，agent 只判断 err，
+		// 于是这句英文诊断被当成"正常回答"落盘并展示给用户。
+		return nil, fmt.Errorf("all providers failed: primary=%s fallback_count=%d last_error=%s (%s)",
+			primaryModel, len(p.fallbackConfigs), lastResp.Content, lastResp.ErrorType)
 	}
 
-	// 返回错误
-	return &ChatResponse{
-		Content:      fmt.Sprintf("Primary model %s circuit open and no fallbacks available", primaryModel),
-		FinishReason: "error",
-		ErrorType:    "no_fallback_available",
-	}, nil
+	return nil, fmt.Errorf("all providers failed: primary=%s fallback_count=%d",
+		primaryModel, len(p.fallbackConfigs))
 }
 
 // HasFallbacks 检查是否配置了 fallback

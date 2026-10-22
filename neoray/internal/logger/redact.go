@@ -49,3 +49,19 @@ func RedactField(key, value string) string {
 	}
 	return Redact(value)
 }
+
+// Truncate 截断过长文本（logger 包内使用，避免各处重复实现）
+func Truncate(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	// 避免切断 UTF-8
+	cut := max
+	for cut > 0 && (s[cut]&0xC0) == 0x80 {
+		cut--
+	}
+	if cut <= 0 {
+		cut = max
+	}
+	return s[:cut] + "…(truncated)"
+}

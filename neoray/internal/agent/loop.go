@@ -1065,6 +1065,10 @@ func (al *AgentLoop) stateRun(ctx context.Context, turnCtx *TurnContext) (StateE
 		if providerCfg, ok := al.cfg.LLM.Providers[p.Name()]; ok {
 			req.MaxTokens = providerCfg.MaxTokens
 			req.Temperature = providerCfg.Temperature
+			// prompt caching 开关必须在这里落到请求上：
+			// Provider 内部只看 req.CacheEnabled，而此前全仓无人赋值，
+			// 于是 Anthropic 的缓存（system/tools/messages）永远不生效。
+			req.CacheEnabled = providerCfg.PromptCacheEnabled
 		}
 
 		logger.Info("Calling LLM",
@@ -1610,6 +1614,11 @@ func (al *AgentLoop) ChatStream(ctx context.Context, sess *session.Session, user
 			msgs := al.contextBuilder.BuildMessages(sess)
 			req := &provider.ChatRequest{
 				Messages: msgs, Tools: providerTools,
+			}
+			if providerCfg, ok := al.cfg.LLM.Providers[p.Name()]; ok {
+				req.MaxTokens = providerCfg.MaxTokens
+				req.Temperature = providerCfg.Temperature
+				req.CacheEnabled = providerCfg.PromptCacheEnabled
 			}
 
 			if streamProvider, ok := p.(provider.StreamToolProvider); ok {

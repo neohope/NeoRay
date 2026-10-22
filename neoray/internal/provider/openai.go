@@ -250,14 +250,17 @@ func (p *GenericProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	// 记录发送给LLM的请求内容
-	logger.Info("LLM request",
+	// 记录发送给 LLM 的请求。完整 body 含全部对话与工具输出，
+	// 以前在 Info 级明文写入文件日志（隐私风险 + 日志膨胀），
+	// 现在降为 Debug、脱敏并截断，只保留可排障的长度信息。
+	logger.Debug("LLM request",
 		logger.String("provider", p.name),
 		logger.String("model", apiReq.Model),
 		logger.Int("messages", len(apiReq.Messages)),
 		logger.Int("tools", len(apiReq.Tools)),
 		logger.Int("max_tokens", apiReq.MaxTokens),
-		logger.String("body", string(body)))
+		logger.Int("body_bytes", len(body)),
+		logger.String("body_preview", logger.Truncate(logger.Redact(string(body)), 512)))
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.cfg.APIURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
@@ -288,11 +291,11 @@ func (p *GenericProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 		return nil, fmt.Errorf("read response body: %w", err)
 	}
 
-	// 记录LLM返回的内容
-	logger.Info("LLM response",
+	// 记录 LLM 返回内容（同样降为 Debug + 截断）
+	logger.Debug("LLM response",
 		logger.String("provider", p.name),
 		logger.Int("body_bytes", len(respBody)),
-		logger.String("body", string(respBody)))
+		logger.String("body_preview", logger.Truncate(logger.Redact(string(respBody)), 512)))
 
 	var apiResp openaiResponse
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {

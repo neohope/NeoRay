@@ -954,8 +954,15 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		s.cfg = &newCfg
 		s.cfgMu.Unlock()
 
-		// 返回更新后的配置
-		writeJSON(w, s.buildConfigResponse())
+		// 重要：只有 api.Server 自己的读取方（限流、WS 超时、静态资源）会看到新配置；
+		// agent / 工具 / Provider 在启动时各自持有旧的 *config.Config 指针，
+		// 且没有重载入口。这些改动必须重启进程才生效 —— 明确告知调用方，
+		// 避免"接口返回 200 就以为换掉 API Key 了"。
+		resp := s.buildConfigResponse()
+		resp["restart_required"] = len(changedFields) > 0
+		resp["restart_reason"] = "agent、工具与 LLM Provider 在启动时各自持有配置副本，" +
+			"此处修改对它们不生效；需要重启进程（launchctl kickstart -k gui/$(id -u)/ai.neoray.gateway）"
+		writeJSON(w, resp)
 
 	default:
 		writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
