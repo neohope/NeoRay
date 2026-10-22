@@ -90,7 +90,7 @@ func (m *Manager) subscribeToBus() {
 		channel := ch
 
 		// 创建订阅通道
-		outChan := make(chan *bus.OutboundMessage, 50)
+		outChan := make(chan *bus.OutboundMessage, bus.OutboundSubscriberBuffer)
 		subID := "channel_" + chName
 
 		// 订阅总线
@@ -110,9 +110,14 @@ func (m *Manager) subscribeToBus() {
 					// P1-fix: 添加超时 context，防止消息发送阻塞无限期。
 					// outChan 关闭时 goroutine 自动退出（range 循环结束）。
 					ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-					if err := channel.Send(ctx, *msg); err != nil {
-						logger.Error("Channel failed to send message",
+					// 失败重试：一次网络抖动不该让用户的回复彻底丢失
+					msgCopy := *msg
+					if err := sendWithRetry(ctx, chName, func(ctx context.Context) error {
+						return channel.Send(ctx, msgCopy)
+					}); err != nil {
+						logger.Error("Channel failed to send message after retries",
 							logger.String("channel", chName),
+							logger.String("msg_id", msgCopy.ID),
 							logger.ErrorField(err))
 					}
 					cancel()

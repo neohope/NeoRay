@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"neoray/internal/logger"
 )
@@ -11,9 +12,26 @@ import (
 // dropMetrics 消息丢弃统计
 type dropMetrics struct {
 	mu        sync.Mutex
-	counts    map[string]int64 // subscriber -> dropped count
+	counts    map[string]int64     // subscriber -> dropped count
+	lastWarn  map[string]time.Time // subscriber -> 上次告警时间（用于聚合）
 	totalDrop int64
 }
+
+const (
+	// OutboundSubscriberBuffer 每个出站订阅者的缓冲容量。
+	// 之前是 50：飞书单条发送 200~800ms 且频道侧串行，突发时几秒就满。
+	OutboundSubscriberBuffer = 512
+
+	// dropWarnInterval 丢弃告警的聚合间隔（避免每条一条 warn 刷屏）
+	dropWarnInterval = time.Minute
+)
+
+var (
+	// outboundBackpressureGrace 缓冲满时的短暂等待。
+	// 直接丢弃会丢用户消息；短暂阻塞能吸收瞬时抖动，又不至于把分发循环卡死。
+	// 变量形式便于测试缩短。
+	outboundBackpressureGrace = 2 * time.Second
+)
 
 // recordDrop 记录消息丢弃
 func (b *MessageBus) recordDrop(subscriberID string) {
@@ -21,6 +39,24 @@ func (b *MessageBus) recordDrop(subscriberID string) {
 	defer b.drops.mu.Unlock()
 	b.drops.counts[subscriberID]++
 	b.drops.totalDrop++
+}
+
+// warnDrop 聚合丢弃告警：同一订阅者每分钟最多一条
+func (b *MessageBus) warnDrop(subscriberID, msgID string) {
+	now := time.Now()
+	b.drops.mu.Lock()
+	last, ok := b.drops.lastWarn[subscriberID]
+	if !ok || now.Sub(last) >= dropWarnInterval {
+		b.drops.lastWarn[subscriberID] = now
+		count := b.drops.counts[subscriberID]
+		b.drops.mu.Unlock()
+		logger.Warn("Outbound subscriber queue full, dropping message",
+			logger.String("subscriber", subscriberID),
+			logger.String("msg_id", msgID),
+			logger.Int("dropped_total", int(count)))
+		return
+	}
+	b.drops.mu.Unlock()
 }
 
 // GetDropMetrics 获取丢弃统计（用于监控）
@@ -78,7 +114,10 @@ func NewMessageBus(inboundSize, outboundSize int) *MessageBus {
 		inboundHandlers:     make([]MessageHandler, 0),
 		outboundSubscribers: make(map[string]chan<- *OutboundMessage),
 		stopChan:            make(chan struct{}),
-		drops:               &dropMetrics{counts: make(map[string]int64)},
+		drops: &dropMetrics{
+			counts:   make(map[string]int64),
+			lastWarn: make(map[string]time.Time),
+		},
 	}
 }
 
@@ -246,14 +285,21 @@ func (b *MessageBus) processOutbound() {
 				select {
 				case ch <- msg:
 					// 发送成功
+					continue
 				case <-b.stopChan:
 					return
 				default:
-					// 订阅者队列满了，记录丢弃指标并告警
+				}
+
+				// 缓冲已满：先给一小段宽限，吸收瞬时抖动后再决定是否丢弃
+				select {
+				case ch <- msg:
+					continue
+				case <-b.stopChan:
+					return
+				case <-time.After(outboundBackpressureGrace):
 					b.recordDrop(id)
-					logger.Warn("Outbound subscriber queue full, dropping message",
-						logger.String("subscriber", id),
-						logger.String("msg_id", msg.ID))
+					b.warnDrop(id, msg.ID)
 				}
 			}
 

@@ -393,7 +393,7 @@ func (s *Server) effectiveWSMessageTimeout() time.Duration {
 // subscribeToBus 订阅消息总线
 func (s *Server) subscribeToBus() {
 	// 创建订阅通道
-	outChan := make(chan *bus.OutboundMessage, 50)
+	outChan := make(chan *bus.OutboundMessage, bus.OutboundSubscriberBuffer)
 
 	// 订阅总线
 	if err := s.msgBus.SubscribeOutbound("api_server", outChan); err != nil {

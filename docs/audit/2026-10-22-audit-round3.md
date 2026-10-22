@@ -14,7 +14,7 @@
 
 ### P1｜消息会真的丢
 
-#### M1. 出站总线「满了就丢」，且各订阅者只有 50 的缓冲
+#### M1. 出站总线「满了就丢」，且各订阅者只有 50 的缓冲 ✅ 已修（2026-10-22）
 
 - 位置：`internal/bus/bus.go:251-256`（`default:` 分支丢弃）、
   `internal/api/server.go:396`、`internal/channel/channel.go:93`（容量均为 50）
@@ -35,6 +35,10 @@
   3. 满了以后总线**直接丢弃**——用户看到的是「AI 没回」，日志里只有一条 warn
   4. 发送失败（非 token 类错误）也只记 `logger.Error`，没有重试
 - 结论：这是前三轮里**唯一会让用户实际丢消息**的问题，优先级最高。
+- **已实现**：订阅缓冲 50 → 512（`bus.OutboundSubscriberBuffer`，API 与频道共用）；
+  缓冲满时先等 2s 宽限期再丢（不再瞬时丢弃）；丢弃告警按订阅者每分钟聚合一条；
+  频道发送失败按 300ms/600ms 退避重试最多 3 次。
+  实测连发 100 条、单条模拟 5ms 发送耗时：**100 条全部送达，丢弃 0**。
 
 ### P2｜每轮重复计算 + 内容错误
 
@@ -57,7 +61,7 @@
 - 建议：给 `ListSkills` / `BuildSkillsSummary` 加「目录 mtime + 配置」为 key 的缓存，
   技能目录未变更时直接复用。
 
-#### M3. 随包技能 `update-setup` 的 frontmatter 解析失败（内容 bug）
+#### M3. 随包技能 `update-setup` 的 frontmatter 解析失败（内容 bug） ✅ 已修（2026-10-22）
 
 - 位置：`neoray/skills/update-setup/SKILL.md:3`
 - 证据：`description` 未加引号却含 `: `
@@ -67,7 +71,8 @@
   YAML 解析报 `mapping values are not allowed in this context`，代码退化为默认值。
 - 影响：该技能的描述与 `requires` 信息丢失（清单里只剩名字），
   且每次解析都会打一条 warn —— 与 M2 叠加后变成日志噪音。
-- 修复：给 description 加引号（或把 `Triggers:` 改成 `Triggers -`）。
+- 修复：给 description 加引号（已修，并同步到运行目录 `~/.neoray/skills`）。
+  已验证 10 个技能全部解析出描述，启动日志 YAML 告警 0 条。
 
 ### P3｜边界缺失，风险随使用规模上升
 
