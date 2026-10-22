@@ -118,4 +118,5 @@ BSD 3-Clause License - see [LICENSE](LICENSE) file for details
 
 ## 代码审计
 
-五轮代码审计（问题、修复提交、验证方式、仍保留的决策项）见 [docs/audit/README.md](docs/audit/README.md)。
+五轮代码审计（问题、修复提交、验证方式、仍保留的决策项）见 [docs/audit/README.md](docs/audit/README.md)，
+暂缓与待办事项见 [docs/audit/BACKLOG.md](docs/audit/BACKLOG.md)。
