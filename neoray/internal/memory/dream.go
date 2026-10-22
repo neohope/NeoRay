@@ -192,18 +192,42 @@ func (d *Dream) Run(ctx context.Context) (bool, error) {
 
 // 内部方法
 
-func (d *Dream) buildHistoryText(entries []HistoryEntry) string {
-	var sb strings.Builder
+// dreamHistoryBudgetChars 单次 dream 提示词中历史文本的总预算。
+// 条目逐条截断（4000 字符）不足以保证总量：批次 20 条最坏约 80KB，
+// 会挤占模型上下文。这里按总预算从**最新条目往回**保留。
+const dreamHistoryBudgetChars = 60000
 
-	for _, entry := range entries {
+func (d *Dream) buildHistoryText(entries []HistoryEntry) string {
+	// 从最新往回取，直到用完预算
+	type line struct{ text string }
+	lines := make([]line, 0, len(entries))
+	used := 0
+	omitted := 0
+
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry := entries[i]
 		content := entry.Content
 		if len(content) > HistoryEntryPreviewMaxChars {
 			content = content[:HistoryEntryPreviewMaxChars]
 		}
-		if sb.Len() > 0 {
+		text := fmt.Sprintf("[%s] %s", entry.Timestamp, content)
+		if used+len(text) > dreamHistoryBudgetChars {
+			omitted = i + 1
+			break
+		}
+		used += len(text)
+		lines = append(lines, line{text: text})
+	}
+
+	var sb strings.Builder
+	if omitted > 0 {
+		sb.WriteString(fmt.Sprintf("(更早的 %d 条历史因长度预算已省略)\n", omitted))
+	}
+	for i := len(lines) - 1; i >= 0; i-- {
+		if sb.Len() > 0 && !strings.HasSuffix(sb.String(), "\n") {
 			sb.WriteString("\n")
 		}
-		sb.WriteString(fmt.Sprintf("[%s] %s", entry.Timestamp, content))
+		sb.WriteString(lines[i].text)
 	}
 
 	return sb.String()

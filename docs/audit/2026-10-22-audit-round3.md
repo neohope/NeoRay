@@ -85,9 +85,9 @@
 
 | 编号 | 问题 | 位置 | 说明 |
 |---|---|---|---|
-| M4 | 飞书长回复没有长度校验/分片 | `internal/channel/feishu.go:2341` `markdownToPost` | 只对**表格**做了分段（`splitElementsByTableLimit`），整体内容没有上限；超限时发送失败只记日志，用户收不到 |
-| M5 | `message` 工具附件无大小/数量上限 | `internal/tools/message.go` | 传入超大文件会整份读入内存再上传 |
-| M6 | `dream` 的提示词没有总量上限 | `internal/memory/dream.go:195` | 每条历史截断到 4000 字符，但批次 20 条 → 最多约 80 KB prompt，长历史下会挤占模型上下文 |
+| M4 | 飞书长回复没有长度校验/分片 ✅ 已修 | `internal/channel/feishu.go:2341` `markdownToPost` | 只对**表格**做了分段（`splitElementsByTableLimit`），整体内容没有上限；超限时发送失败只记日志，用户收不到 |
+| M5 | `message` 工具附件无大小/数量上限 ✅ 已修 | `internal/tools/message.go` | 传入超大文件会整份读入内存再上传 |
+| M6 | `dream` 的提示词没有总量上限 ✅ 已修 | `internal/memory/dream.go:195` | 每条历史截断到 4000 字符，但批次 20 条 → 最多约 80 KB prompt，长历史下会挤占模型上下文 |
 
 ---
 
@@ -126,11 +126,17 @@
 - 加基准测试：缓存命中时 `Snapshot()` 应 < 50 µs
 - 验收：一次 turn 的 10 次迭代里，只发生 1 次目录扫描
 
-### 第 4 批：M4/M5/M6 边界（1 天，按需）
+### 第 4 批：M4/M5/M6 边界（已完成）
 
-- M4：回复超过阈值（如 20 KB）时按段落切分为多条消息；无法切分时截断并提示
-- M5：附件超过 `security.upload.max_size`（配置已存在但未接线）时拒绝并说明
-- M6：`dream` 构建提示时按总字符预算（如 60 KB）截断，超出部分标注省略
+- M4：新增 `splitMessageContent` + `channels.feishu.max_message_chars`（默认 8000）；
+  按「空行 → 单行 → 硬切」优先级分段，硬切时做 UTF-8 边界修正；
+  超长回复改为分多条发送。测试 5 例（短内容不变、每段不超限、优先段落边界、
+  UTF-8 不被切断、空内容）。
+- M5：`message` 工具新增附件数量（5）与单文件大小（20MB）上限，
+  检查放在 resolveMedia 入口、与工作区限制无关。测试 3 例。
+- M6：`dream` 历史文本按 60KB 总预算从**最新往回**保留，超出部分标注
+  「更早的 N 条历史因长度预算已省略」。测试 3 例（总量受限、保留最新、
+  小输入不省略）。
 
 ---
 

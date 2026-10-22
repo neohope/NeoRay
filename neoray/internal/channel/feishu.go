@@ -89,6 +89,8 @@ type FeishuConfig struct {
 	Streaming         bool
 	// DedupCapacity 已处理消息 ID 的缓存容量（默认 5000）
 	DedupCapacity int
+	// MaxMessageChars 单条回复的字符上限，超出按段落分多条发送（默认 8000）
+	MaxMessageChars int
 }
 
 type FeishuChannel struct {
@@ -760,32 +762,58 @@ func (f *FeishuChannel) sendMessageWithFormat(ctx context.Context, msg bus.Outbo
 	}
 
 	content := strings.TrimSpace(msg.Content)
-	if content != "" {
-		fmt := f.detectMsgFormat(content)
-		switch fmt {
-		case "text":
-			textBody, _ := json.Marshal(map[string]string{"text": content})
-			return doSend("text", string(textBody))
-		case "post":
-			postBody := f.markdownToPost(content)
-			return doSend("post", postBody)
-		default:
-			elements := f.buildCardElements(content)
-			chunks := f.splitElementsByTableLimit(elements)
-			for _, chunk := range chunks {
-				card := map[string]interface{}{
-					"config":   map[string]interface{}{"wide_screen_mode": true},
-					"elements": chunk,
-				}
-				cardContent, _ := json.Marshal(card)
-				if err := doSend("interactive", string(cardContent)); err != nil {
-					return err
-				}
+	if content == "" {
+		return nil
+	}
+
+	// 超长回复按段落切分后分多条发送：飞书消息体有大小限制，
+	// 整段超限会直接发送失败，用户就收不到这条回复了。
+	parts := splitMessageContent(content, f.maxMessageChars())
+
+	for _, part := range parts {
+		if err := f.sendOneMessagePart(part, doSend); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sendOneMessagePart 发送单段内容（已保证长度不超限）
+func (f *FeishuChannel) sendOneMessagePart(
+	content string,
+	doSend func(mType string, content string) error,
+) error {
+	fmt := f.detectMsgFormat(content)
+	switch fmt {
+	case "text":
+		textBody, _ := json.Marshal(map[string]string{"text": content})
+		return doSend("text", string(textBody))
+	case "post":
+		postBody := f.markdownToPost(content)
+		return doSend("post", postBody)
+	default:
+		elements := f.buildCardElements(content)
+		chunks := f.splitElementsByTableLimit(elements)
+		for _, chunk := range chunks {
+			card := map[string]interface{}{
+				"config":   map[string]interface{}{"wide_screen_mode": true},
+				"elements": chunk,
+			}
+			cardContent, _ := json.Marshal(card)
+			if err := doSend("interactive", string(cardContent)); err != nil {
+				return err
 			}
 		}
 	}
-
 	return nil
+}
+
+// maxMessageChars 返回单条消息的字符上限（配置优先）
+func (f *FeishuChannel) maxMessageChars() int {
+	if f.cfg != nil && f.cfg.MaxMessageChars > 0 {
+		return f.cfg.MaxMessageChars
+	}
+	return defaultMaxMessageChars
 }
 
 func (f *FeishuChannel) sendStreamDelta(ctx context.Context, chatID string, delta string, metadata map[string]interface{}) error {

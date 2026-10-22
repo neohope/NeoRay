@@ -15,6 +15,13 @@ import (
 )
 
 // MessageTool 用于发送消息给用户
+const (
+	// maxAttachmentsPerMessage 单条消息最多附件数
+	maxAttachmentsPerMessage = 5
+	// maxAttachmentBytes 单个附件大小上限（20MB）
+	maxAttachmentBytes int64 = 20 << 20
+)
+
 type MessageTool struct {
 	cfg                 *config.Config
 	messageBus          *bus.MessageBus
@@ -283,6 +290,24 @@ func removeTag(s, start, end string) string {
 
 // resolveMedia 解析本地媒体附件并在启用时强制工作区限制
 func (t *MessageTool) resolveMedia(media []string) ([]string, error) {
+	// 附件数量与大小上限：超大文件会被整份读入内存再上传
+	if len(media) > maxAttachmentsPerMessage {
+		return nil, fmt.Errorf("too many attachments: %d (max %d)", len(media), maxAttachmentsPerMessage)
+	}
+	for _, p := range media {
+		if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
+			continue
+		}
+		candidate := p
+		if !filepath.IsAbs(candidate) && t.workspace != "" {
+			candidate = filepath.Join(t.workspace, candidate)
+		}
+		if info, err := os.Stat(candidate); err == nil && info.Size() > maxAttachmentBytes {
+			return nil, fmt.Errorf("attachment too large: %s (%d bytes, max %d)",
+				p, info.Size(), maxAttachmentBytes)
+		}
+	}
+
 	resolved := make([]string, 0, len(media))
 
 	for _, p := range media {

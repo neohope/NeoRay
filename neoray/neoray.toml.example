@@ -136,6 +136,9 @@ topic_isolation = true
 # 已处理消息 ID 的缓存容量（默认 5000）。群聊繁忙时容量过小会导致
 # 飞书重投的消息被当成新消息处理，出现重复回复。
 dedup_capacity = 5000
+# 单条回复的字符上限（默认 8000）。超出时按段落分多条发送，
+# 避免整段超限导致飞书发送失败、用户收不到回复。
+max_message_chars = 8000
 react_emoji = "THINKING"
 done_emoji = "OK"
 tool_hint_prefix = "🔧"
