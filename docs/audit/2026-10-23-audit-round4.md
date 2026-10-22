@@ -105,17 +105,17 @@
 | R16 ✅ 已修 | WS `handleMessage(ctx,…)` 从不使用 ctx；各 handler 自建 Background ctx → `ws_message_timeout` 无法中断 agent，超时后同连接仍可并发处理 | `api/server.go:805`、`api/handlers.go:112,155` |
 | R17 ✅ 已修 | 限流器整数除法丢掉亚令牌零头却推进 `lastSeen` → 每 900ms 请求一次会让该 IP 永久 429（rate=60/min 时） | `api/server.go:128` |
 | R18 ✅ 已修 | fallback 全失败时返回 `nil` error + `FinishReason:"error"` → agent 把这句英文诊断当成正常回答落盘并展示 | `provider/fallback.go:404` |
-| R19 | 飞书处理失败提示复用**已到期**的 ctx 且 `_ =` 丢弃错误 → 用户既收不到回复也收不到失败提示 | `channel/feishu.go:1425` |
-| R20 | `replyMessage` 的 `replyInThread` 参数从未使用 → 话题隔离下回复落到主楼，话题外成员看到串台 | `channel/feishu.go:2065` |
-| R21 | 附件下载 `io.LimitReader(10MB)` 截断无检测 → 半截文件当完整文件落盘（表现为"文件解析失败"） | `channel/feishu.go:1847` |
-| R22 | 入站图片/语音/文件永久写在 `media/feishu`，全仓无清理逻辑 → 磁盘线性增长 | `channel/feishu.go:1815` |
-| R23 | exec session 只按 idle 30 分钟回收，已退出但未 poll 的不回收 → 连续 8 次后"maximum exec sessions reached" | `tools/exec_session.go:516` |
-| R24 | session 进程 kill 只杀 `bash` 本身，脚本拉起的子进程成孤儿继续占端口 | `tools/exec_session.go:253` |
-| R25 | cron 工具 `if !input.Deliver { deliver = true }` → 恒为 true，模型无法关闭投递 | `tools/cron.go:222` |
-| R26 | 定时任务投递错误被 `_ =` 丢弃 → 消息没发出去却记为 `RunStatusOK` | `cron/integration.go:144` |
-| R27 | `logger.rotate_daily` 时 `max_size/max_backups/max_age` 全部失效（只在 lumberjack 分支生效）→ 日志无上限 | `logger/logger.go:145` |
-| R28 | `/api/auth/*` 三个端点未过中间件 → 登录接口无限流，可被用于灌日志/猜密钥 | `api/server.go:277` |
-| R29 | `allowed_paths` 相对项未按 HomeDir 解析 → 默认模板的 `["workspace"]` 会被解析成 `$CWD/workspace`，凭空多一个可写根 | `security/command_paths.go:275` |
+| R19 ✅ 已修 | 飞书处理失败提示复用**已到期**的 ctx 且 `_ =` 丢弃错误 → 用户既收不到回复也收不到失败提示 | `channel/feishu.go:1425` |
+| R20 ✅ 已修 | `replyMessage` 的 `replyInThread` 参数从未使用 → 话题隔离下回复落到主楼，话题外成员看到串台 | `channel/feishu.go:2065` |
+| R21 ✅ 已修 | 附件下载 `io.LimitReader(10MB)` 截断无检测 → 半截文件当完整文件落盘（表现为"文件解析失败"） | `channel/feishu.go:1847` |
+| R22 ✅ 已修 | 入站图片/语音/文件永久写在 `media/feishu`，全仓无清理逻辑 → 磁盘线性增长 | `channel/feishu.go:1815` |
+| R23 ✅ 已修 | exec session 只按 idle 30 分钟回收，已退出但未 poll 的不回收 → 连续 8 次后"maximum exec sessions reached" | `tools/exec_session.go:516` |
+| R24 ✅ 已修 | session 进程 kill 只杀 `bash` 本身，脚本拉起的子进程成孤儿继续占端口 | `tools/exec_session.go:253` |
+| R25 ✅ 已修 | cron 工具 `if !input.Deliver { deliver = true }` → 恒为 true，模型无法关闭投递 | `tools/cron.go:222` |
+| R26 ✅ 已修 | 定时任务投递错误被 `_ =` 丢弃 → 消息没发出去却记为 `RunStatusOK` | `cron/integration.go:144` |
+| R27 ✅ 已修 | `logger.rotate_daily` 时 `max_size/max_backups/max_age` 全部失效（只在 lumberjack 分支生效）→ 日志无上限 | `logger/logger.go:145` |
+| R28 ✅ 已修 | `/api/auth/*` 三个端点未过中间件 → 登录接口无限流，可被用于灌日志/猜密钥 | `api/server.go:277` |
+| R29 ✅ 已修 | `allowed_paths` 相对项未按 HomeDir 解析 → 默认模板的 `["workspace"]` 会被解析成 `$CWD/workspace`，凭空多一个可写根 | `security/command_paths.go:275` |
 
 ---
 

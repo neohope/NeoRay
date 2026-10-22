@@ -94,6 +94,7 @@ func (ci *CronIntegration) handleSystemEvent(ctx context.Context, job *CronJob) 
 }
 
 func (ci *CronIntegration) handleAgentTurn(ctx context.Context, job *CronJob) error {
+	var deliverErr error
 	if ci.agent == nil || ci.sessionMgr == nil {
 		return fmt.Errorf("agent or session manager not available")
 	}
@@ -141,12 +142,23 @@ func (ci *CronIntegration) handleAgentTurn(ctx context.Context, job *CronJob) er
 			if job.Payload.ChannelMeta != nil {
 				msg.Metadata = job.Payload.ChannelMeta
 			}
-			_ = ci.msgBus.PublishOutbound(msg)
+			// 投递失败必须可见：以前 `_ =` 丢弃，用户没收到消息但任务记成功、
+			// 失败计数还会被清空。
+			if pubErr := ci.msgBus.PublishOutbound(msg); pubErr != nil {
+				logger.Warn("Cron job delivery failed",
+					logger.String("job", job.Name),
+					logger.String("channel", job.Payload.Channel),
+					logger.ErrorField(pubErr))
+				deliverErr = pubErr
+			}
 		}
 	}
 
 	if result.Error != nil {
 		return result.Error
+	}
+	if deliverErr != nil {
+		return fmt.Errorf("deliver result: %w", deliverErr)
 	}
 
 	return nil

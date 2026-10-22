@@ -250,7 +250,9 @@ func (s *ExecSession) kill() {
 	s.mu.Unlock()
 
 	if s.cmd.Process != nil {
-		s.cmd.Process.Kill()
+		// 杀整个进程组：脚本里 `server &` 拉起的子进程若只杀 bash 会变成孤儿，
+		// 继续占端口/CPU。
+		killProcessGroup(s.cmd)
 	}
 
 	// Wait a bit for cleanup
@@ -518,7 +520,8 @@ func (m *ExecSessionManager) cleanupLocked() {
 	var stale []string
 	for id, session := range m.sessions {
 		session.mu.Lock()
-		if now.Sub(session.lastAccess) > m.idleTimeout {
+		// 回收条件：空闲超时，或进程已结束但仍占着名额（未 poll 走）
+		if now.Sub(session.lastAccess) > m.idleTimeout || session.returnCode != nil {
 			stale = append(stale, id)
 		}
 		session.mu.Unlock()
@@ -602,6 +605,9 @@ func spawnCommand(ctx context.Context, command string, cwd string, cfg *config.C
 
 	cmd := exec.CommandContext(ctx, shellCmd, shellArgs...)
 	cmd.Dir = cwd
+
+	// 让子进程自成一个进程组，便于 kill 时连脚本拉起的后代一起结束
+	setNewProcessGroup(cmd)
 
 	// Environment
 	cmd.Env = buildEnv()

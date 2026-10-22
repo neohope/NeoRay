@@ -254,14 +254,23 @@ func isWithinAny(path string, roots []string) bool {
 
 // expandHome 展开 ~ 前缀
 func expandHome(p string) string {
-	if !strings.HasPrefix(p, "~") {
-		return p
+	if strings.HasPrefix(p, "~") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return p
+		}
+		return filepath.Join(home, strings.TrimPrefix(p, "~"))
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return p
+
+	// 相对路径按 HOME 解析，而不是按进程 CWD：
+	// 默认模板里的 allowed_paths = ["workspace"] 曾会被解析成 $CWD/workspace，
+	// 等于凭空多出一个可写根（CWD 可能是任意目录，例如仓库根）。
+	if !filepath.IsAbs(p) {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, p)
+		}
 	}
-	return filepath.Join(home, strings.TrimPrefix(p, "~"))
+	return p
 }
 
 // IsPathAllowedForTool 判断路径是否落在 workspace 或 allowedPaths 内。

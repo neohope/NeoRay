@@ -38,7 +38,7 @@ type CronArgs struct {
 	CronExpr     string `json:"cron_expr"`
 	TZ           string `json:"tz"`
 	At           string `json:"at"`
-	Deliver      bool   `json:"deliver"`
+	Deliver      *bool  `json:"deliver"`
 	JobID        string `json:"job_id"`
 }
 
@@ -219,9 +219,12 @@ func (t *CronTool) handleAdd(ctx context.Context, input CronArgs) (json.RawMessa
 		}
 	}
 
-	deliver := input.Deliver
-	if !input.Deliver { // 默认为 true
-		deliver = true
+	// 默认投递（模型不写 deliver 时行为不变），但**显式 false 必须生效**。
+	// 旧写法 `if !input.Deliver { deliver = true }` 让 deliver 恒为 true，
+	// 模型无法创建"只执行、不推送"的任务。
+	deliver := true
+	if input.Deliver != nil {
+		deliver = *input.Deliver
 	}
 
 	// 添加任务

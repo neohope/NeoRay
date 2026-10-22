@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -21,12 +22,98 @@ type DailyWriter struct {
 	currentDate string
 	file        *os.File
 	mu          sync.Mutex
+	// 体积与保留上限（0 表示不限制）
+	size       int64
+	part       int
+	maxSizeMB  int
+	maxBackups int
+	maxAgeDays int
 }
 
 // NewDailyWriter 创建按日期滚动的写入器
 func NewDailyWriter(path string) *DailyWriter {
 	return &DailyWriter{
 		path: path,
+	}
+}
+
+// NewDailyWriterWithLimits 创建带体积/保留上限的按天写入器。
+// 之前的 DailyWriter 完全不看 max_size / max_backups / max_age，
+// 开 rotate_daily 后这些配置静默失效，日志可以无限增长。
+func NewDailyWriterWithLimits(path string, maxSizeMB, maxBackups, maxAgeDays int) *DailyWriter {
+	return &DailyWriter{
+		path:       path,
+		maxSizeMB:  maxSizeMB,
+		maxBackups: maxBackups,
+		maxAgeDays: maxAgeDays,
+	}
+}
+
+// rotatePart 单文件超过 max_size 时切换分片（base.date.1.log 等）
+func (w *DailyWriter) rotatePart(date string) {
+	if w.file != nil {
+		_ = w.file.Close()
+		w.file = nil
+	}
+
+	ext := filepath.Ext(w.path)
+	base := strings.TrimSuffix(w.path, ext)
+	w.part++
+	newPath := fmt.Sprintf("%s.%s.%d%s", base, date, w.part, ext)
+
+	file, err := os.OpenFile(newPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return
+	}
+	w.file = file
+	if info, statErr := file.Stat(); statErr == nil {
+		w.size = info.Size()
+	} else {
+		w.size = 0
+	}
+}
+
+// cleanupOldLogs 按 max_backups / max_age 清理历史日志
+func (w *DailyWriter) cleanupOldLogs(dir, base, ext string) {
+	if w.maxBackups <= 0 && w.maxAgeDays <= 0 {
+		return
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	prefix := filepath.Base(base) + "."
+
+	type logFile struct {
+		name string
+		mod  time.Time
+	}
+	var files []logFile
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), prefix) || !strings.HasSuffix(e.Name(), ext) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, logFile{name: e.Name(), mod: info.ModTime()})
+	}
+
+	// 按修改时间从新到旧，超出 max_backups 的删除
+	sort.Slice(files, func(i, j int) bool { return files[i].mod.After(files[j].mod) })
+	for i, f := range files {
+		remove := false
+		if w.maxBackups > 0 && i >= w.maxBackups {
+			remove = true
+		}
+		if w.maxAgeDays > 0 && time.Since(f.mod) > time.Duration(w.maxAgeDays)*24*time.Hour {
+			remove = true
+		}
+		if remove {
+			_ = os.Remove(filepath.Join(dir, f.name))
+		}
 	}
 }
 
@@ -38,10 +125,15 @@ func (w *DailyWriter) Write(p []byte) (n int, err error) {
 	date := time.Now().Format("2006-01-02")
 	if w.currentDate != date || w.file == nil {
 		w.rotate(date)
+	} else if w.maxSizeMB > 0 && w.size >= int64(w.maxSizeMB)<<20 {
+		// 单文件超过 max_size 时切换分片，避免一天写爆磁盘
+		w.rotatePart(date)
 	}
 
 	if w.file != nil {
-		return w.file.Write(p)
+		n, err := w.file.Write(p)
+		w.size += int64(n)
+		return n, err
 	}
 	// 返回错误而非静默丢弃，让调用者知道日志写入失败
 	return 0, fmt.Errorf("daily writer: log file is nil (rotation may have failed)")
@@ -75,6 +167,11 @@ func (w *DailyWriter) rotate(date string) {
 	if err == nil {
 		w.currentDate = date
 		w.file = file
+		w.part = 0
+		if info, statErr := file.Stat(); statErr == nil {
+			w.size = info.Size()
+		}
+		w.cleanupOldLogs(dir, base, ext)
 	}
 	// 打开失败时 w.file 保持 nil，Write 方法会返回 0, nil（静默丢弃），
 	// 但不会向已关闭的旧文件写入
@@ -143,7 +240,12 @@ func Init(cfg *config.Config) error {
 				logPath := cfg.ResolvePath(cfg.Logger.File.Path)
 				var syncer zapcore.WriteSyncer
 				if cfg.Logger.File.RotateDaily {
-					syncer = zapcore.AddSync(NewDailyWriter(logPath))
+					syncer = zapcore.AddSync(NewDailyWriterWithLimits(
+						logPath,
+						cfg.Logger.File.MaxSize,
+						cfg.Logger.File.MaxBackups,
+						cfg.Logger.File.MaxAge,
+					))
 				} else {
 					fileWriter := &lumberjack.Logger{
 						Filename:   logPath,

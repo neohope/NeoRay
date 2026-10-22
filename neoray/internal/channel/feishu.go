@@ -989,6 +989,70 @@ func (f *FeishuChannel) tokenNeedsRefresh() bool {
 	return time.Now().Add(margin).After(expiry)
 }
 
+// mediaRetention 入站媒体文件的保留时长
+const mediaRetention = 7 * 24 * time.Hour
+
+// cleanupOldMedia 删除目录中过期的媒体文件（按修改时间）。
+// 只清理本目录内的普通文件，失败只告警，不影响消息处理。
+func cleanupOldMedia(dir string, retention time.Duration) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-retention)
+	removed := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, e.Name())); err == nil {
+			removed++
+		}
+	}
+	if removed > 0 {
+		logger.Debug("Cleaned up expired media files",
+			logger.String("dir", dir), logger.Int("removed", removed))
+	}
+}
+
+// readLimitedBody 读取响应体并检测是否被截断。
+// 直接 io.ReadAll(io.LimitReader(...)) 会在超过上限时静默返回半截内容：
+// 图片/文件被截断后照样落盘，后续解析失败却看不出原因。
+func readLimitedBody(r io.Reader, limit int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("response body exceeds %d bytes, refusing to truncate", limit)
+	}
+	return data, nil
+}
+
+// sendFailureNotice 发送"处理失败"提示。
+// 必须用独立 ctx：走到这里时原 ctx 往往已经超时/取消，
+// 复用它会让提示本身也发不出去（用户既收不到回复也收不到提示），
+// 且旧代码用 `_ =` 丢弃了发送错误，失败完全不可见。
+func (f *FeishuChannel) sendFailureNotice(messageID, userID, chatType string) {
+	replyTo := ""
+	if f.cfg.ReplyToMessage {
+		replyTo = messageID
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := f.sendTextMessage(ctx, userID, "抱歉，处理失败，请稍后重试。", replyTo, chatType == "group"); err != nil {
+		logger.Warn("Failed to send failure notice to user",
+			logger.String("user", userID),
+			logger.ErrorField(err))
+	}
+}
+
 // ensureToken 获取有效的 tenant token，必要时刷新
 func (f *FeishuChannel) ensureToken() (string, error) {
 	if f.tokenNeedsRefresh() {
@@ -1446,22 +1510,14 @@ func (f *FeishuChannel) handleMessageEvent(body []byte) {
 	result, err := f.agent.Chat(ctx, sess, content)
 	if err != nil {
 		logger.Error("Agent chat failed", logger.ErrorField(err))
-		replyTo := ""
-		if f.cfg.ReplyToMessage {
-			replyTo = messageID
-		}
-		_ = f.sendTextMessage(ctx, userID, "抱歉，处理失败，请稍后重试。", replyTo, chatType == "group")
+		f.sendFailureNotice(messageID, userID, chatType)
 		return
 	}
 
 	// 检查 Agent 返回的错误（processMessage 失败时 err 为 nil 但 result.Error 不为 nil）
 	if result != nil && result.Error != nil {
 		logger.Error("Agent processing failed", logger.ErrorField(result.Error))
-		replyTo := ""
-		if f.cfg.ReplyToMessage {
-			replyTo = messageID
-		}
-		_ = f.sendTextMessage(ctx, userID, "抱歉，处理失败，请稍后重试。", replyTo, chatType == "group")
+		f.sendFailureNotice(messageID, userID, chatType)
 		return
 	}
 
@@ -1812,6 +1868,9 @@ func (f *FeishuChannel) downloadAndSaveMedia(msgType string, contentJSON map[str
 	}
 
 	mediaDir := f.appConfig.ResolvePath("media/feishu")
+	// 入站媒体此前只写不删：图片/语音/文件永久堆积。
+	// 每次落盘顺带清理过期文件（默认 7 天，按 mtime）。
+	cleanupOldMedia(mediaDir, mediaRetention)
 	if err := os.MkdirAll(mediaDir, 0755); err != nil {
 		return "", fmt.Sprintf("[%s: download failed]", msgType), err
 	}
@@ -1872,9 +1931,9 @@ func (f *FeishuChannel) downloadImage(messageID, imageKey string) ([]byte, strin
 		return nil, "", fmt.Errorf("download failed: %d", resp.StatusCode)
 	}
 
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
+	data, err := readLimitedBody(resp.Body, maxFeishuBodySize)
 	if err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("download image: %w", err)
 	}
 
 	fileName := resp.Header.Get("X-Filename")
@@ -1914,9 +1973,9 @@ func (f *FeishuChannel) downloadFile(messageID, fileKey, resourceType string) ([
 		return nil, "", fmt.Errorf("download failed: %d", resp.StatusCode)
 	}
 
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxFeishuBodySize))
+	data, err := readLimitedBody(resp.Body, maxFeishuBodySize)
 	if err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("download image: %w", err)
 	}
 
 	fileName := resp.Header.Get("X-Filename")
@@ -2087,11 +2146,14 @@ func (f *FeishuChannel) sendInteractiveMessage(ctx context.Context, receiveID, c
 }
 
 func (f *FeishuChannel) replyMessage(ctx context.Context, messageID, msgType, content string, replyInThread bool) (bool, error) {
+	// replyInThread 此前是未使用参数：话题隔离模式下回复落到主楼，
+	// 话题外成员会看到串台消息。这里真正传给飞书。
 	req := larkim.NewReplyMessageReqBuilder().
 		MessageId(messageID).
 		Body(larkim.NewReplyMessageReqBodyBuilder().
 			MsgType(msgType).
 			Content(content).
+			ReplyInThread(replyInThread).
 			Build()).
 		Build()
 

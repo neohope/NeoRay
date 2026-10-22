@@ -276,9 +276,12 @@ func (s *Server) Start() error {
 
 	// Web UI 认证端点（仅 Web UI 启用时注册）
 	if s.cfg.Web.Enabled {
-		mux.HandleFunc("/api/auth/login", s.handleAuthLogin)
-		mux.HandleFunc("/api/auth/logout", s.handleAuthLogout)
-		mux.HandleFunc("/api/auth/me", s.handleAuthMe)
+		// 认证端点只套 CORS + 限流，不套 bearer 认证：
+		// 登录接口本身就是换取凭证的入口，不能被 API Key 拦住；
+		// 但它必须有和其余 API 相同的限流，否则可被暴力猜密码/灌日志。
+		mux.HandleFunc("/api/auth/login", s.wrapRateLimitOnly(s.handleAuthLogin))
+		mux.HandleFunc("/api/auth/logout", s.wrapRateLimitOnly(s.handleAuthLogout))
+		mux.HandleFunc("/api/auth/me", s.wrapRateLimitOnly(s.handleAuthMe))
 	}
 
 	// API 未注册路径兜底：返回 JSON 404。
@@ -504,6 +507,28 @@ func (s *Server) Stop(ctx context.Context) error {
 }
 
 // wrapMiddleware 包装中间件
+// wrapRateLimitOnly CORS + 限流，但不做 bearer 认证（供 /api/auth/* 使用）
+func (s *Server) wrapRateLimitOnly(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s.corsMiddleware(w, r)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		clientIP := extractIP(r.RemoteAddr)
+		if s.rateLimiter != nil && !s.rateLimiter.allow(clientIP) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", "60")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":"Rate limit exceeded. Try again later."}`))
+			return
+		}
+
+		next(w, r)
+	}
+}
+
 func (s *Server) wrapMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// CORS 中间件
